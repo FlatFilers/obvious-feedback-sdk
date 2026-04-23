@@ -1,0 +1,4508 @@
+export type FeedbackIssueType = 'bug' | 'improvement' | 'question'
+export type FeedbackIssueSeverity = 'critical' | 'high' | 'medium' | 'low'
+export type FeedbackClientStatus = 'received' | 'under_review' | 'in_progress' | 'resolved' | 'no_action' | 'duplicate'
+
+const SESSION_REPLAY_URL_RESOLVER_TIMEOUT_MS = 250
+
+export type SessionReplayUrlResolver = () => string | null | Promise<string | null>
+
+export type FeedbackSdkTheme = 'light' | 'dark' | 'system'
+
+export interface FeedbackSdkHandle {
+  destroy: () => void
+  open: () => void
+  getOpenIssueCount: () => number
+  subscribeToOpenIssueCount: (listener: (count: number) => void) => () => void
+}
+
+export interface FeedbackSdkConfig {
+  publicKey?: string
+  apiBaseUrl?: string
+  identityToken?: string
+  env?: string
+  prNumber?: number
+  redactSelectors?: string[]
+  triggerLabel?: string
+  triggerLabels?: string[]
+  assistantPosition?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'
+  capturePageContext?: boolean
+  /** Optionally resolves a provider-neutral replay URL to include with feedback submissions. */
+  sessionReplayUrlResolver?: SessionReplayUrlResolver
+  captureConsole?: boolean
+  captureNetwork?: boolean
+  previewOnly?: boolean
+  previewOnlyReason?: string
+  elementSourceResolver?: ElementSourceResolver
+  /**
+   * Controls the widget color scheme.
+   * - `'light'` (default) — always light, safe for light-only host pages.
+   * - `'dark'` — always dark.
+   * - `'system'` — follows the browser `prefers-color-scheme` media query.
+   *
+   * Host pages can further customize colors via `--obv-feedback-*` CSS custom properties.
+   */
+  theme?: FeedbackSdkTheme
+}
+
+export interface FeedbackSubmissionInput {
+  type: FeedbackIssueType
+  severity?: FeedbackIssueSeverity
+  title?: string
+  description: string
+  sessionReplayUrl?: string
+  /** When set (including empty), used instead of compose-state attachment tokens (e.g. round item submit). */
+  attachmentTokens?: string[]
+}
+
+export interface FeedbackStatusResponse {
+  issueId: string
+  status: FeedbackClientStatus
+  triageStatus: string
+  title: string
+  description: string | null
+  resolvedNote: string | null
+  aiSummary?: FeedbackAiSummary | null
+  links?: FeedbackIssueLinks | null
+  updatedAt: string
+  reportedAt?: string
+  workerThread?: FeedbackWorkerThreadLink
+}
+
+interface FeedbackAiSummary {
+  headline?: string | null
+  progress?: string | null
+  updatedAt?: string | null
+}
+
+interface FeedbackWorkerThreadLink {
+  id: string
+  url: string
+}
+
+interface FeedbackPullRequestLink {
+  id: string
+  number: number
+  title: string
+  url: string
+  status: string
+  ciStatus: string
+  reviewStatus: string
+  isDraft: boolean
+}
+
+interface FeedbackIssueLinks {
+  workerThread?: FeedbackWorkerThreadLink
+  pullRequest?: FeedbackPullRequestLink
+}
+
+type FeedbackIssueHistoryStatus = FeedbackClientStatus | 'unavailable'
+
+interface FeedbackIssueHistoryEntry {
+  issueId: string
+  status: FeedbackIssueHistoryStatus
+  title?: string
+  description?: string | null
+  resolvedNote?: string | null
+  aiSummary?: FeedbackAiSummary | null
+  links?: FeedbackIssueLinks | null
+  reportedAt?: string
+  updatedAt?: string
+  checkedAt?: string
+  workerThread?: FeedbackWorkerThreadLink
+  acknowledgedStatusVersions?: string[]
+}
+
+interface DomSnapshotNode {
+  tag: string
+  text?: string
+  attrs?: Record<string, string>
+  children?: DomSnapshotNode[]
+  redacted?: boolean
+  truncated?: boolean
+}
+
+type FeedbackTriggerCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+
+interface FeedbackTriggerPosition {
+  corner: FeedbackTriggerCorner
+  offsetX: number
+  offsetY: number
+}
+
+interface FeedbackTriggerDragState {
+  initialPosition: FeedbackTriggerPosition
+
+  pointerId: number
+  startClientX: number
+  startClientY: number
+  startLeft: number
+  startTop: number
+  moved: boolean
+}
+
+interface ConsoleLogEntry {
+  level: 'log' | 'info' | 'warn' | 'error'
+  message: string
+  timestamp: string
+}
+
+interface NetworkLogEntry {
+  method: string
+  url: string
+  status: number | null
+  durationMs: number
+  timestamp: string
+}
+
+export interface ElementSourceInfo {
+  componentName: string | null
+  source: ElementSourceLocation | null
+  stack: ElementSourceStackFrame[]
+}
+
+export interface ElementSourceLocation {
+  filePath: string
+  lineNumber: number | null
+  columnNumber: number | null
+}
+
+export interface ElementSourceStackFrame {
+  filePath: string
+  lineNumber: number | null
+  componentName: string | null
+}
+
+export interface ElementGrabItem {
+  id: string
+  tagName: string
+  cssSelector: string
+  outerHtml: string
+  textContent: string
+  boundingRect: ElementGrabRect
+  componentName: string | null
+  sourceFile: string | null
+  lineNumber: number | null
+  componentStack: ElementSourceStackFrame[]
+}
+
+export interface ElementGrabRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface ElementGrabHoverInfo {
+  tagName: string
+  componentName: string | null
+  sourceFile: string | null
+  lineNumber: number | null
+}
+
+export type ElementSourceResolver = (element: Element) => Promise<ElementSourceInfo | null>
+
+type FeedbackPanel = 'unified'
+
+type FeedbackMarkupTool = 'rectangle' | 'point' | 'pen'
+
+interface FeedbackMarkupPoint {
+  x: number
+  y: number
+}
+
+interface FeedbackMarkupItem {
+  id: string
+  tool: FeedbackMarkupTool
+  points: FeedbackMarkupPoint[]
+}
+
+interface FeedbackMarkupPayload {
+  items: FeedbackMarkupItem[]
+  viewport: { width: number; height: number }
+  scroll: { x: number; y: number }
+  devicePixelRatio: number
+  domSnapshot?: DomSnapshotNode
+  capturedAt: string
+}
+
+type FeedbackMarkupContext = Omit<FeedbackMarkupPayload, 'items'>
+
+interface FeedbackMarkupDraft {
+  id: string
+  tool: FeedbackMarkupTool
+  start: FeedbackMarkupPoint
+  points: FeedbackMarkupPoint[]
+}
+
+interface FeedbackMarkupSessionSnapshot {
+  items: FeedbackMarkupItem[]
+  context: FeedbackMarkupContext | null
+}
+
+type FeedbackAttachmentUploadStatus = 'uploading' | 'ready' | 'error'
+
+interface FeedbackAttachmentUpload {
+  id: string
+  file: File
+  name: string
+  mimeType: string
+  sizeBytes: number
+  status: FeedbackAttachmentUploadStatus
+  attachmentToken?: string
+  error?: string
+}
+
+interface FeedbackAttachmentUploadResponse {
+  data?: {
+    uploadUrl?: string
+    attachmentToken?: string
+  }
+}
+
+interface FeedbackMeasurementRuler {
+  orientation: 'horizontal' | 'vertical'
+  position: number
+  edge: 'top' | 'bottom' | 'left' | 'right' | null
+  snappedElement: {
+    cssSelector: string
+    tagName: string
+    componentName: string | null
+    sourceFile: string | null
+    lineNumber: number | null
+    boundingRect: ElementGrabRect
+  } | null
+}
+
+interface FeedbackMeasurementDistance {
+  pixelDistance: number
+  orientation: 'horizontal' | 'vertical'
+  rulerA: FeedbackMeasurementRuler
+  rulerB: FeedbackMeasurementRuler
+}
+
+interface FeedbackMeasurement {
+  id: string
+  description: string
+  rulers: FeedbackMeasurementRuler[]
+  distances: FeedbackMeasurementDistance[]
+  viewport: { width: number; height: number }
+}
+
+interface FeedbackRoundItem {
+  id: string
+  description: string
+  markupPayload?: FeedbackMarkupPayload
+  elementGrabs?: ElementGrabItem[]
+  measurements?: FeedbackMeasurement[]
+  attachmentTokens?: string[]
+}
+
+const TRIGGER_POSITION_STORAGE_KEY = 'obvious.feedback.triggerPosition'
+const ISSUE_HISTORY_STORAGE_PREFIX = 'obvious.feedback.issueHistory'
+const DRAFT_ROUND_STORAGE_PREFIX = 'obvious.feedback.draftRound'
+const MAX_ROUND_ITEMS = 15
+const MAX_DRAFT_ROUND_STORAGE_BYTES = 512 * 1024
+const MAX_ISSUE_HISTORY_ENTRIES = 5
+const HISTORY_REFRESH_STALE_MS = 5 * 60 * 1000
+const MAX_HISTORY_REFRESH_PER_OPEN = 2
+const TRIGGER_DRAG_THRESHOLD_PX = 4
+const TRIGGER_VIEWPORT_MARGIN_PX = 8
+const DEFAULT_TRIGGER_SIZE_PX = 44
+const FEEDBACK_CARD_GAP_PX = 12
+const FEEDBACK_CARD_VIEWPORT_MARGIN_PX = 20
+const FEEDBACK_CARD_MAX_WIDTH_PX = 392
+const FEEDBACK_FORM_ESTIMATED_HEIGHT_PX = 420
+const FEEDBACK_STATUS_CARD_ESTIMATED_HEIGHT_PX = 260
+const MARKUP_POINTER_MOVE_THRESHOLD_PX = 3
+const MAX_MARKUP_ITEMS = 40
+const MAX_ELEMENT_GRABS = 10
+const MAX_MARKUP_POINTS_PER_ITEM = 240
+const MAX_FEEDBACK_ATTACHMENTS = 10
+const MAX_FEEDBACK_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024
+const FEEDBACK_ATTACHMENT_UPLOAD_TIMEOUT_MS = 30_000
+const DEFAULT_ATTACHMENT_MIME_TYPE = 'application/octet-stream'
+const FEEDBACK_ATTACHMENT_SESSION_PREFIX = 'fas'
+
+const DEFAULT_API_BASE_URL = 'https://app.obvious.ai'
+const API_ROUTE_PREFIX = '/prepare'
+
+const DEFAULT_ENV = 'production'
+const MAX_DOM_NODES = 600
+const MAX_TEXT_LENGTH = 300
+const MAX_ATTR_LENGTH = 300
+const MAX_LOG_ENTRIES = 100
+const MAX_NETWORK_ENTRIES = 50
+const SENSITIVE_ATTRS = new Set(['value', 'placeholder', 'data-sensitive', 'aria-label', 'href', 'src', 'action'])
+const DEFAULT_TRIGGER_LABEL = 'Open feedback'
+
+const SECRET_QUERY_KEYS = new Set([
+  'token',
+  'access_token',
+  'refresh_token',
+  'id_token',
+  'code',
+  'secret',
+  'api_key',
+  'apikey',
+  'key',
+  'password',
+  'session',
+])
+
+const DEFAULT_FEEDBACK_ISSUE_TYPE: FeedbackIssueType = 'improvement'
+const DEFAULT_FEEDBACK_ISSUE_SEVERITY: FeedbackIssueSeverity = 'medium'
+const MARKUP_TOOLS: FeedbackMarkupTool[] = ['rectangle', 'point', 'pen']
+const SILLY_FEEDBACK_MESSAGES = [
+  'Feature request',
+  'Report a bug',
+  'Love something?',
+  'Hate something?',
+  'Sign the Guest Book',
+  'Something broken?',
+  'Quick thought?',
+  'Tell us anything',
+  'Make a wish',
+  'Found a typo?',
+  'Would you like a cookie?',
+  'I have a question',
+  'This could be better',
+  'Submission box',
+  'Needs more cowbell',
+  'Flag something',
+  'Feedback',
+  'Something’s off',
+  'Salt and Pepper',
+]
+const SILLY_FEEDBACK_LOAD_PROBABILITY = 0.05
+
+function getRandomSillyFeedbackMessage(): string {
+  return (
+    SILLY_FEEDBACK_MESSAGES[Math.floor(Math.random() * SILLY_FEEDBACK_MESSAGES.length)] ?? SILLY_FEEDBACK_MESSAGES[0]
+  )
+}
+
+function shouldShowSillyFeedbackMessageOnLoad(): boolean {
+  return Math.random() < SILLY_FEEDBACK_LOAD_PROBABILITY
+}
+
+function truncateText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function redactUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl, typeof window !== 'undefined' ? window.location.origin : 'https://example.invalid')
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (SECRET_QUERY_KEYS.has(key.toLowerCase()) || /token|secret|password|key|code/i.test(key)) {
+        url.searchParams.set(key, '[REDACTED]')
+      }
+    }
+    url.hash = ''
+    return truncateText(url.toString(), 500)
+  } catch {
+    return truncateText(rawUrl.split('?')[0] ?? rawUrl, 500)
+  }
+}
+
+function isSensitiveElement(element: Element, redactSelectors: string[]): boolean {
+  const tagName = element.tagName.toLowerCase()
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+    return true
+  }
+  if (element.getAttribute('type') === 'password' || element.hasAttribute('data-sensitive')) {
+    return true
+  }
+  return redactSelectors.some((selector) => {
+    try {
+      return element.matches(selector)
+    } catch {
+      return false
+    }
+  })
+}
+
+function createFeedbackApiUrl(apiBaseUrl: string, path: string): string {
+  const normalizedBaseUrl = apiBaseUrl.replace(/\/+$/, '')
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  // API_ROUTE_PREFIX includes the leading slash so this only skips when the base URL already ends in a full `/prepare` path segment.
+  const routePrefix = normalizedBaseUrl.endsWith(API_ROUTE_PREFIX) ? '' : API_ROUTE_PREFIX
+  return `${normalizedBaseUrl}${routePrefix}${normalizedPath}`
+}
+
+function serializeDomSnapshot(root: Element, redactSelectors: string[]): DomSnapshotNode {
+  let visitedNodes = 0
+
+  function walk(element: Element): DomSnapshotNode {
+    visitedNodes += 1
+    if (visitedNodes > MAX_DOM_NODES) {
+      return { tag: element.tagName.toLowerCase(), truncated: true }
+    }
+
+    if (isSensitiveElement(element, redactSelectors)) {
+      return { tag: element.tagName.toLowerCase(), redacted: true }
+    }
+
+    const attrs: Record<string, string> = {}
+    for (const attr of Array.from(element.attributes).slice(0, 20)) {
+      if (SENSITIVE_ATTRS.has(attr.name.toLowerCase())) {
+        continue
+      }
+      attrs[attr.name] = truncateText(attr.value, MAX_ATTR_LENGTH)
+    }
+
+    const children = Array.from(element.children)
+      .slice(0, 30)
+      .map((child) => walk(child))
+
+    const text = truncateText((element.textContent ?? '').trim().replace(/\s+/g, ' '), MAX_TEXT_LENGTH)
+
+    return {
+      tag: element.tagName.toLowerCase(),
+      ...(text ? { text } : {}),
+      ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
+      ...(children.length > 0 ? { children } : {}),
+    }
+  }
+
+  return walk(root)
+}
+
+function createConsoleBuffer(): { read: () => ConsoleLogEntry[]; restore: () => void } {
+  const entries: ConsoleLogEntry[] = []
+  const originals = {
+    log: console.log,
+    info: console.info,
+    warn: console.warn,
+    error: console.error,
+  }
+
+  function capture(level: ConsoleLogEntry['level'], args: unknown[]): void {
+    entries.push({
+      level,
+      message: truncateText(args.map((arg) => String(arg)).join(' '), 500),
+      timestamp: new Date().toISOString(),
+    })
+    if (entries.length > MAX_LOG_ENTRIES) {
+      entries.shift()
+    }
+  }
+
+  console.log = (...args: unknown[]) => {
+    capture('log', args)
+    originals.log(...args)
+  }
+  console.info = (...args: unknown[]) => {
+    capture('info', args)
+    originals.info(...args)
+  }
+  console.warn = (...args: unknown[]) => {
+    capture('warn', args)
+    originals.warn(...args)
+  }
+  console.error = (...args: unknown[]) => {
+    capture('error', args)
+    originals.error(...args)
+  }
+
+  return {
+    read: () => [...entries],
+    restore: () => {
+      console.log = originals.log
+      console.info = originals.info
+      console.warn = originals.warn
+      console.error = originals.error
+    },
+  }
+}
+
+function createNetworkBuffer(): { read: () => NetworkLogEntry[]; restore: () => void } {
+  const entries: NetworkLogEntry[] = []
+  if (typeof window === 'undefined' || typeof window.fetch !== 'function') {
+    return { read: () => [], restore: () => {} }
+  }
+  const originalFetch = window.fetch.bind(window)
+
+  const wrappedFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const startedAt = Date.now()
+    const method = init?.method ?? (input instanceof Request ? input.method : 'GET')
+    const url = input instanceof Request ? input.url : String(input)
+    try {
+      const response = await originalFetch(input, init)
+      entries.push({
+        method,
+        url: redactUrl(url),
+        status: response.status,
+        durationMs: Date.now() - startedAt,
+        timestamp: new Date().toISOString(),
+      })
+      if (entries.length > MAX_NETWORK_ENTRIES) {
+        entries.shift()
+      }
+      return response
+    } catch (err) {
+      entries.push({
+        method,
+        url: redactUrl(url),
+        status: null,
+        durationMs: Date.now() - startedAt,
+        timestamp: new Date().toISOString(),
+      })
+      if (entries.length > MAX_NETWORK_ENTRIES) {
+        entries.shift()
+      }
+      throw err
+    }
+  }
+
+  window.fetch = Object.assign(wrappedFetch, originalFetch)
+
+  return {
+    read: () => [...entries],
+    restore: () => {
+      window.fetch = originalFetch
+    },
+  }
+}
+
+interface FeedbackViewportBounds {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+function getViewportBounds(): FeedbackViewportBounds {
+  const visualViewport = window.visualViewport
+  const width = Math.max(
+    visualViewport?.width ?? window.innerWidth ?? 0,
+    DEFAULT_TRIGGER_SIZE_PX + TRIGGER_VIEWPORT_MARGIN_PX * 2
+  )
+  const height = Math.max(
+    visualViewport?.height ?? window.innerHeight ?? 0,
+    DEFAULT_TRIGGER_SIZE_PX + TRIGGER_VIEWPORT_MARGIN_PX * 2
+  )
+  return {
+    left: visualViewport?.offsetLeft ?? 0,
+    top: visualViewport?.offsetTop ?? 0,
+    width,
+    height,
+  }
+}
+
+function getViewportSize(): { width: number; height: number } {
+  const viewport = getViewportBounds()
+  return { width: viewport.width, height: viewport.height }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function getFallbackTriggerPosition(assistantPosition: FeedbackTriggerCorner): FeedbackTriggerPosition {
+  return {
+    corner: assistantPosition,
+    offsetX: 20,
+    offsetY: 96,
+  }
+}
+
+function parseStoredTriggerPosition(): FeedbackTriggerPosition | null {
+  try {
+    const rawValue = window.localStorage?.getItem(TRIGGER_POSITION_STORAGE_KEY)
+    if (!rawValue) {
+      return null
+    }
+    const parsed = JSON.parse(rawValue) as Partial<FeedbackTriggerPosition>
+    if (
+      parsed.corner !== 'top-left' &&
+      parsed.corner !== 'top-right' &&
+      parsed.corner !== 'bottom-left' &&
+      parsed.corner !== 'bottom-right'
+    ) {
+      return null
+    }
+    const offsetX = Number(parsed.offsetX)
+    const offsetY = Number(parsed.offsetY)
+    if (!Number.isFinite(offsetX) || !Number.isFinite(offsetY)) {
+      return null
+    }
+    return { corner: parsed.corner, offsetX, offsetY }
+  } catch {
+    return null
+  }
+}
+
+function persistTriggerPosition(position: FeedbackTriggerPosition): void {
+  try {
+    window.localStorage?.setItem(TRIGGER_POSITION_STORAGE_KEY, JSON.stringify(position))
+  } catch {
+    // localStorage may be unavailable in embedded or privacy-restricted contexts.
+  }
+}
+
+function getFeedbackIssueHistoryStorageKey(publicKey: string, env: string): string | null {
+  if (!publicKey) {
+    return null
+  }
+  const sourceOrigin = typeof window !== 'undefined' ? window.location.origin : 'unknown-origin'
+  return [ISSUE_HISTORY_STORAGE_PREFIX, publicKey, env, sourceOrigin].map((part) => encodeURIComponent(part)).join(':')
+}
+
+function isFeedbackClientStatus(value: unknown): value is FeedbackClientStatus {
+  return (
+    value === 'received' ||
+    value === 'under_review' ||
+    value === 'in_progress' ||
+    value === 'resolved' ||
+    value === 'no_action' ||
+    value === 'duplicate'
+  )
+}
+
+function isFeedbackIssueHistoryStatus(value: unknown): value is FeedbackIssueHistoryStatus {
+  return isFeedbackClientStatus(value) || value === 'unavailable'
+}
+
+function parseStoredIssueHistory(storageKey: string | null): FeedbackIssueHistoryEntry[] {
+  if (!storageKey) {
+    return []
+  }
+  try {
+    const rawValue = window.localStorage?.getItem(storageKey)
+    const parsed = rawValue ? JSON.parse(rawValue) : []
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    const entries: FeedbackIssueHistoryEntry[] = []
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object' || !('issueId' in item) || typeof item.issueId !== 'string') {
+        continue
+      }
+      const status = 'status' in item && isFeedbackIssueHistoryStatus(item.status) ? item.status : 'received'
+      const workerThread =
+        'workerThread' in item &&
+        item.workerThread &&
+        typeof item.workerThread === 'object' &&
+        'id' in item.workerThread &&
+        typeof item.workerThread.id === 'string' &&
+        'url' in item.workerThread &&
+        typeof item.workerThread.url === 'string'
+          ? normalizeWorkerThreadLink({ id: item.workerThread.id, url: item.workerThread.url })
+          : undefined
+      const acknowledgedStatusVersions =
+        'acknowledgedStatusVersions' in item && Array.isArray(item.acknowledgedStatusVersions)
+          ? item.acknowledgedStatusVersions.filter((version: unknown): version is string => typeof version === 'string')
+          : undefined
+      entries.push({
+        issueId: item.issueId,
+        status,
+        title: 'title' in item && typeof item.title === 'string' ? item.title : undefined,
+        description: 'description' in item && typeof item.description === 'string' ? item.description : null,
+        resolvedNote: 'resolvedNote' in item && typeof item.resolvedNote === 'string' ? item.resolvedNote : null,
+        aiSummary: normalizeFeedbackAiSummary('aiSummary' in item ? item.aiSummary : undefined),
+        links: normalizeFeedbackIssueLinks('links' in item ? item.links : undefined),
+        reportedAt: 'reportedAt' in item && typeof item.reportedAt === 'string' ? item.reportedAt : undefined,
+        updatedAt: 'updatedAt' in item && typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
+        checkedAt: 'checkedAt' in item && typeof item.checkedAt === 'string' ? item.checkedAt : undefined,
+        workerThread,
+        acknowledgedStatusVersions,
+      })
+    }
+    return entries.slice(0, MAX_ISSUE_HISTORY_ENTRIES)
+  } catch {
+    return []
+  }
+}
+
+function persistIssueHistory(storageKey: string | null, issueHistory: FeedbackIssueHistoryEntry[]): void {
+  if (!storageKey) {
+    return
+  }
+  try {
+    const persistedEntries = issueHistory.slice(0, MAX_ISSUE_HISTORY_ENTRIES).map((entry) => ({
+      issueId: entry.issueId,
+      status: entry.status,
+      title: entry.title,
+      description: entry.description,
+      resolvedNote: entry.resolvedNote,
+      aiSummary: entry.aiSummary,
+      links: entry.links,
+      reportedAt: entry.reportedAt,
+      updatedAt: entry.updatedAt,
+      checkedAt: entry.checkedAt,
+      workerThread: entry.workerThread,
+      acknowledgedStatusVersions: entry.acknowledgedStatusVersions,
+    }))
+    window.localStorage?.setItem(storageKey, JSON.stringify(persistedEntries))
+  } catch {
+    // localStorage may be unavailable in embedded or privacy-restricted contexts.
+  }
+}
+
+function getIssueStatusVersion(entry: {
+  status: FeedbackIssueHistoryStatus
+  updatedAt?: string | null
+  reportedAt?: string | null
+  checkedAt?: string | null
+}): string {
+  return [entry.status, entry.updatedAt ?? entry.reportedAt ?? entry.checkedAt ?? 'unknown'].join(':')
+}
+
+function clampTriggerPosition(position: FeedbackTriggerPosition): FeedbackTriggerPosition {
+  const viewport = getViewportSize()
+  return {
+    corner: position.corner,
+    offsetX: clamp(
+      position.offsetX,
+      TRIGGER_VIEWPORT_MARGIN_PX,
+      viewport.width - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX
+    ),
+    offsetY: clamp(
+      position.offsetY,
+      TRIGGER_VIEWPORT_MARGIN_PX,
+      viewport.height - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX
+    ),
+  }
+}
+
+function positionToViewportPoint(position: FeedbackTriggerPosition): { left: number; top: number } {
+  const viewport = getViewportSize()
+  const clamped = clampTriggerPosition(position)
+  return {
+    left: clamped.corner.endsWith('left')
+      ? clamped.offsetX
+      : viewport.width - DEFAULT_TRIGGER_SIZE_PX - clamped.offsetX,
+    top: clamped.corner.startsWith('top')
+      ? clamped.offsetY
+      : viewport.height - DEFAULT_TRIGGER_SIZE_PX - clamped.offsetY,
+  }
+}
+
+function viewportPointToNearestCorner(left: number, top: number): FeedbackTriggerPosition {
+  const viewport = getViewportSize()
+  const clampedLeft = clamp(
+    left,
+    TRIGGER_VIEWPORT_MARGIN_PX,
+    viewport.width - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX
+  )
+  const clampedTop = clamp(
+    top,
+    TRIGGER_VIEWPORT_MARGIN_PX,
+    viewport.height - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX
+  )
+  const horizontalCorner = clampedLeft + DEFAULT_TRIGGER_SIZE_PX / 2 <= viewport.width / 2 ? 'left' : 'right'
+  const verticalCorner = clampedTop + DEFAULT_TRIGGER_SIZE_PX / 2 <= viewport.height / 2 ? 'top' : 'bottom'
+  return {
+    corner: `${verticalCorner}-${horizontalCorner}` as FeedbackTriggerCorner,
+    offsetX: horizontalCorner === 'left' ? clampedLeft : viewport.width - DEFAULT_TRIGGER_SIZE_PX - clampedLeft,
+    offsetY: verticalCorner === 'top' ? clampedTop : viewport.height - DEFAULT_TRIGGER_SIZE_PX - clampedTop,
+  }
+}
+
+interface FeedbackAnchorRect {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+interface FeedbackCardPlacement {
+  direction: 'down-left' | 'down-right' | 'up-left' | 'up-right'
+  style: string
+}
+
+function getFallbackTriggerRect(position: FeedbackTriggerPosition): FeedbackAnchorRect {
+  const point = positionToViewportPoint(position)
+  return {
+    left: point.left,
+    top: point.top,
+    width: DEFAULT_TRIGGER_SIZE_PX,
+    height: DEFAULT_TRIGGER_SIZE_PX,
+  }
+}
+
+function getTriggerAnchorRect(trigger: Element | null, position: FeedbackTriggerPosition): FeedbackAnchorRect {
+  const rect = typeof trigger?.getBoundingClientRect === 'function' ? trigger.getBoundingClientRect() : null
+  if (
+    rect &&
+    Number.isFinite(rect.left) &&
+    Number.isFinite(rect.top) &&
+    Number.isFinite(rect.width) &&
+    Number.isFinite(rect.height) &&
+    rect.width > 0 &&
+    rect.height > 0
+  ) {
+    return {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    }
+  }
+  return getFallbackTriggerRect(position)
+}
+
+function createFeedbackCardPlacement(
+  trigger: Element | null,
+  position: FeedbackTriggerPosition,
+  estimatedHeight: number,
+  measuredSize?: { width: number; height: number }
+): FeedbackCardPlacement {
+  const viewport = getViewportBounds()
+  const triggerRect = getTriggerAnchorRect(trigger, position)
+  const viewportLeft = viewport.left + FEEDBACK_CARD_VIEWPORT_MARGIN_PX
+  const viewportTop = viewport.top + FEEDBACK_CARD_VIEWPORT_MARGIN_PX
+  const viewportRight = viewport.left + viewport.width - FEEDBACK_CARD_VIEWPORT_MARGIN_PX
+  const viewportBottom = viewport.top + viewport.height - FEEDBACK_CARD_VIEWPORT_MARGIN_PX
+  const cardWidth = Math.min(
+    measuredSize?.width && measuredSize.width > 0 ? measuredSize.width : FEEDBACK_CARD_MAX_WIDTH_PX,
+    Math.max(1, viewport.width - FEEDBACK_CARD_VIEWPORT_MARGIN_PX * 2)
+  )
+  const cardHeight = Math.min(
+    measuredSize?.height && measuredSize.height > 0 ? measuredSize.height : estimatedHeight,
+    Math.max(1, viewport.height - FEEDBACK_CARD_VIEWPORT_MARGIN_PX * 2)
+  )
+  const spaceRight = viewportRight - triggerRect.left
+  const spaceLeft = triggerRect.left + triggerRect.width - viewportLeft
+  const spaceBelow = viewportBottom - (triggerRect.top + triggerRect.height + FEEDBACK_CARD_GAP_PX)
+  const spaceAbove = triggerRect.top - FEEDBACK_CARD_GAP_PX - viewportTop
+  const opensRight = spaceRight >= cardWidth || spaceRight >= spaceLeft
+  const opensDown = spaceBelow >= cardHeight || spaceBelow >= spaceAbove
+  const rawLeft = opensRight ? triggerRect.left : triggerRect.left + triggerRect.width - cardWidth
+  const rawTop = opensDown
+    ? triggerRect.top + triggerRect.height + FEEDBACK_CARD_GAP_PX
+    : triggerRect.top - cardHeight - FEEDBACK_CARD_GAP_PX
+  const maxLeft = Math.max(viewportLeft, viewportRight - cardWidth)
+  const maxTop = Math.max(viewportTop, viewportBottom - cardHeight)
+  const left = clamp(rawLeft, viewportLeft, maxLeft)
+  const top = clamp(rawTop, viewportTop, maxTop)
+  const direction =
+    `${opensDown ? 'down' : 'up'}-${opensRight ? 'right' : 'left'}` as FeedbackCardPlacement['direction']
+
+  return {
+    direction,
+    style: `left: ${Math.round(left)}px; top: ${Math.round(top)}px; right: auto; bottom: auto;`,
+  }
+}
+
+function createTriggerPositionStyle(position: FeedbackTriggerPosition): string {
+  const point = positionToViewportPoint(position)
+  return `left: ${Math.round(point.left)}px; top: ${Math.round(point.top)}px; right: auto; bottom: auto;`
+}
+
+function createIcon(
+  name:
+    | 'arrow'
+    | 'check'
+    | 'close'
+    | 'compose'
+    | 'element'
+    | 'paperclip'
+    | 'pen'
+    | 'plus'
+    | 'point'
+    | 'rectangle'
+    | 'ruler'
+    | 'status'
+    | 'trash'
+    | 'undo'
+): string {
+  const paths: Record<typeof name, string> = {
+    arrow: '<path d="M5 12h14" /><path d="m13 6 6 6-6 6" />',
+    check: '<path d="m5 12 4 4L19 6" />',
+    close: '<path d="M6 6l12 12" /><path d="M18 6 6 18" />',
+    compose: '<path d="M12 20h9" /><path d="m16.5 3.5 4 4L8 20l-5 1 1-5L16.5 3.5Z" />',
+    element:
+      '<path d="M12 3v4" /><path d="M12 17v4" /><path d="M3 12h4" /><path d="M17 12h4" /><rect x="7" y="7" width="10" height="10" rx="2" />',
+    paperclip:
+      '<path d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l8.9-8.9a4 4 0 0 1 5.7 5.7l-8.9 8.9a2 2 0 1 1-2.8-2.8l8.5-8.5" />',
+    pen: '<path d="m4 20 5.5-1.5L20 8l-4-4L5.5 14.5 4 20Z" /><path d="m14 6 4 4" />',
+    plus: '<path d="M12 5v14" /><path d="M5 12h14" />',
+    point: '<path d="M5 19 19 5" /><path d="M9 5h10v10" /><circle cx="7" cy="17" r="2" />',
+    rectangle: '<rect x="5" y="6" width="14" height="12" rx="2" />',
+    ruler:
+      '<rect x="3" y="8" width="18" height="8" rx="1" /><path d="M6 8v3" /><path d="M9 8v5" /><path d="M12 8v3" /><path d="M15 8v5" /><path d="M18 8v3" />',
+    status: '<circle cx="12" cy="12" r="8" /><path d="M12 8v4l3 2" />',
+    trash:
+      '<path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 14h10l1-14" /><path d="M9 7V4h6v3" />',
+    undo: '<path d="M9 7H4v5" /><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6" />',
+  }
+  return `<svg class="obv-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name]}</svg>`
+}
+
+function createStyles(): string {
+  return `
+    :host {
+      all: initial;
+      color-scheme: light;
+      --obv-feedback-bg: #ffffff;
+      --obv-feedback-bg-subtle: #f4f4f5;
+      --obv-feedback-trigger-bg: #ffffff;
+      --obv-feedback-text: #080808;
+      --obv-feedback-muted: #71717a;
+      --obv-feedback-border: rgba(15, 23, 42, 0.12);
+      --obv-feedback-border-strong: rgba(15, 23, 42, 0.28);
+      --obv-feedback-primary: #111111;
+      --obv-feedback-primary-foreground: #ffffff;
+      --obv-feedback-focus: color-mix(in srgb, var(--obv-feedback-border-strong) 42%, transparent);
+      --obv-feedback-shadow: 0 18px 46px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.08);
+      --obv-feedback-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+      --obv-feedback-trigger-size: 44px;
+      --obv-feedback-button-font-size: 12px;
+      --obv-feedback-button-font-weight: 500;
+      --obv-feedback-button-line-height: 16px;
+      --obv-feedback-radius: 10px;
+      --obv-feedback-radius-card: 18px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .obv-trigger, .obv-card button, .obv-card textarea, .obv-markup-toolbar button { font-family: inherit; }
+    .obv-trigger {
+      position: fixed; right: 20px; bottom: 96px; z-index: 2147483647;
+      touch-action: none; user-select: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: var(--obv-feedback-trigger-size); height: var(--obv-feedback-trigger-size); box-sizing: border-box;
+      border: 1px solid var(--obv-feedback-border); border-radius: 999px;
+      background: var(--obv-feedback-trigger-bg); color: var(--obv-feedback-text);
+      padding: 0; cursor: pointer;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14), var(--obv-feedback-shadow-sm);
+      transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease, color 160ms ease, transform 160ms ease;
+    }
+    .obv-trigger:hover {
+      border-color: var(--obv-feedback-border-strong);
+      background: var(--obv-feedback-bg-subtle);
+      transform: translateY(-1px);
+    }
+    .obv-trigger::after {
+      content: attr(data-tooltip); pointer-events: none;
+      position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+      padding: 4px 8px; border-radius: 6px;
+      background: var(--obv-feedback-primary); color: var(--obv-feedback-primary-foreground);
+      font-size: 11px; font-weight: 500; white-space: nowrap;
+      opacity: 0; transition: opacity 100ms ease;
+    }
+    .obv-trigger:hover::after { opacity: 1; }
+    .obv-issue-detail { margin-top: 10px; border: 1px solid var(--obv-feedback-border); border-radius: 14px; padding: 12px; background: var(--obv-feedback-bg-subtle); }
+    .obv-issue-detail-header { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+    .obv-issue-detail-title { color: var(--obv-feedback-text); font-size: 14px; font-weight: 700; line-height: 1.3; }
+    .obv-issue-detail-meta, .obv-issue-detail-body { margin-top: 7px; color: var(--obv-feedback-muted); font-size: 12px; line-height: 1.45; }
+    .obv-issue-detail-status { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--obv-feedback-text); font-size: 12px; font-weight: 650; }
+    .obv-issue-detail-links { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+    .obv-issue-detail-links a { color: var(--obv-feedback-text); font-size: 12px; font-weight: 650; }
+
+    .obv-trigger:active { transform: translateY(0) scale(0.98); box-shadow: var(--obv-feedback-shadow-sm); }
+    .obv-trigger:focus-visible, .obv-button:focus-visible, .obv-icon-button:focus-visible, .obv-textarea:focus {
+      outline: none; border-color: var(--obv-feedback-border-strong); box-shadow: 0 0 0 3px var(--obv-feedback-focus), var(--obv-feedback-shadow-sm);
+    }
+    .obv-icon {
+      display: block; width: 16px; height: 16px; flex: 0 0 16px;
+      fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .obv-trigger-icon { display: inline-flex; align-items: center; justify-content: center; color: currentColor; }
+    .obv-trigger-icon .obv-icon { width: 18px; height: 18px; }
+    .obv-trigger-ring { position: absolute; inset: -4px; border: 2px solid var(--obv-feedback-primary); border-radius: 999px; box-shadow: 0 0 0 2px color-mix(in srgb, var(--obv-feedback-primary) 14%, transparent); }
+    .obv-trigger-badge { position: absolute; top: -7px; right: -7px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; border: 1px solid var(--obv-feedback-bg); background: var(--obv-feedback-primary); color: var(--obv-feedback-primary-foreground); font-size: 11px; line-height: 18px; font-weight: 700; box-sizing: border-box; }
+    .obv-trigger[data-issue-status="open"] .obv-trigger-icon { transform: scale(0.92); }
+    .obv-trigger[data-assistant-position="bottom-left"] { left: 20px; right: auto; }
+    .obv-trigger[data-assistant-position="top-right"] { top: 96px; bottom: auto; }
+    .obv-trigger[data-assistant-position="top-left"] { top: 96px; left: 20px; right: auto; bottom: auto; }
+    .obv-card {
+      position: fixed; right: 20px; bottom: 150px; width: min(392px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; z-index: 2147483647;
+      background: var(--obv-feedback-bg); color: var(--obv-feedback-text); border: 1px solid var(--obv-feedback-border); border-radius: var(--obv-feedback-radius-card);
+      box-shadow: var(--obv-feedback-shadow); padding: 18px; box-sizing: border-box;
+    }
+    .obv-card[data-assistant-position="bottom-left"] { left: 20px; right: auto; }
+    .obv-card[data-assistant-position="top-right"] { top: 150px; bottom: auto; }
+    .obv-card[data-assistant-position="top-left"] { top: 150px; left: 20px; right: auto; bottom: auto; }
+    .obv-issue-section { margin-top: 12px; border-top: 1px solid var(--obv-feedback-border); padding-top: 10px; }
+    .obv-issue-list { display: flex; flex-direction: column; gap: 6px; }
+    .obv-issue-row {
+      display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 6px; align-items: center;
+      min-height: 22px; color: var(--obv-feedback-muted); font-size: 11px; line-height: 1.3;
+    }
+    .obv-issue-row .obv-icon { width: 12px; height: 12px; flex-basis: 12px; }
+    .obv-issue-title { color: var(--obv-feedback-text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+    a.obv-issue-title:hover { text-decoration: underline; }
+    .obv-issue-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .obv-issue-dismiss { width: 22px; height: 22px; min-height: 22px; padding: 0; }
+
+    .obv-kicker { display: inline-block; margin-bottom: 8px; color: var(--obv-feedback-muted); font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
+    .obv-field-label { display: block; margin-bottom: 6px; color: var(--obv-feedback-text); font-size: 12px; font-weight: 650; }
+    .obv-title { font-size: 18px; line-height: 1.18; font-weight: 700; margin-bottom: 7px; letter-spacing: -0.03em; }
+    .obv-subtitle { font-size: 13px; line-height: 1.45; color: var(--obv-feedback-muted); margin-bottom: 14px; max-width: 36ch; }
+    .obv-preview-note {
+      margin: -2px 0 14px; border: 1px solid var(--obv-feedback-border); border-radius: 12px;
+      background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-text); padding: 9px 10px; font-size: 12px; line-height: 1.4;
+    }
+    .obv-form-error {
+      margin: -2px 0 12px; border: 1px solid rgba(220, 38, 38, 0.28); border-radius: 12px;
+      background: rgba(220, 38, 38, 0.08); color: #b91c1c; padding: 9px 10px; font-size: 12px; line-height: 1.4;
+    }
+    .obv-textarea {
+      width: 100%; border: 1px solid var(--obv-feedback-border); border-radius: 12px; padding: 10px 11px;
+      font-size: 13px; background: transparent; color: var(--obv-feedback-text); box-sizing: border-box;
+      box-shadow: var(--obv-feedback-shadow-sm);
+      transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+      min-height: 118px; resize: vertical; line-height: 1.45;
+    }
+    .obv-textarea::placeholder { color: var(--obv-feedback-muted); }
+    .obv-attachment-dropzone {
+      margin: 10px 0 0; padding: 10px; border: 1px dashed var(--obv-feedback-border-strong); border-radius: 12px;
+      background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 78%, transparent); color: var(--obv-feedback-muted); font-size: 12px; line-height: 1.4;
+      cursor: pointer;
+    }
+    .obv-attachment-dropzone:focus-visible { outline: 3px solid var(--obv-feedback-focus); outline-offset: 2px; }
+    .obv-attachment-prompt { display: inline-flex; align-items: center; gap: 7px; }
+    .obv-attachment-input { display: none; }
+    .obv-attachment-list { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
+    .obv-attachment-chip { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 9px; border: 1px solid var(--obv-feedback-border); border-radius: 12px; background: var(--obv-feedback-bg); }
+    .obv-attachment-chip[data-status="error"] { border-color: rgba(220, 38, 38, 0.38); }
+    .obv-attachment-name { display: flex; align-items: center; gap: 7px; color: var(--obv-feedback-text); font-size: 12px; font-weight: 650; min-width: 0; }
+    .obv-attachment-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .obv-attachment-meta { display: block; margin-top: 3px; color: var(--obv-feedback-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .obv-attachment-chip[data-status="error"] .obv-attachment-meta { color: #b91c1c; }
+    .obv-attachment-remove { width: 28px; height: 28px; }
+    .obv-markup-summary {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      margin: 10px 0 0; padding: 9px 10px; border: 1px solid var(--obv-feedback-border); border-radius: 12px;
+      background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-muted); font-size: 12px; line-height: 1.35;
+    }
+    .obv-markup-overlay {
+      position: fixed; inset: 0; z-index: 2147483646; cursor: crosshair; touch-action: none;
+      background: rgba(0, 0, 0, 0.08);
+    }
+    .obv-markup-overlay:focus { outline: 3px solid var(--obv-feedback-focus); outline-offset: -6px; }
+    .obv-markup-svg { width: 100%; height: 100%; display: block; }
+    .obv-element-picker-overlay {
+      position: fixed; inset: 0; z-index: 2147483646; cursor: pointer; touch-action: none;
+      background: rgba(0, 0, 0, 0.08);
+    }
+    .obv-element-picker-overlay:focus { outline: 3px solid var(--obv-feedback-focus); outline-offset: -6px; }
+    .obv-element-grab-highlight {
+      position: fixed; z-index: 2147483646; pointer-events: none; box-sizing: border-box;
+      border: 2px solid #7c3aed; border-radius: 8px; background: rgba(196,181,253,0.14);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.24);
+    }
+    .obv-element-grab-label {
+      position: fixed; z-index: 2147483647; pointer-events: none; max-width: min(320px, calc(100vw - 24px));
+      border: 1px solid var(--obv-feedback-border); border-radius: 999px; background: var(--obv-feedback-bg);
+      color: var(--obv-feedback-text); padding: 6px 10px; box-shadow: var(--obv-feedback-shadow-sm);
+      font-size: 12px; font-weight: 650; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .obv-ruler-overlay {
+      position: fixed; inset: 0; z-index: 2147483646;
+      cursor: crosshair; touch-action: none; background: rgba(0,0,0,0.04);
+    }
+    .obv-ruler-overlay:focus { outline: none; }
+    .obv-ruler-svg { width: 100%; height: 100%; display: block; position: relative; z-index: 1; }
+    .obv-ruler-snap-highlight {
+      position: fixed; z-index: 0; pointer-events: none; box-sizing: border-box;
+      border: 1.5px solid rgba(59,130,246,0.3); border-radius: 4px;
+      background: rgba(59,130,246,0.05);
+      transition: left 80ms ease, top 80ms ease, width 80ms ease, height 80ms ease;
+    }
+    .obv-ruler-snap-highlight[data-edge="top"] { border-top-width: 3px; border-top-color: #3b82f6; }
+    .obv-ruler-snap-highlight[data-edge="bottom"] { border-bottom-width: 3px; border-bottom-color: #3b82f6; }
+    .obv-ruler-snap-highlight[data-edge="left"] { border-left-width: 3px; border-left-color: #3b82f6; }
+    .obv-ruler-snap-highlight[data-edge="right"] { border-right-width: 3px; border-right-color: #3b82f6; }
+    .obv-element-picker-bar, .obv-measure-bar {
+      position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483647;
+      display: flex; align-items: center; gap: 10px; padding: 7px 7px 7px 14px;
+      border: 1px solid var(--obv-feedback-border); border-radius: 999px;
+      background: var(--obv-feedback-bg); box-shadow: var(--obv-feedback-shadow); color: var(--obv-feedback-muted);
+      font-size: 12px; font-weight: 650;
+    }
+    .obv-context-actions { display: flex; gap: 8px; margin: 10px 0 0; }
+    .obv-context-actions .obv-button { flex: 1; }
+    .obv-element-grab-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    .obv-element-grab-chip {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center;
+      padding: 7px 9px; border: 1px solid var(--obv-feedback-border); border-radius: 12px;
+      background: var(--obv-feedback-bg); font-size: 12px;
+    }
+    .obv-element-grab-chip-name {
+      display: flex; align-items: center; gap: 7px;
+      color: var(--obv-feedback-text); font-weight: 650;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+    }
+    .obv-element-grab-chip-name .obv-icon { flex-shrink: 0; }
+    .obv-element-grab-remove { width: 22px; height: 22px; min-height: 22px; padding: 0; }
+    .obv-annotation-summary { margin-top: 6px; color: var(--obv-feedback-muted); font-size: 12px; }
+    .obv-unified-panel { display: flex; flex-direction: column; gap: 0; }
+    .obv-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .obv-card-header .obv-kicker { margin-bottom: 0; }
+    .obv-shortcut-hint { color: var(--obv-feedback-muted); font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.7; margin-left: 6px; }
+    .obv-card-close { width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 999px; }
+    .obv-list-body { padding: 2px 0; min-height: 40px; }
+    .obv-list-row { display: flex; align-items: baseline; gap: 0; padding: 3px 2px; }
+    .obv-row-number {
+      width: 22px; flex-shrink: 0; text-align: right; padding-right: 8px;
+      color: var(--obv-feedback-muted); font-size: 12px; font-weight: 600;
+      font-variant-numeric: tabular-nums; user-select: none;
+      transition: color 120ms ease;
+    }
+    .obv-list-row:focus-within .obv-row-number { color: var(--obv-feedback-text); }
+    .obv-row-input {
+      flex: 1; min-width: 0; border: none; outline: none; padding: 2px 0;
+      background: transparent; color: var(--obv-feedback-text);
+      font-family: inherit; font-size: 13px; line-height: 1.5;
+    }
+    .obv-row-input::placeholder { color: var(--obv-feedback-muted); opacity: 0.6; }
+    .obv-row-meta {
+      padding-left: 30px; color: var(--obv-feedback-muted); font-size: 11px; line-height: 1.3;
+      display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 2px;
+    }
+    .obv-row-meta-tag { display: inline-flex; align-items: center; gap: 2px; }
+    .obv-row-meta-tag .obv-icon { width: 10px; height: 10px; flex-basis: 10px; }
+    .obv-row-pill {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 1px 4px 1px 5px; border-radius: 6px;
+      background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-muted);
+      font-size: 11px; line-height: 1.3; white-space: nowrap; max-width: 140px;
+    }
+    .obv-row-pill .obv-icon { width: 10px; height: 10px; flex-basis: 10px; flex-shrink: 0; }
+    .obv-row-pill-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .obv-row-pill-x {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 14px; height: 14px; padding: 0; flex-shrink: 0;
+      border: none; border-radius: 4px; background: transparent; color: var(--obv-feedback-muted);
+      cursor: pointer; transition: color 100ms ease, background 100ms ease;
+    }
+    .obv-row-pill-x:hover { color: var(--obv-feedback-text); background: var(--obv-feedback-border); }
+    .obv-row-pill-x .obv-icon { width: 8px; height: 8px; flex-basis: 8px; }
+    .obv-list-footer {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding-top: 6px; margin-top: 2px;
+    }
+    .obv-footer-tools { display: flex; gap: 2px; }
+    .obv-footer-tool-btn {
+      width: 32px; height: 32px; min-height: 32px; padding: 0; border-radius: 8px;
+      border-color: var(--obv-feedback-border); background: transparent; color: var(--obv-feedback-muted);
+      box-shadow: none;
+      transition: color 120ms ease, background 120ms ease;
+    }
+    .obv-footer-tool-btn:hover:not(:disabled) { background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-text); }
+    .obv-footer-tool-btn .obv-icon { width: 14px; height: 14px; }
+    .obv-success {
+      padding: 12px 0 4px; text-align: center;
+    }
+    .obv-success-message {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      color: var(--obv-feedback-text); font-size: 13px; font-weight: 600; line-height: 1.4;
+      width: 100%;
+    }
+    .obv-success-message .obv-icon { width: 16px; height: 16px; flex-shrink: 0; }
+    .obv-success-sub {
+      margin-top: 4px; color: var(--obv-feedback-muted); font-size: 12px; line-height: 1.4;
+    }
+    .obv-success-sub a {
+      color: var(--obv-feedback-text); font-weight: 600; text-decoration: none;
+    }
+    .obv-success-sub a:hover { text-decoration: underline; }
+    .obv-success-action {
+      margin-top: 12px;
+    }
+    .obv-footer-tool-btn { position: relative; }
+    .obv-footer-tool-btn::after {
+      content: attr(data-tooltip); pointer-events: none;
+      position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+      padding: 4px 8px; border-radius: 6px;
+      background: var(--obv-feedback-primary); color: var(--obv-feedback-primary-foreground);
+      font-size: 11px; font-weight: 500; white-space: nowrap;
+      opacity: 0; transition: opacity 100ms ease;
+    }
+    .obv-footer-tool-btn:hover::after { opacity: 1; }
+    .obv-markup-toolbar {
+      position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483647;
+      display: flex; align-items: center; gap: 6px; padding: 7px; border: 1px solid var(--obv-feedback-border); border-radius: 999px;
+      background: var(--obv-feedback-bg); box-shadow: var(--obv-feedback-shadow); color: var(--obv-feedback-text);
+    }
+    .obv-markup-tool[aria-pressed="true"] { background: var(--obv-feedback-primary); color: var(--obv-feedback-primary-foreground); border-color: var(--obv-feedback-primary); }
+    .obv-actions { display: flex; justify-content: space-between; gap: 8px; }
+    .obv-button, .obv-icon-button {
+      border: 1px solid transparent; border-radius: var(--obv-feedback-radius); min-height: 34px; box-sizing: border-box;
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      cursor: pointer; background: var(--obv-feedback-primary); color: var(--obv-feedback-primary-foreground);
+      font-size: var(--obv-feedback-button-font-size); font-weight: var(--obv-feedback-button-font-weight); line-height: var(--obv-feedback-button-line-height); letter-spacing: normal;
+      box-shadow: var(--obv-feedback-shadow-sm);
+      transition: opacity 140ms ease, transform 140ms ease, box-shadow 140ms ease, background 140ms ease, color 140ms ease, border-color 140ms ease;
+    }
+    .obv-button { padding: 8px 12px; }
+    .obv-icon-button { padding: 0; border-color: var(--obv-feedback-border); background: transparent; color: var(--obv-feedback-muted); }
+    .obv-button:hover:not(:disabled), .obv-icon-button:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--obv-feedback-border-strong); }
+    .obv-button-secondary { background: var(--obv-feedback-bg); color: var(--obv-feedback-text); border-color: var(--obv-feedback-border); }
+    .obv-button-secondary:hover:not(:disabled), .obv-icon-button:hover:not(:disabled) { background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-text); }
+    .obv-button:active:not(:disabled), .obv-icon-button:active:not(:disabled) { transform: translateY(0); }
+    .obv-button:disabled, .obv-icon-button:disabled { cursor: not-allowed; opacity: 0.5; }
+    .obv-toolbar-button { width: 34px; height: 34px; border-radius: 999px; }
+    .obv-status { font-size: 13px; line-height: 1.5; color: var(--obv-feedback-muted); }
+    .obv-status-title { display: flex; align-items: center; gap: 8px; }
+    @media (prefers-reduced-motion: reduce) {
+      .obv-trigger, .obv-button, .obv-icon-button { transition-duration: 1ms; }
+    }
+    :host([data-theme="dark"]) {
+      color-scheme: dark;
+      --obv-feedback-bg: #1f1f1f;
+      --obv-feedback-bg-subtle: #2b2b2b;
+      --obv-feedback-trigger-bg: #1f1f1f;
+      --obv-feedback-text: #ffffff;
+      --obv-feedback-muted: #a1a1aa;
+      --obv-feedback-border: rgba(255, 255, 255, 0.14);
+      --obv-feedback-border-strong: rgba(255, 255, 255, 0.32);
+      --obv-feedback-primary: #ffffff;
+      --obv-feedback-primary-foreground: #111111;
+      --obv-feedback-shadow: 0 18px 46px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.26);
+    }
+    :host([data-theme="dark"]) .obv-form-error { background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.28); color: #fecaca; }
+  `
+}
+
+function historyStatusLabel(status: FeedbackIssueHistoryStatus): string {
+  return status === 'unavailable' ? 'Status unavailable' : statusLabel(status)
+}
+
+function statusLabel(status: FeedbackClientStatus): string {
+  switch (status) {
+    case 'received':
+      return 'Received'
+    case 'under_review':
+      return 'Under review'
+    case 'in_progress':
+      return 'In progress'
+    case 'resolved':
+      return 'Resolved'
+    case 'no_action':
+      return 'No action'
+    case 'duplicate':
+      return 'Duplicate'
+  }
+}
+
+function formatRelativeTime(rawTimestamp?: string): string {
+  if (!rawTimestamp) {
+    return ''
+  }
+  const timestamp = new Date(rawTimestamp).getTime()
+  if (!Number.isFinite(timestamp)) {
+    return ''
+  }
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000))
+  if (elapsedSeconds < 60) {
+    return 'just now'
+  }
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60)
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m ago`
+  }
+  const elapsedHours = Math.floor(elapsedMinutes / 60)
+  if (elapsedHours < 48) {
+    return `${elapsedHours}h ago`
+  }
+  const elapsedDays = Math.floor(elapsedHours / 24)
+  return `${elapsedDays}d ago`
+}
+
+function getSafeExternalUrl(rawUrl?: string): string | undefined {
+  if (!rawUrl) {
+    return undefined
+  }
+  try {
+    const url = new URL(rawUrl)
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function normalizeWorkerThreadLink(workerThread?: FeedbackWorkerThreadLink): FeedbackWorkerThreadLink | undefined {
+  const safeUrl = getSafeExternalUrl(workerThread?.url)
+  return workerThread?.id && safeUrl ? { id: workerThread.id, url: safeUrl } : undefined
+}
+
+function normalizeFeedbackAiSummary(value: unknown): FeedbackAiSummary | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const summary = value as Record<string, unknown>
+  return {
+    headline: typeof summary.headline === 'string' ? summary.headline : null,
+    progress: typeof summary.progress === 'string' ? summary.progress : null,
+    updatedAt: typeof summary.updatedAt === 'string' ? summary.updatedAt : null,
+  }
+}
+
+function normalizePullRequestLink(value: unknown): FeedbackPullRequestLink | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+  const pullRequest = value as Record<string, unknown>
+  const safeUrl = getSafeExternalUrl(typeof pullRequest.url === 'string' ? pullRequest.url : undefined)
+  return typeof pullRequest.id === 'string' && typeof pullRequest.number === 'number' && safeUrl
+    ? {
+        id: pullRequest.id,
+        number: pullRequest.number,
+        title: typeof pullRequest.title === 'string' ? pullRequest.title : `PR #${pullRequest.number}`,
+        url: safeUrl,
+        status: typeof pullRequest.status === 'string' ? pullRequest.status : 'unknown',
+        ciStatus: typeof pullRequest.ciStatus === 'string' ? pullRequest.ciStatus : 'unknown',
+        reviewStatus: typeof pullRequest.reviewStatus === 'string' ? pullRequest.reviewStatus : 'unknown',
+        isDraft: pullRequest.isDraft === true,
+      }
+    : undefined
+}
+
+function normalizeFeedbackIssueLinks(value: unknown): FeedbackIssueLinks | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const links = value as Record<string, unknown>
+  const workerThread = normalizeWorkerThreadLink(links.workerThread as FeedbackWorkerThreadLink | undefined)
+  const pullRequest = normalizePullRequestLink(links.pullRequest)
+  return workerThread || pullRequest ? { workerThread, pullRequest } : null
+}
+
+function getFeedbackIssueLinks(response: FeedbackStatusResponse): FeedbackIssueLinks | null {
+  return (
+    normalizeFeedbackIssueLinks(response.links) ?? normalizeFeedbackIssueLinks({ workerThread: response.workerThread })
+  )
+}
+
+function isTerminalIssueStatus(status: FeedbackIssueHistoryStatus): boolean {
+  return status === 'resolved' || status === 'no_action' || status === 'duplicate'
+}
+
+function createMarkupId(): string {
+  return `markup_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function createElementGrabId(): string {
+  return `element_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function getDevicePixelRatio(): number {
+  return typeof window.devicePixelRatio === 'number' && Number.isFinite(window.devicePixelRatio)
+    ? window.devicePixelRatio
+    : 1
+}
+
+function getMarkupPoint(event: PointerEvent): FeedbackMarkupPoint {
+  return {
+    x: Math.round(event.clientX),
+    y: Math.round(event.clientY),
+  }
+}
+
+function distanceBetweenPoints(first: FeedbackMarkupPoint, second: FeedbackMarkupPoint): number {
+  return Math.hypot(second.x - first.x, second.y - first.y)
+}
+
+function normalizeMarkupItem(draft: FeedbackMarkupDraft): FeedbackMarkupItem | null {
+  if (draft.tool === 'pen') {
+    const cappedPoints = draft.points.slice(0, MAX_MARKUP_POINTS_PER_ITEM)
+    const hasMovement = cappedPoints.some(
+      (point) => distanceBetweenPoints(draft.start, point) >= MARKUP_POINTER_MOVE_THRESHOLD_PX
+    )
+    return cappedPoints.length > 1 && hasMovement ? { id: draft.id, tool: draft.tool, points: cappedPoints } : null
+  }
+  const end = draft.points[draft.points.length - 1] ?? draft.start
+  if (Math.hypot(end.x - draft.start.x, end.y - draft.start.y) < MARKUP_POINTER_MOVE_THRESHOLD_PX) {
+    return draft.tool === 'point' ? { id: draft.id, tool: draft.tool, points: [draft.start] } : null
+  }
+  return { id: draft.id, tool: draft.tool, points: [draft.start, end] }
+}
+
+function resolveMarkupTool(value: string | null): FeedbackMarkupTool | null {
+  if (value === 'rectangle' || value === 'point' || value === 'pen') {
+    return value
+  }
+  return null
+}
+
+function buildCssSelector(element: Element): string {
+  const segments: string[] = []
+  let current: Element | null = element
+  let depth = 0
+  while (current && depth < 5) {
+    const tagName = current.tagName.toLowerCase()
+    const elementId = current.getAttribute('id')
+    if (elementId) {
+      segments.unshift(`#${escapeCssIdentifier(elementId)}`)
+      break
+    }
+    const className = current.getAttribute('class')
+    const normalizedClass = className
+      ?.trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((name) => `.${escapeCssIdentifier(name)}`)
+      .join('')
+    const parent: Element | null = current.parentElement
+    const elementIndex = parent ? Array.from(parent.children).indexOf(current) + 1 : 0
+    const nthChild = elementIndex > 0 ? `:nth-child(${elementIndex})` : ''
+    segments.unshift(`${tagName}${normalizedClass ?? ''}${nthChild}`)
+    current = parent
+    depth += 1
+  }
+  return segments.join(' > ')
+}
+
+function escapeCssIdentifier(value: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(value)
+  }
+  return value.replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
+function truncateOuterHtml(element: Element, maxLength = 500): string {
+  return truncateText(element.outerHTML.replace(/\s+/g, ' ').trim(), maxLength)
+}
+
+function createElementGrabRect(rect: DOMRect): ElementGrabRect {
+  return {
+    x: Math.round(rect.left),
+    y: Math.round(rect.top),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  }
+}
+
+function getElementGrabDisplayName(info: ElementGrabHoverInfo | ElementGrabItem): string {
+  if (info.componentName) {
+    return info.componentName
+  }
+  return `<${info.tagName.toLowerCase()}>`
+}
+
+function getElementGrabHoverLabel(info: ElementGrabHoverInfo): string {
+  if (info.componentName) {
+    const location = info.sourceFile ? getShortFileName(info.sourceFile) : null
+    const lineSuffix = info.lineNumber ? `:${info.lineNumber}` : ''
+    return location ? `${info.componentName} at ${location}${lineSuffix}` : info.componentName
+  }
+  return `<${info.tagName.toLowerCase()}>`
+}
+
+function getShortFileName(filePath: string): string {
+  const segments = filePath.split('/')
+  return segments[segments.length - 1] ?? filePath
+}
+
+function createFeedbackAttachmentId(): string {
+  const randomId = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).slice(2)
+  return `attachment_${randomId}`
+}
+
+function createFeedbackAttachmentSessionId(): string {
+  const randomId = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).slice(2)
+  return `${FEEDBACK_ATTACHMENT_SESSION_PREFIX}_${randomId}`
+}
+
+function createRoundItemId(): string {
+  return `ri_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function createMeasurementId(): string {
+  return `fbm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+interface RulerLine {
+  id: string
+  orientation: 'horizontal' | 'vertical'
+  position: number
+  snappedTo: string | null
+  snappedElement: HTMLElement | null
+  snappedEdge: 'top' | 'bottom' | 'left' | 'right' | null
+}
+
+const RULER_SNAP_THRESHOLD_PX = 8
+const RULER_COLOR = '#3b82f6'
+const RULER_PREVIEW_COLOR = '#93c5fd'
+const RULER_SELECTED_COLOR = '#1d4ed8'
+const RULER_HIT_ZONE_PX = 6
+
+interface ElementEdge {
+  pos: number
+  selector: string
+  element: HTMLElement
+  edge: 'top' | 'bottom' | 'left' | 'right'
+  rect: DOMRect
+}
+
+interface SnapResult {
+  position: number
+  selector: string
+  element: HTMLElement
+  edge: 'top' | 'bottom' | 'left' | 'right'
+  rect: DOMRect
+}
+
+let cachedEdges: { horizontal: ElementEdge[]; vertical: ElementEdge[] } | null = null
+let cachedEdgesFrame = -1
+
+function collectElementEdges(): { horizontal: ElementEdge[]; vertical: ElementEdge[] } {
+  const frame = typeof requestAnimationFrame !== 'undefined' ? performance.now() : 0
+  if (cachedEdges && Math.abs(frame - cachedEdgesFrame) < 16) {
+    return cachedEdges
+  }
+  const horizontal: ElementEdge[] = []
+  const vertical: ElementEdge[] = []
+  const elements = document.body.querySelectorAll('*')
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i]
+    if (!(el instanceof HTMLElement) || el.offsetWidth === 0 || el.offsetHeight === 0) {
+      continue
+    }
+    const rect = el.getBoundingClientRect()
+    if (rect.width < 4 || rect.height < 4) {
+      continue
+    }
+    const selector = buildCssSelector(el)
+    horizontal.push({ pos: Math.round(rect.top), selector, element: el, edge: 'top', rect })
+    horizontal.push({ pos: Math.round(rect.bottom), selector, element: el, edge: 'bottom', rect })
+    vertical.push({ pos: Math.round(rect.left), selector, element: el, edge: 'left', rect })
+    vertical.push({ pos: Math.round(rect.right), selector, element: el, edge: 'right', rect })
+  }
+  cachedEdges = { horizontal, vertical }
+  cachedEdgesFrame = frame
+  return cachedEdges
+}
+
+function findSnapPosition(
+  position: number,
+  orientation: 'horizontal' | 'vertical',
+  cursorX: number,
+  cursorY: number
+): SnapResult | null {
+  const edges = collectElementEdges()
+  const edgeList = orientation === 'horizontal' ? edges.horizontal : edges.vertical
+  let bestDist = RULER_SNAP_THRESHOLD_PX + 1
+  let bestEdge: ElementEdge | null = null
+  for (const edge of edgeList) {
+    if (orientation === 'horizontal') {
+      if (cursorX < edge.rect.left - 40 || cursorX > edge.rect.right + 40) {
+        continue
+      }
+    } else {
+      if (cursorY < edge.rect.top - 40 || cursorY > edge.rect.bottom + 40) {
+        continue
+      }
+    }
+    const dist = Math.abs(edge.pos - position)
+    if (dist < bestDist) {
+      bestDist = dist
+      bestEdge = edge
+    }
+  }
+  return bestEdge
+    ? {
+        position: bestEdge.pos,
+        selector: bestEdge.selector,
+        element: bestEdge.element,
+        edge: bestEdge.edge,
+        rect: bestEdge.rect,
+      }
+    : null
+}
+
+function createRulerId(): string {
+  return `rl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+}
+
+function computeRulerDistances(rulers: RulerLine[]): Array<{
+  rulerAId: string
+  rulerBId: string
+  distance: number
+  orientation: 'horizontal' | 'vertical'
+  midpoint: number
+}> {
+  const result: Array<{
+    rulerAId: string
+    rulerBId: string
+    distance: number
+    orientation: 'horizontal' | 'vertical'
+    midpoint: number
+  }> = []
+  const horizontal = rulers.filter((r) => r.orientation === 'horizontal').sort((a, b) => a.position - b.position)
+  const vertical = rulers.filter((r) => r.orientation === 'vertical').sort((a, b) => a.position - b.position)
+
+  for (let i = 0; i < horizontal.length - 1; i++) {
+    const a = horizontal[i]
+    const b = horizontal[i + 1]
+    result.push({
+      rulerAId: a.id,
+      rulerBId: b.id,
+      distance: Math.abs(b.position - a.position),
+      orientation: 'horizontal',
+      midpoint: (a.position + b.position) / 2,
+    })
+  }
+  for (let i = 0; i < vertical.length - 1; i++) {
+    const a = vertical[i]
+    const b = vertical[i + 1]
+    result.push({
+      rulerAId: a.id,
+      rulerBId: b.id,
+      distance: Math.abs(b.position - a.position),
+      orientation: 'vertical',
+      midpoint: (a.position + b.position) / 2,
+    })
+  }
+  return result
+}
+
+function renderRulerSvg(
+  rulers: RulerLine[],
+  preview: { orientation: 'horizontal' | 'vertical'; position: number } | null,
+  selectedId: string | null,
+  vw: number,
+  vh: number
+): string {
+  const parts: string[] = []
+
+  if (preview) {
+    if (preview.orientation === 'horizontal') {
+      parts.push(
+        `<line x1="0" y1="${preview.position}" x2="${vw}" y2="${preview.position}" stroke="${RULER_PREVIEW_COLOR}" stroke-width="1" stroke-dasharray="6 4" />`
+      )
+    } else {
+      parts.push(
+        `<line x1="${preview.position}" y1="0" x2="${preview.position}" y2="${vh}" stroke="${RULER_PREVIEW_COLOR}" stroke-width="1" stroke-dasharray="6 4" />`
+      )
+    }
+  }
+
+  for (const ruler of rulers) {
+    const color = ruler.id === selectedId ? RULER_SELECTED_COLOR : RULER_COLOR
+    const width = ruler.id === selectedId ? 2 : 1.5
+    if (ruler.orientation === 'horizontal') {
+      parts.push(
+        `<line x1="0" y1="${ruler.position}" x2="${vw}" y2="${ruler.position}" stroke="${color}" stroke-width="${width}" stroke-dasharray="6 3" />`
+      )
+      parts.push(
+        `<circle cx="${vw / 2}" cy="${ruler.position}" r="4" fill="${color}" style="cursor:grab" data-ruler-handle="${ruler.id}" />`
+      )
+    } else {
+      parts.push(
+        `<line x1="${ruler.position}" y1="0" x2="${ruler.position}" y2="${vh}" stroke="${color}" stroke-width="${width}" stroke-dasharray="6 3" />`
+      )
+      parts.push(
+        `<circle cx="${ruler.position}" cy="${vh / 2}" r="4" fill="${color}" style="cursor:grab" data-ruler-handle="${ruler.id}" />`
+      )
+    }
+  }
+
+  const distances = computeRulerDistances(rulers)
+  for (const d of distances) {
+    if (d.orientation === 'horizontal') {
+      const x = vw / 2
+      const posA = d.midpoint - d.distance / 2
+      const posB = d.midpoint + d.distance / 2
+      parts.push(`<line x1="${x}" y1="${posA}" x2="${x}" y2="${posB}" stroke="${RULER_COLOR}" stroke-width="1" />`)
+      parts.push(
+        `<line x1="${x - 4}" y1="${posA}" x2="${x + 4}" y2="${posA}" stroke="${RULER_COLOR}" stroke-width="1" />`
+      )
+      parts.push(
+        `<line x1="${x - 4}" y1="${posB}" x2="${x + 4}" y2="${posB}" stroke="${RULER_COLOR}" stroke-width="1" />`
+      )
+      parts.push(
+        `<text x="${x + 10}" y="${d.midpoint + 4}" fill="${RULER_COLOR}" font-size="11" font-weight="700" font-family="Inter,ui-sans-serif,system-ui,sans-serif">${d.distance}px</text>`
+      )
+    } else {
+      const y = vh / 2
+      const posA = d.midpoint - d.distance / 2
+      const posB = d.midpoint + d.distance / 2
+      parts.push(`<line x1="${posA}" y1="${y}" x2="${posB}" y2="${y}" stroke="${RULER_COLOR}" stroke-width="1" />`)
+      parts.push(
+        `<line x1="${posA}" y1="${y - 4}" x2="${posA}" y2="${y + 4}" stroke="${RULER_COLOR}" stroke-width="1" />`
+      )
+      parts.push(
+        `<line x1="${posB}" y1="${y - 4}" x2="${posB}" y2="${y + 4}" stroke="${RULER_COLOR}" stroke-width="1" />`
+      )
+      parts.push(
+        `<text x="${d.midpoint}" y="${y - 8}" fill="${RULER_COLOR}" font-size="11" font-weight="700" font-family="Inter,ui-sans-serif,system-ui,sans-serif" text-anchor="middle">${d.distance}px</text>`
+      )
+    }
+  }
+
+  return parts.join('')
+}
+
+function getDraftRoundStorageKey(publicKey: string, env: string): string | null {
+  if (!publicKey) {
+    return null
+  }
+  const sourceOrigin = typeof window !== 'undefined' ? window.location.origin : 'unknown-origin'
+  return [DRAFT_ROUND_STORAGE_PREFIX, publicKey, env, sourceOrigin].map((part) => encodeURIComponent(part)).join(':')
+}
+
+function parseStoredDraftRound(storageKey: string | null): FeedbackRoundItem[] {
+  if (!storageKey) {
+    return []
+  }
+  try {
+    const rawValue = window.localStorage?.getItem(storageKey)
+    const parsed = rawValue ? JSON.parse(rawValue) : []
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    const items: FeedbackRoundItem[] = []
+    for (const item of parsed) {
+      if (
+        !item ||
+        typeof item !== 'object' ||
+        typeof item.id !== 'string' ||
+        typeof item.description !== 'string' ||
+        !item.description.trim()
+      ) {
+        continue
+      }
+      items.push({
+        id: item.id,
+        description: item.description,
+        markupPayload: item.markupPayload ?? undefined,
+        elementGrabs: Array.isArray(item.elementGrabs) ? item.elementGrabs : undefined,
+        attachmentTokens: Array.isArray(item.attachmentTokens) ? item.attachmentTokens : undefined,
+      })
+    }
+    return items.slice(0, MAX_ROUND_ITEMS)
+  } catch {
+    return []
+  }
+}
+
+function persistDraftRound(storageKey: string | null, items: FeedbackRoundItem[]): void {
+  if (!storageKey) {
+    return
+  }
+  try {
+    if (items.length === 0) {
+      window.localStorage?.removeItem(storageKey)
+      return
+    }
+    let serializedItems = items.slice(0, MAX_ROUND_ITEMS)
+    let json = JSON.stringify(serializedItems)
+    if (json.length > MAX_DRAFT_ROUND_STORAGE_BYTES) {
+      serializedItems = serializedItems.map((item) => ({
+        ...item,
+        markupPayload: undefined,
+      }))
+      json = JSON.stringify(serializedItems)
+    }
+    if (json.length <= MAX_DRAFT_ROUND_STORAGE_BYTES) {
+      window.localStorage?.setItem(storageKey, json)
+    }
+  } catch {
+    // localStorage may be unavailable
+  }
+}
+
+function normalizeAttachmentMimeType(file: File): string {
+  const normalized = file.type.split(';')[0]?.trim().toLowerCase() ?? ''
+  return normalized.includes('/') ? normalized : DEFAULT_ATTACHMENT_MIME_TYPE
+}
+
+function formatAttachmentSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`
+  }
+  if (sizeBytes < 1024 * 1024) {
+    return `${Math.round(sizeBytes / 1024)} KB`
+  }
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function createFeedbackSubmissionInput(formData: FormData): FeedbackSubmissionInput {
+  const description = String(formData.get('description') ?? '').trim()
+  if (!description) {
+    throw new Error('Feedback description is required')
+  }
+  return {
+    type: DEFAULT_FEEDBACK_ISSUE_TYPE,
+    severity: DEFAULT_FEEDBACK_ISSUE_SEVERITY,
+    description,
+  }
+}
+
+class ObviousFeedbackWidget {
+  private readonly config: Required<
+    Pick<
+      FeedbackSdkConfig,
+      | 'publicKey'
+      | 'apiBaseUrl'
+      | 'env'
+      | 'redactSelectors'
+      | 'triggerLabel'
+      | 'assistantPosition'
+      | 'capturePageContext'
+      | 'captureConsole'
+      | 'captureNetwork'
+      | 'previewOnlyReason'
+      | 'previewOnly'
+    >
+  > &
+    Pick<FeedbackSdkConfig, 'identityToken' | 'prNumber' | 'elementSourceResolver' | 'sessionReplayUrlResolver'>
+  private readonly host: HTMLDivElement
+  private readonly shadowRoot: ShadowRoot
+  private readonly consoleBuffer: { read: () => ConsoleLogEntry[]; restore: () => void }
+  private readonly networkBuffer: { read: () => NetworkLogEntry[]; restore: () => void }
+  private readonly issueHistoryStorageKey: string | null
+  private readonly draftRoundStorageKey: string | null
+  private readonly elementSourceCache = new WeakMap<Element, Promise<ElementSourceInfo | null>>()
+  private issueHistory: FeedbackIssueHistoryEntry[] = []
+  private roundItems: FeedbackRoundItem[] = []
+  private focusedItemId: string | null = null
+  private issueId: string | null = null
+  private statusCardIssueId: string | null = null
+  private statusCardStatus: FeedbackClientStatus | null = null
+  private statusCardUpdatedAt: string | null = null
+  private statusCardReportedAt: string | null = null
+  private statusTimer: number | null = null
+  private statusPollIndex = 0
+  private selectedIssueId: string | null = null
+  private triggerPosition: FeedbackTriggerPosition
+  private triggerDragState: FeedbackTriggerDragState | null = null
+  private suppressNextTriggerClick = false
+  private markupTool: FeedbackMarkupTool = 'rectangle'
+  private markupItems: FeedbackMarkupItem[] = []
+  private elementGrabItems: ElementGrabItem[] = []
+  private activePanel: FeedbackPanel | null = null
+  private historyRefreshInFlight = false
+  private openIssueCountListeners = new Set<(count: number) => void>()
+  private lastEmittedOpenIssueCount = -1
+  private markupDraft: FeedbackMarkupDraft | null = null
+  private markupContext: FeedbackMarkupContext | null = null
+  private elementGrabHoverTarget: Element | null = null
+  private elementGrabHoverInfo: ElementGrabHoverInfo | null = null
+  private elementGrabResolveTimer: number | null = null
+  private activeSillyFeedbackMessage: string | null = null
+
+  private markupSessionSnapshot: FeedbackMarkupSessionSnapshot | null = null
+  private markupRenderFrame: number | null = null
+  private markupOverlayOpen = false
+  private elementPickerOpen = false
+  private measureOverlayOpen = false
+  private measurementItems: FeedbackMeasurement[] = []
+  private newRowDraft = ''
+  private rulerLines: RulerLine[] = []
+  private selectedRulerId: string | null = null
+  private rulerPreview: { orientation: 'horizontal' | 'vertical'; position: number } | null = null
+  private draggingRulerId: string | null = null
+  private rulerShiftHeld = false
+  private readonly attachmentSessionId = createFeedbackAttachmentSessionId()
+  private feedbackAttachments: FeedbackAttachmentUpload[] = []
+  private feedbackFormError: string | null = null
+  private submittedIssueUrl: string | null = null
+  private cardResizeObserver: ResizeObserver | null = null
+  private placementFrame: number | null = null
+  private globalFileDropGuardsInstalled = false
+  private markupKeydownListenerInstalled = false
+  private suppressNextMarkupCanvasClick = false
+  private destroyed = false
+  private systemThemeCleanup: (() => void) | null = null
+
+  constructor(config: FeedbackSdkConfig) {
+    this.config = {
+      publicKey: config.publicKey ?? '',
+      apiBaseUrl: config.apiBaseUrl ?? DEFAULT_API_BASE_URL,
+      identityToken: config.identityToken,
+      env: config.env ?? DEFAULT_ENV,
+      prNumber: config.prNumber,
+      redactSelectors: config.redactSelectors ?? [],
+      triggerLabel: config.triggerLabel ?? DEFAULT_TRIGGER_LABEL,
+      assistantPosition: config.assistantPosition ?? 'bottom-right',
+      capturePageContext: config.capturePageContext ?? false,
+      captureConsole: config.captureConsole ?? false,
+      previewOnlyReason: config.previewOnlyReason ?? 'Preview only — submissions disabled.',
+      captureNetwork: config.captureNetwork ?? false,
+      previewOnly: config.previewOnly ?? false,
+      elementSourceResolver: config.elementSourceResolver,
+      sessionReplayUrlResolver: config.sessionReplayUrlResolver,
+    }
+    this.consoleBuffer = this.config.captureConsole ? createConsoleBuffer() : { read: () => [], restore: () => {} }
+    this.networkBuffer = this.config.captureNetwork ? createNetworkBuffer() : { read: () => [], restore: () => {} }
+    this.issueHistoryStorageKey = getFeedbackIssueHistoryStorageKey(this.config.publicKey, this.config.env)
+    this.draftRoundStorageKey = getDraftRoundStorageKey(this.config.publicKey, this.config.env)
+    this.issueHistory = parseStoredIssueHistory(this.issueHistoryStorageKey)
+    this.roundItems = parseStoredDraftRound(this.draftRoundStorageKey)
+    this.triggerPosition = clampTriggerPosition(
+      parseStoredTriggerPosition() ?? getFallbackTriggerPosition(this.config.assistantPosition)
+    )
+    this.host = document.createElement('div')
+    this.shadowRoot = this.host.attachShadow({ mode: 'open' })
+    this.applyTheme(config.theme ?? 'light')
+    document.body.appendChild(this.host)
+    this.renderTrigger()
+    window.addEventListener('keydown', this.handleShortcut)
+    window.addEventListener('resize', this.handleViewportChange)
+    window.addEventListener('orientationchange', this.handleViewportChange)
+    window.visualViewport?.addEventListener('resize', this.handleViewportChange)
+  }
+
+  getOpenIssueCount(): number {
+    return this.roundItems.length + this.getOpenIssueHistoryEntries().length
+  }
+
+  subscribeToOpenIssueCount(listener: (count: number) => void): () => void {
+    this.openIssueCountListeners.add(listener)
+    listener(this.getOpenIssueCount())
+    return () => {
+      this.openIssueCountListeners.delete(listener)
+    }
+  }
+
+  open(): void {
+    if (this.isCardOpen()) {
+      return
+    }
+    this.openCard()
+  }
+
+  private emitOpenIssueCountChange(): void {
+    const count = this.getOpenIssueCount()
+    if (count === this.lastEmittedOpenIssueCount) {
+      return
+    }
+    this.lastEmittedOpenIssueCount = count
+    for (const listener of this.openIssueCountListeners) {
+      listener(count)
+    }
+  }
+
+  private getOpenIssueHistoryEntries(): FeedbackIssueHistoryEntry[] {
+    return this.issueHistory.filter((entry) => !isTerminalIssueStatus(entry.status) && entry.status !== 'unavailable')
+  }
+
+  private getShortcutLabel(): string {
+    const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
+    return isMac ? '⌘⇧.' : 'Ctrl+Shift+.'
+  }
+
+  private getTriggerStatusLabel(): string {
+    const draftCount = this.roundItems.length
+    if (draftCount > 0) {
+      return `${this.config.triggerLabel} — ${draftCount} draft item${draftCount === 1 ? '' : 's'}`
+    }
+    return this.config.triggerLabel
+  }
+
+  private renderTriggerButton(): string {
+    const draftCount = this.roundItems.length
+    const badge =
+      draftCount > 0
+        ? `<span class="obv-trigger-ring" data-status="draft" aria-hidden="true"></span><span class="obv-trigger-badge" aria-hidden="true">${draftCount}</span>`
+        : ''
+    return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? 'draft' : 'idle'}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})" style="${createTriggerPositionStyle(this.triggerPosition)}"><span class="obv-trigger-icon" aria-hidden="true">${createIcon('compose')}</span>${badge}</button>`
+  }
+
+  private bindTrigger(onClick: () => void): void {
+    const trigger = this.shadowRoot.querySelector('.obv-trigger')
+    trigger?.addEventListener('pointerdown', (event) => this.handleTriggerPointerDown(event as PointerEvent))
+    trigger?.addEventListener('pointermove', (event) => this.handleTriggerPointerMove(event as PointerEvent))
+    trigger?.addEventListener('pointerup', (event) => this.handleTriggerPointerUp(event as PointerEvent))
+    trigger?.addEventListener('pointercancel', () => this.cancelTriggerDrag())
+    trigger?.addEventListener('click', (event) => {
+      if (this.suppressNextTriggerClick) {
+        this.suppressNextTriggerClick = false
+        event.preventDefault()
+        return
+      }
+      onClick()
+    })
+  }
+
+  private handleTriggerPointerDown(event: PointerEvent): void {
+    const point = positionToViewportPoint(this.triggerPosition)
+    ;(event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId)
+    this.triggerDragState = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startLeft: point.left,
+      startTop: point.top,
+      initialPosition: this.triggerPosition,
+      moved: false,
+    }
+  }
+
+  private handleTriggerPointerMove(event: PointerEvent): void {
+    if (!this.triggerDragState || event.pointerId !== this.triggerDragState.pointerId) {
+      return
+    }
+    const deltaX = event.clientX - this.triggerDragState.startClientX
+    const deltaY = event.clientY - this.triggerDragState.startClientY
+    if (!this.triggerDragState.moved && Math.hypot(deltaX, deltaY) < TRIGGER_DRAG_THRESHOLD_PX) {
+      return
+    }
+    this.triggerDragState.moved = true
+    this.triggerPosition = viewportPointToNearestCorner(
+      this.triggerDragState.startLeft + deltaX,
+      this.triggerDragState.startTop + deltaY
+    )
+    const trigger = this.shadowRoot.querySelector('.obv-trigger') as HTMLElement | null
+    if (trigger) {
+      trigger.setAttribute('data-trigger-corner', this.triggerPosition.corner)
+      trigger.setAttribute('style', createTriggerPositionStyle(this.triggerPosition))
+    }
+    this.updateAnchoredFeedbackCard()
+    event.preventDefault()
+  }
+
+  private handleTriggerPointerUp(event: PointerEvent): void {
+    if (!this.triggerDragState || event.pointerId !== this.triggerDragState.pointerId) {
+      return
+    }
+    if (this.triggerDragState.moved) {
+      this.suppressNextTriggerClick = true
+      persistTriggerPosition(this.triggerPosition)
+      event.preventDefault()
+    }
+    this.triggerDragState = null
+  }
+
+  private cancelTriggerDrag(): void {
+    if (this.triggerDragState?.moved) {
+      this.triggerPosition = this.triggerDragState.initialPosition
+      const trigger = this.shadowRoot.querySelector('.obv-trigger') as HTMLElement | null
+      if (trigger) {
+        trigger.setAttribute('data-trigger-corner', this.triggerPosition.corner)
+        trigger.setAttribute('style', createTriggerPositionStyle(this.triggerPosition))
+      }
+    }
+    this.triggerDragState = null
+  }
+
+  private applyTheme(theme: FeedbackSdkTheme): void {
+    this.systemThemeCleanup?.()
+    this.systemThemeCleanup = null
+
+    if (theme === 'system') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)')
+      const apply = (): void => {
+        this.host.setAttribute('data-theme', mq.matches ? 'dark' : 'light')
+      }
+      apply()
+      mq.addEventListener('change', apply)
+      this.systemThemeCleanup = () => mq.removeEventListener('change', apply)
+    } else {
+      this.host.setAttribute('data-theme', theme)
+    }
+  }
+
+  destroy(): void {
+    if (this.destroyed) {
+      return
+    }
+    this.destroyed = true
+    this.issueId = null
+    this.systemThemeCleanup?.()
+    this.systemThemeCleanup = null
+    this.consoleBuffer.restore()
+    this.networkBuffer.restore()
+    window.removeEventListener('keydown', this.handleShortcut)
+    window.removeEventListener('resize', this.handleViewportChange)
+    window.removeEventListener('orientationchange', this.handleViewportChange)
+    this.uninstallMarkupKeydownListener()
+    window.removeEventListener('click', this.handleMarkupCanvasClick, true)
+    window.visualViewport?.removeEventListener('resize', this.handleViewportChange)
+    this.clearStatusTimer()
+    this.cancelMarkupSvgRender()
+    this.uninstallGlobalFileDropGuards()
+    this.disconnectCardPlacementObserver()
+    this.host.remove()
+  }
+
+  private readonly handleShortcut = (event: KeyboardEvent): void => {
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === '.') {
+      event.preventDefault()
+      if (this.isCardOpen()) {
+        this.renderTrigger()
+      } else {
+        this.openCard()
+      }
+    }
+  }
+
+  private readonly handleViewportChange = (): void => {
+    this.triggerPosition = clampTriggerPosition(this.triggerPosition)
+    const trigger = this.shadowRoot.querySelector('.obv-trigger') as HTMLElement | null
+    if (trigger) {
+      trigger.setAttribute('data-trigger-corner', this.triggerPosition.corner)
+      trigger.setAttribute('style', createTriggerPositionStyle(this.triggerPosition))
+    }
+    this.updateAnchoredFeedbackCard()
+  }
+
+  private renderTrigger(): void {
+    this.uninstallGlobalFileDropGuards()
+    this.disconnectCardPlacementObserver()
+    this.activePanel = null
+    this.focusedItemId = null
+    this.selectedIssueId = null
+
+    this.markupOverlayOpen = false
+    this.shadowRoot.innerHTML = `<style>${createStyles()}</style>${this.renderTriggerButton()}`
+    this.bindTrigger(() => this.openCard())
+  }
+
+  private getFeedbackCardPlacement(
+    variant: 'form' | 'status',
+    measuredSize?: { width: number; height: number }
+  ): FeedbackCardPlacement {
+    const trigger = this.shadowRoot.querySelector('.obv-trigger')
+    const estimatedHeight =
+      variant === 'form' ? FEEDBACK_FORM_ESTIMATED_HEIGHT_PX : FEEDBACK_STATUS_CARD_ESTIMATED_HEIGHT_PX
+    return createFeedbackCardPlacement(trigger, this.triggerPosition, estimatedHeight, measuredSize)
+  }
+
+  private scheduleAnchoredFeedbackCardUpdate(): void {
+    if (this.placementFrame !== null) {
+      return
+    }
+    if (!window.requestAnimationFrame) {
+      this.updateAnchoredFeedbackCard()
+      return
+    }
+    this.placementFrame = window.requestAnimationFrame(() => {
+      this.placementFrame = null
+      this.updateAnchoredFeedbackCard()
+    })
+  }
+
+  private disconnectCardPlacementObserver(): void {
+    if (this.placementFrame !== null) {
+      const cancelFrame = window.cancelAnimationFrame ?? window.clearTimeout
+      cancelFrame(this.placementFrame)
+      this.placementFrame = null
+    }
+    this.cardResizeObserver?.disconnect()
+    this.cardResizeObserver = null
+  }
+
+  private observeAnchoredFeedbackCard(): void {
+    this.disconnectCardPlacementObserver()
+    const card = this.shadowRoot.querySelector('.obv-card') as HTMLElement | null
+    if (!card) {
+      return
+    }
+    this.scheduleAnchoredFeedbackCardUpdate()
+    if (typeof ResizeObserver !== 'undefined') {
+      this.cardResizeObserver = new ResizeObserver(() => this.scheduleAnchoredFeedbackCardUpdate())
+      this.cardResizeObserver.observe(card)
+    }
+  }
+
+  private updateAnchoredFeedbackCard(): void {
+    const card = this.shadowRoot.querySelector('.obv-card') as HTMLElement | null
+    if (!card) {
+      return
+    }
+    const measuredSize = { width: card.offsetWidth, height: card.offsetHeight }
+    const placement = this.getFeedbackCardPlacement('form', measuredSize)
+    card.setAttribute('style', placement.style)
+    card.setAttribute('data-dialog-direction', placement.direction)
+    card.setAttribute('data-trigger-corner', this.triggerPosition.corner)
+  }
+
+  private openCard(options: { error?: string | null } = {}): void {
+    if ('error' in options) {
+      this.feedbackFormError = options.error ?? null
+    }
+    const wasOpen = this.activePanel !== null
+    if (!wasOpen) {
+      this.activeSillyFeedbackMessage = shouldShowSillyFeedbackMessageOnLoad() ? getRandomSillyFeedbackMessage() : null
+    }
+    this.activePanel = 'unified'
+    this.markupOverlayOpen = false
+    this.elementPickerOpen = false
+    const feedbackCardPlacement = this.getFeedbackCardPlacement('form')
+    const panelContent = this.renderUnifiedPanel()
+    this.shadowRoot.innerHTML = `
+      <style>${createStyles()}</style>
+      ${this.renderTriggerButton()}
+      <div class="obv-card" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-dialog-direction="${escapeHtml(feedbackCardPlacement.direction)}" style="${escapeHtml(feedbackCardPlacement.style)}">
+        ${panelContent}
+      </div>
+    `
+
+    this.installGlobalFileDropGuards()
+    this.bindTrigger(() => this.renderTrigger())
+    this.bindUnifiedPanel()
+    if (!wasOpen) {
+      this.refreshIssueHistoryStatuses().catch(() => undefined)
+    }
+    this.observeAnchoredFeedbackCard()
+  }
+
+  private renderUnifiedPanel(): string {
+    const itemCount = this.roundItems.length
+    const submitLabel = this.config.previewOnly ? 'Preview only' : `${createIcon('arrow')}Fix with Autobuild`
+
+    if (this.submittedIssueUrl) {
+      const safeUrl = getSafeExternalUrl(this.submittedIssueUrl)
+      const linkHtml = safeUrl
+        ? `<div class="obv-success-sub">You can track progress <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer">here</a>.</div>`
+        : ''
+      return `
+        <div class="obv-unified-panel">
+          <div class="obv-card-header">
+            <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? 'Feedback')}</div>
+          </div>
+          <div class="obv-success">
+            <div class="obv-success-message">${createIcon('check')} Sent to Autobuild</div>
+            ${linkHtml}
+            <div class="obv-success-action">
+              <button class="obv-button obv-button-secondary" type="button" data-new-feedback="true">${createIcon('plus')}New feedback</button>
+            </div>
+          </div>
+        </div>
+      `
+    }
+
+    return `
+      <div class="obv-unified-panel">
+        <div class="obv-card-header">
+          <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? 'Feedback')}</div>
+        </div>
+        ${this.config.previewOnly ? `<div class="obv-preview-note">${escapeHtml(this.config.previewOnlyReason)}</div>` : ''}
+        ${this.feedbackFormError ? `<div class="obv-form-error" role="alert">${escapeHtml(this.feedbackFormError)}</div>` : ''}
+        <div class="obv-list-body">
+          ${this.renderRoundItemList()}
+        </div>
+        <div class="obv-list-footer">
+          <div class="obv-footer-tools">
+            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-screenshot-start="true" data-tooltip="Screenshot" aria-label="Annotate screenshot">${createIcon('pen')}</button>
+            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-element-select-start="true" data-tooltip="Select element" aria-label="Select element">${createIcon('element')}</button>
+            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-attach-trigger="true" data-tooltip="Attach file" aria-label="Attach file">${createIcon('paperclip')}</button>
+            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-measure-start="true" data-tooltip="Measure spacing" aria-label="Measure spacing">${createIcon('ruler')}</button>
+            <input class="obv-attachment-input" data-attachment-input="true" type="file" multiple tabindex="-1" aria-hidden="true" style="display:none" />
+          </div>
+          <button class="obv-button" type="button" data-submit-round="true" ${this.config.previewOnly || itemCount === 0 ? 'disabled aria-disabled="true"' : ''}>${submitLabel}</button>
+        </div>
+      </div>
+    `
+  }
+
+  private bindUnifiedPanel(): void {
+    this.shadowRoot.querySelector('.obv-card-header')?.addEventListener('dblclick', (event) => {
+      if ((event.target as Element | null)?.closest('.obv-kicker')) {
+        this.showSillyFeedbackMessage()
+      }
+    })
+
+    this.shadowRoot.querySelector('[data-new-feedback="true"]')?.addEventListener('click', () => {
+      this.submittedIssueUrl = null
+      this.openCard()
+    })
+
+    if (this.submittedIssueUrl) {
+      return
+    }
+
+    this.bindListRows()
+    this.bindFooterTools()
+
+    this.shadowRoot.querySelector('[data-submit-round="true"]')?.addEventListener('click', () => {
+      if (this.config.previewOnly) {
+        this.feedbackFormError = this.config.previewOnlyReason
+        this.openCard()
+        return
+      }
+      this.syncAllInputsToRoundItems()
+      const newText = this.newRowDraft.trim()
+      if (newText && this.roundItems.length < MAX_ROUND_ITEMS) {
+        this.roundItems = [
+          ...this.roundItems,
+          {
+            id: createRoundItemId(),
+            description: newText,
+            markupPayload: this.createAnnotationPayload(),
+            elementGrabs: this.elementGrabItems.length > 0 ? [...this.elementGrabItems] : undefined,
+            measurements: this.measurementItems.length > 0 ? [...this.measurementItems] : undefined,
+            attachmentTokens: this.getReadyAttachmentTokens().length > 0 ? this.getReadyAttachmentTokens() : undefined,
+          },
+        ]
+        this.clearSubmissionDraftState()
+      }
+      this.roundItems = this.roundItems.filter((item) => item.description.trim().length > 0)
+      this.feedbackFormError = null
+      this.handleSubmitRound()
+    })
+
+    const targetId = this.focusedItemId ?? '__new'
+    const targetInput = this.shadowRoot.querySelector(
+      `[data-item-input="${CSS.escape(targetId)}"]`
+    ) as HTMLInputElement | null
+    if (targetInput) {
+      targetInput.focus()
+      targetInput.setSelectionRange(targetInput.value.length, targetInput.value.length)
+    }
+  }
+
+  private syncAllInputsToRoundItems(): void {
+    for (const item of this.roundItems) {
+      const input = this.shadowRoot.querySelector(
+        `[data-item-input="${CSS.escape(item.id)}"]`
+      ) as HTMLInputElement | null
+      if (input) {
+        item.description = input.value
+      }
+    }
+    const newInput = this.shadowRoot.querySelector('[data-item-input="__new"]') as HTMLInputElement | null
+    if (newInput) {
+      this.newRowDraft = newInput.value
+    }
+  }
+
+  private bindListRows(): void {
+    this.shadowRoot.querySelectorAll('[data-item-input]').forEach((element) => {
+      const input = element as HTMLInputElement
+      const itemId = input.getAttribute('data-item-input') ?? ''
+
+      input.addEventListener('focus', () => {
+        this.focusedItemId = itemId === '__new' ? '__new' : itemId
+      })
+
+      input.addEventListener('input', () => {
+        if (itemId === '__new') {
+          this.newRowDraft = input.value
+          return
+        }
+        const item = this.roundItems.find((candidate) => candidate.id === itemId)
+        if (item) {
+          item.description = input.value
+        }
+      })
+
+      input.addEventListener('keydown', (event) => {
+        const keyEvent = event as KeyboardEvent
+
+        if (keyEvent.key === 'Enter') {
+          keyEvent.preventDefault()
+          if (itemId === '__new') {
+            const text = input.value.trim()
+            if (!text) {
+              return
+            }
+            if (this.roundItems.length >= MAX_ROUND_ITEMS) {
+              this.feedbackFormError = `Round is full (max ${MAX_ROUND_ITEMS} items).`
+              this.openCard()
+              return
+            }
+            const newItem: FeedbackRoundItem = {
+              id: createRoundItemId(),
+              description: text,
+              markupPayload: this.createAnnotationPayload(),
+              elementGrabs: this.elementGrabItems.length > 0 ? [...this.elementGrabItems] : undefined,
+              measurements: this.measurementItems.length > 0 ? [...this.measurementItems] : undefined,
+              attachmentTokens:
+                this.getReadyAttachmentTokens().length > 0 ? this.getReadyAttachmentTokens() : undefined,
+            }
+            this.roundItems = [...this.roundItems, newItem]
+            this.clearSubmissionDraftState()
+            this.newRowDraft = ''
+            this.persistDraftRound()
+            this.emitOpenIssueCountChange()
+            this.openCard()
+          } else {
+            this.syncAllInputsToRoundItems()
+            this.persistDraftRound()
+            if (this.roundItems.length >= MAX_ROUND_ITEMS) {
+              return
+            }
+            const currentIndex = this.roundItems.findIndex((candidate) => candidate.id === itemId)
+            const newItem: FeedbackRoundItem = { id: createRoundItemId(), description: '' }
+            this.roundItems = [
+              ...this.roundItems.slice(0, currentIndex + 1),
+              newItem,
+              ...this.roundItems.slice(currentIndex + 1),
+            ]
+            this.focusedItemId = newItem.id
+            this.persistDraftRound()
+            this.emitOpenIssueCountChange()
+            this.openCard()
+          }
+          return
+        }
+
+        if (keyEvent.key === 'Backspace' && input.value === '') {
+          keyEvent.preventDefault()
+          if (itemId === '__new') {
+            if (this.roundItems.length > 0) {
+              const lastItem = this.roundItems[this.roundItems.length - 1]
+              this.focusedItemId = lastItem.id
+              this.openCard()
+            }
+            return
+          }
+          const currentIndex = this.roundItems.findIndex((candidate) => candidate.id === itemId)
+          this.roundItems = this.roundItems.filter((candidate) => candidate.id !== itemId)
+          this.persistDraftRound()
+          this.emitOpenIssueCountChange()
+          const prevItem = this.roundItems[Math.max(0, currentIndex - 1)]
+          this.focusedItemId = prevItem?.id ?? '__new'
+          this.openCard()
+          return
+        }
+
+        if (keyEvent.key === 'ArrowDown') {
+          keyEvent.preventDefault()
+          const allInputs = Array.from(this.shadowRoot.querySelectorAll('[data-item-input]')) as HTMLInputElement[]
+          const currentIdx = allInputs.indexOf(input)
+          const next = allInputs[currentIdx + 1]
+          if (next) {
+            next.focus()
+            next.setSelectionRange(next.value.length, next.value.length)
+          }
+          return
+        }
+
+        if (keyEvent.key === 'ArrowUp') {
+          keyEvent.preventDefault()
+          const allInputs = Array.from(this.shadowRoot.querySelectorAll('[data-item-input]')) as HTMLInputElement[]
+          const currentIdx = allInputs.indexOf(input)
+          const prev = allInputs[currentIdx - 1]
+          if (prev) {
+            prev.focus()
+            prev.setSelectionRange(prev.value.length, prev.value.length)
+          }
+          return
+        }
+
+        if (keyEvent.key === 'Escape') {
+          input.blur()
+          this.focusedItemId = null
+        }
+      })
+    })
+  }
+
+  private bindFooterTools(): void {
+    const screenshotStartButton = this.shadowRoot.querySelector('[data-screenshot-start="true"]')
+    const preservePageStateForScreenshotStart = (event: Event): void => {
+      event.stopPropagation?.()
+    }
+    screenshotStartButton?.addEventListener('pointerdown', preservePageStateForScreenshotStart)
+    screenshotStartButton?.addEventListener('mousedown', preservePageStateForScreenshotStart)
+    screenshotStartButton?.addEventListener('click', (event) => {
+      preservePageStateForScreenshotStart(event)
+      this.syncAllInputsToRoundItems()
+      this.beginMarkupEditSession()
+    })
+    this.shadowRoot.querySelector('[data-element-select-start="true"]')?.addEventListener('click', () => {
+      this.syncAllInputsToRoundItems()
+      this.renderElementPickerOverlay()
+    })
+    this.shadowRoot.querySelector('[data-attach-trigger="true"]')?.addEventListener('click', () => {
+      const fileInput = this.shadowRoot.querySelector('[data-attachment-input="true"]') as HTMLInputElement | null
+      fileInput?.click()
+    })
+    this.shadowRoot.querySelector('[data-measure-start="true"]')?.addEventListener('click', () => {
+      this.syncAllInputsToRoundItems()
+      this.renderRulerOverlay()
+    })
+    const fileInput = this.shadowRoot.querySelector('[data-attachment-input="true"]') as HTMLInputElement | null
+    fileInput?.addEventListener('click', (event) => {
+      event.stopPropagation()
+    })
+    fileInput?.addEventListener('change', () => {
+      if (fileInput) {
+        this.addAttachmentFiles(Array.from(fileInput.files ?? []))
+        fileInput.value = ''
+      }
+    })
+    this.shadowRoot.querySelector('.obv-list-body')?.addEventListener('paste', (event) => {
+      const clipboardEvent = event as ClipboardEvent
+      const files = Array.from(clipboardEvent.clipboardData?.files ?? [])
+      const itemFiles = Array.from(clipboardEvent.clipboardData?.items ?? [])
+        .filter((item) => item.kind === 'file')
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null)
+      this.addAttachmentFiles(files.length > 0 ? files : itemFiles)
+    })
+    this.bindElementGrabChips()
+    this.shadowRoot.querySelectorAll('[data-attachment-remove]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const id = (button as HTMLElement).getAttribute('data-attachment-remove')
+        if (id) {
+          this.removeAttachment(id)
+        }
+      })
+    })
+    this.shadowRoot.querySelector('[data-remove-markup="true"]')?.addEventListener('click', () => {
+      this.syncAllInputsToRoundItems()
+      this.clearMarkupState()
+      this.openCard()
+    })
+    this.shadowRoot.querySelectorAll('[data-remove-grab]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const id = (button as HTMLElement).getAttribute('data-remove-grab')
+        if (id) {
+          this.syncAllInputsToRoundItems()
+          this.elementGrabItems = this.elementGrabItems.filter((grab) => grab.id !== id)
+          this.openCard()
+        }
+      })
+    })
+    this.shadowRoot.querySelectorAll('[data-remove-attachment]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const id = (button as HTMLElement).getAttribute('data-remove-attachment')
+        if (id) {
+          this.syncAllInputsToRoundItems()
+          this.feedbackAttachments = this.feedbackAttachments.filter((a) => a.id !== id)
+          this.openCard()
+        }
+      })
+    })
+    this.shadowRoot.querySelectorAll('[data-remove-measurement]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const id = (button as HTMLElement).getAttribute('data-remove-measurement')
+        if (id) {
+          this.syncAllInputsToRoundItems()
+          this.measurementItems = this.measurementItems.filter((m) => m.id !== id)
+          this.openCard()
+        }
+      })
+    })
+    this.shadowRoot.querySelectorAll('[data-item-remove-markup]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const itemId = (button as HTMLElement).getAttribute('data-item-remove-markup')
+        if (itemId) {
+          this.syncAllInputsToRoundItems()
+          const item = this.roundItems.find((r) => r.id === itemId)
+          if (item) {
+            item.markupPayload = undefined
+          }
+          this.persistDraftRound()
+          this.openCard()
+        }
+      })
+    })
+    this.shadowRoot.querySelectorAll('[data-item-remove-grab]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const value = (button as HTMLElement).getAttribute('data-item-remove-grab')
+        if (value) {
+          const [itemId, grabId] = value.split(':')
+          this.syncAllInputsToRoundItems()
+          const item = this.roundItems.find((r) => r.id === itemId)
+          if (item && item.elementGrabs) {
+            item.elementGrabs = item.elementGrabs.filter((g) => g.id !== grabId)
+            if (item.elementGrabs.length === 0) {
+              item.elementGrabs = undefined
+            }
+          }
+          this.persistDraftRound()
+          this.openCard()
+        }
+      })
+    })
+    this.shadowRoot.querySelectorAll('[data-item-remove-file]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const value = (button as HTMLElement).getAttribute('data-item-remove-file')
+        if (value) {
+          const [itemId, indexStr] = value.split(':')
+          const index = Number(indexStr)
+          this.syncAllInputsToRoundItems()
+          const item = this.roundItems.find((r) => r.id === itemId)
+          if (item && item.attachmentTokens) {
+            item.attachmentTokens = item.attachmentTokens.filter((_, i) => i !== index)
+            if (item.attachmentTokens.length === 0) {
+              item.attachmentTokens = undefined
+            }
+          }
+          this.persistDraftRound()
+          this.openCard()
+        }
+      })
+    })
+    this.shadowRoot.querySelectorAll('[data-item-remove-measurement]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const value = (button as HTMLElement).getAttribute('data-item-remove-measurement')
+        if (value) {
+          const [itemId, measurementId] = value.split(':')
+          this.syncAllInputsToRoundItems()
+          const item = this.roundItems.find((r) => r.id === itemId)
+          if (item && item.measurements) {
+            item.measurements = item.measurements.filter((m) => m.id !== measurementId)
+            if (item.measurements.length === 0) {
+              item.measurements = undefined
+            }
+          }
+          this.persistDraftRound()
+          this.openCard()
+        }
+      })
+    })
+  }
+
+  private showSillyFeedbackMessage(): void {
+    this.syncAllInputsToRoundItems()
+    this.activeSillyFeedbackMessage = getRandomSillyFeedbackMessage()
+    this.openCard()
+  }
+
+  private handleSubmitRound(): void {
+    const itemsToSubmit = [...this.roundItems]
+    if (itemsToSubmit.length === 0) {
+      this.openCard({ error: 'Add at least one feedback item before submitting.' })
+      return
+    }
+    if (itemsToSubmit.length === 1) {
+      const singleItem = itemsToSubmit[0]
+      const input: FeedbackSubmissionInput = {
+        type: DEFAULT_FEEDBACK_ISSUE_TYPE,
+        severity: DEFAULT_FEEDBACK_ISSUE_SEVERITY,
+        description: singleItem.description,
+        attachmentTokens: singleItem.attachmentTokens,
+      }
+      this.markupItems = singleItem.markupPayload?.items ?? this.markupItems
+      this.markupContext = singleItem.markupPayload
+        ? {
+            viewport: singleItem.markupPayload.viewport,
+            scroll: singleItem.markupPayload.scroll,
+            devicePixelRatio: singleItem.markupPayload.devicePixelRatio,
+            domSnapshot: singleItem.markupPayload.domSnapshot,
+            capturedAt: singleItem.markupPayload.capturedAt,
+          }
+        : this.markupContext
+      this.elementGrabItems = singleItem.elementGrabs ?? this.elementGrabItems
+      this.measurementItems = singleItem.measurements ?? this.measurementItems
+      this.submitFeedback(input).catch((err: unknown) => {
+        this.syncAllInputsToRoundItems()
+        this.openCard({ error: err instanceof Error ? err.message : 'Failed to submit feedback' })
+      })
+      return
+    }
+    this.submitFeedbackRound(itemsToSubmit).catch((err: unknown) => {
+      this.syncAllInputsToRoundItems()
+      this.openCard({ error: err instanceof Error ? err.message : 'Failed to submit feedback' })
+    })
+  }
+
+  private async submitFeedbackRound(items: FeedbackRoundItem[]): Promise<void> {
+    const sessionReplayUrl = await this.resolveSessionReplayUrl({
+      type: 'improvement',
+      description: items.map((item) => item.description).join('\n\n---\n\n'),
+    })
+    const roundPayloadItems = items.map((item) => ({
+      description: item.description,
+      annotationPayload: item.markupPayload ?? undefined,
+      elementGrabs: item.elementGrabs ?? undefined,
+      measurements: item.measurements ?? undefined,
+      attachmentTokens: item.attachmentTokens ?? undefined,
+    }))
+    const response = await fetch(createFeedbackApiUrl(this.config.apiBaseUrl, '/v1/feedback/submit-round'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        publicKey: this.config.publicKey,
+        identityToken: this.config.identityToken,
+        sessionReplayUrl,
+        env: this.config.env,
+        prNumber: this.config.prNumber,
+        sourceUrl: redactUrl(window.location.href),
+        sdkVersion: '0.0.1',
+        items: roundPayloadItems,
+        domSnapshot: this.config.capturePageContext
+          ? serializeDomSnapshot(document.body, this.config.redactSelectors)
+          : undefined,
+        consoleLogs: this.consoleBuffer.read(),
+        networkLog: this.networkBuffer.read(),
+        context: this.config.capturePageContext
+          ? {
+              url: redactUrl(window.location.href),
+              userAgent: navigator.userAgent,
+              viewport: { width: window.innerWidth, height: window.innerHeight },
+              scroll: { x: window.scrollX, y: window.scrollY },
+            }
+          : undefined,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Feedback submission failed (${response.status})`)
+    }
+
+    const payload = (await response.json()) as {
+      data?: {
+        issueId?: string
+        status?: FeedbackClientStatus
+        title?: string
+        reportedAt?: string
+        issueUrl?: string
+        workerThread?: FeedbackWorkerThreadLink
+      }
+    }
+    if (this.destroyed) {
+      return
+    }
+    this.issueId = payload.data?.issueId ?? null
+    this.statusPollIndex = 0
+    this.clearStatusTimer()
+    if (this.issueId) {
+      this.rememberIssueHistoryEntry({
+        issueId: this.issueId,
+        status: payload.data?.status ?? 'received',
+        title: payload.data?.title,
+        reportedAt: payload.data?.reportedAt,
+        workerThread: normalizeWorkerThreadLink(payload.data?.workerThread),
+      })
+    }
+    this.roundItems = []
+    this.focusedItemId = null
+    this.clearSubmissionDraftState()
+    this.feedbackFormError = null
+    this.submittedIssueUrl = payload.data?.issueUrl ?? null
+    this.persistDraftRound()
+    this.emitOpenIssueCountChange()
+    this.openCard()
+    this.scheduleStatusPoll(this.issueId)
+  }
+
+  private persistDraftRound(): void {
+    persistDraftRound(this.draftRoundStorageKey, this.roundItems)
+  }
+
+  private bindElementGrabChips(): void {
+    this.shadowRoot.querySelectorAll('[data-element-grab-remove]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const id = button.getAttribute('data-element-grab-remove')
+        if (id) {
+          this.syncAllInputsToRoundItems()
+          this.elementGrabItems = this.elementGrabItems.filter((item) => item.id !== id)
+          this.openCard()
+        }
+      })
+    })
+  }
+
+  private renderElementGrabChipList(): string {
+    if (this.elementGrabItems.length === 0) {
+      return ''
+    }
+    const chips = this.elementGrabItems
+      .map((item) => {
+        const displayName = getElementGrabDisplayName(item)
+        return `<div class="obv-element-grab-chip"><span class="obv-element-grab-chip-name">${createIcon('element')}<span>${escapeHtml(displayName)}</span></span><button class="obv-icon-button obv-element-grab-remove" type="button" aria-label="Remove ${escapeHtml(displayName)}" data-element-grab-remove="${escapeHtml(item.id)}">${createIcon('close')}</button></div>`
+      })
+      .join('')
+    return `<div class="obv-element-grab-list">${chips}</div>`
+  }
+
+  private renderAnnotationSummary(): string {
+    if (this.markupItems.length === 0) {
+      return ''
+    }
+    return `<div class="obv-annotation-summary">${this.markupItems.length} annotation${this.markupItems.length === 1 ? '' : 's'} attached</div>`
+  }
+
+  private renderAttachmentsDropzone(): string {
+    const list =
+      this.feedbackAttachments.length > 0
+        ? `<div class="obv-attachment-list">${this.feedbackAttachments.map((attachment) => this.renderAttachmentChip(attachment)).join('')}</div>`
+        : ''
+    return `<div class="obv-attachment-dropzone" data-attachment-dropzone="true" role="button" tabindex="0" aria-label="Add feedback attachments"><span class="obv-attachment-prompt">${createIcon('paperclip')}<span>Drop files here or paste screenshots/files. ${this.feedbackAttachments.length}/${MAX_FEEDBACK_ATTACHMENTS} attached.</span></span><input class="obv-attachment-input" data-attachment-input="true" type="file" multiple tabindex="-1" aria-hidden="true" />${list}</div>`
+  }
+
+  private renderAttachmentChip(attachment: FeedbackAttachmentUpload): string {
+    const status =
+      attachment.status === 'ready' ? 'Ready' : attachment.status === 'uploading' ? 'Uploading…' : 'Upload failed'
+    const statusDetail = attachment.status === 'error' && attachment.error ? attachment.error : status
+    return `<div class="obv-attachment-chip" data-status="${escapeHtml(attachment.status)}"><div><span class="obv-attachment-name">${createIcon('paperclip')}<span class="obv-attachment-name-text">${escapeHtml(attachment.name)}</span></span><span class="obv-attachment-meta">${escapeHtml(statusDetail)} • ${escapeHtml(attachment.mimeType)} • ${formatAttachmentSize(attachment.sizeBytes)}</span></div><button class="obv-icon-button obv-attachment-remove" type="button" aria-label="Remove ${escapeHtml(attachment.name)}" data-attachment-remove="${escapeHtml(attachment.id)}">${createIcon('close')}</button></div>`
+  }
+
+  private isFileDragEvent(event: DragEvent): boolean {
+    const types = Array.from(event.dataTransfer?.types ?? [])
+    return types.includes('Files') || (event.dataTransfer?.files?.length ?? 0) > 0
+  }
+
+  private eventTargetsFeedbackWidget(event: Event): boolean {
+    const path: readonly unknown[] = typeof event.composedPath === 'function' ? event.composedPath() : []
+    return path.includes(this.host)
+  }
+
+  private readonly guardGlobalFileDragEvent = (event: Event): void => {
+    const dragEvent = event as DragEvent
+    if (!this.isFileDragEvent(dragEvent)) {
+      return
+    }
+    dragEvent.preventDefault()
+    if (!this.eventTargetsFeedbackWidget(dragEvent)) {
+      dragEvent.stopImmediatePropagation?.()
+      dragEvent.stopPropagation()
+    }
+  }
+
+  private readonly guardGlobalFileDragLeaveEvent = (event: Event): void => {
+    const dragEvent = event as DragEvent
+    if (!this.isFileDragEvent(dragEvent) || this.eventTargetsFeedbackWidget(dragEvent)) {
+      return
+    }
+    dragEvent.stopImmediatePropagation?.()
+    dragEvent.stopPropagation()
+  }
+
+  private readonly guardGlobalFileDropEvent = (event: Event): void => {
+    const dragEvent = event as DragEvent
+    if (!this.isFileDragEvent(dragEvent)) {
+      return
+    }
+    dragEvent.preventDefault()
+    if (!this.eventTargetsFeedbackWidget(dragEvent)) {
+      return
+    }
+    dragEvent.stopImmediatePropagation?.()
+    dragEvent.stopPropagation()
+    const files = Array.from(dragEvent.dataTransfer?.files ?? [])
+    if (files.length > 0) {
+      this.addAttachmentFiles(files)
+    }
+  }
+  private installGlobalFileDropGuards(): void {
+    if (this.globalFileDropGuardsInstalled) {
+      return
+    }
+    const options = { capture: true }
+    for (const target of [window, document]) {
+      target.addEventListener('dragenter', this.guardGlobalFileDragEvent, options)
+      target.addEventListener('dragover', this.guardGlobalFileDragEvent, options)
+      target.addEventListener('dragleave', this.guardGlobalFileDragLeaveEvent, options)
+      target.addEventListener('drop', this.guardGlobalFileDropEvent, options)
+    }
+    this.globalFileDropGuardsInstalled = true
+  }
+
+  private uninstallGlobalFileDropGuards(): void {
+    if (!this.globalFileDropGuardsInstalled) {
+      return
+    }
+    const options = { capture: true }
+    for (const target of [window, document]) {
+      target.removeEventListener('dragenter', this.guardGlobalFileDragEvent, options)
+      target.removeEventListener('dragover', this.guardGlobalFileDragEvent, options)
+      target.removeEventListener('dragleave', this.guardGlobalFileDragLeaveEvent, options)
+      target.removeEventListener('drop', this.guardGlobalFileDropEvent, options)
+    }
+    this.globalFileDropGuardsInstalled = false
+  }
+
+  private bindAttachmentControls(): void {
+    const form = this.shadowRoot.querySelector('form')
+    const dropzone = this.shadowRoot.querySelector('[data-attachment-dropzone]') as HTMLElement | null
+    const fileInput = this.shadowRoot.querySelector('[data-attachment-input]') as HTMLInputElement | null
+    const stopAttachmentDropEvent = (event: Event): void => {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    const addDroppedFiles = (event: Event): void => {
+      const files = Array.from((event as DragEvent).dataTransfer?.files ?? [])
+      if (files.length === 0) return
+      stopAttachmentDropEvent(event)
+      this.addAttachmentFiles(files)
+    }
+    form?.addEventListener('dragover', (event) => {
+      if ((event as DragEvent).dataTransfer?.types.includes('Files')) {
+        stopAttachmentDropEvent(event)
+      }
+    })
+    form?.addEventListener('drop', addDroppedFiles)
+    dropzone?.addEventListener('dragenter', stopAttachmentDropEvent)
+    dropzone?.addEventListener('dragover', stopAttachmentDropEvent)
+    dropzone?.addEventListener('drop', addDroppedFiles)
+    dropzone?.addEventListener('click', (event) => {
+      if ((event.target as Element | null)?.closest('[data-attachment-remove]')) {
+        return
+      }
+      fileInput?.click()
+    })
+    dropzone?.addEventListener('keydown', (event) => {
+      const keyboardEvent = event as KeyboardEvent
+      if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') {
+        return
+      }
+      event.preventDefault()
+      fileInput?.click()
+    })
+    fileInput?.addEventListener('click', (event) => {
+      event.stopPropagation()
+    })
+    fileInput?.addEventListener('change', () => {
+      this.addAttachmentFiles(Array.from(fileInput.files ?? []))
+      fileInput.value = ''
+    })
+    form?.addEventListener('paste', (event) => {
+      const clipboardEvent = event as ClipboardEvent
+      const files = Array.from(clipboardEvent.clipboardData?.files ?? [])
+      const itemFiles = Array.from(clipboardEvent.clipboardData?.items ?? [])
+        .filter((item) => item.kind === 'file')
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null)
+      this.addAttachmentFiles(files.length > 0 ? files : itemFiles)
+    })
+    this.shadowRoot.querySelectorAll('[data-attachment-remove]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const id = (button as HTMLElement).getAttribute('data-attachment-remove')
+        if (id) {
+          this.removeAttachment(id)
+        }
+      })
+    })
+  }
+
+  private isCardOpen(): boolean {
+    return this.activePanel !== null
+  }
+
+  private renderItemPills(item: FeedbackRoundItem): string {
+    const pills: string[] = []
+    if (item.markupPayload && item.markupPayload.items.length > 0) {
+      pills.push(
+        `<span class="obv-row-pill">${createIcon('pen')}<span class="obv-row-pill-label">${item.markupPayload.items.length} annotation${item.markupPayload.items.length === 1 ? '' : 's'}</span><button class="obv-row-pill-x" type="button" data-item-remove-markup="${escapeHtml(item.id)}" aria-label="Remove annotations">${createIcon('close')}</button></span>`
+      )
+    }
+    if (item.elementGrabs) {
+      for (const grab of item.elementGrabs) {
+        pills.push(
+          `<span class="obv-row-pill">${createIcon('element')}<span class="obv-row-pill-label">${escapeHtml(getElementGrabDisplayName(grab))}</span><button class="obv-row-pill-x" type="button" data-item-remove-grab="${escapeHtml(item.id)}:${escapeHtml(grab.id)}" aria-label="Remove ${escapeHtml(getElementGrabDisplayName(grab))}">${createIcon('close')}</button></span>`
+        )
+      }
+    }
+    if (item.attachmentTokens && item.attachmentTokens.length > 0) {
+      for (let i = 0; i < item.attachmentTokens.length; i++) {
+        pills.push(
+          `<span class="obv-row-pill">${createIcon('paperclip')}<span class="obv-row-pill-label">file ${i + 1}</span><button class="obv-row-pill-x" type="button" data-item-remove-file="${escapeHtml(item.id)}:${i}" aria-label="Remove file">${createIcon('close')}</button></span>`
+        )
+      }
+    }
+    if (item.measurements) {
+      for (const m of item.measurements) {
+        pills.push(
+          `<span class="obv-row-pill">${createIcon('ruler')}<span class="obv-row-pill-label">${escapeHtml(m.description)}</span><button class="obv-row-pill-x" type="button" data-item-remove-measurement="${escapeHtml(item.id)}:${escapeHtml(m.id)}" aria-label="Remove measurement">${createIcon('close')}</button></span>`
+        )
+      }
+    }
+    return pills.length > 0 ? `<div class="obv-row-meta">${pills.join('')}</div>` : ''
+  }
+
+  private renderComposePills(): string {
+    const pills: string[] = []
+    if (this.markupItems.length > 0) {
+      pills.push(
+        `<span class="obv-row-pill">${createIcon('pen')}<span class="obv-row-pill-label">${this.markupItems.length} annotation${this.markupItems.length === 1 ? '' : 's'}</span><button class="obv-row-pill-x" type="button" data-remove-markup="true" aria-label="Remove annotations">${createIcon('close')}</button></span>`
+      )
+    }
+    for (const grab of this.elementGrabItems) {
+      pills.push(
+        `<span class="obv-row-pill">${createIcon('element')}<span class="obv-row-pill-label">${escapeHtml(getElementGrabDisplayName(grab))}</span><button class="obv-row-pill-x" type="button" data-remove-grab="${escapeHtml(grab.id)}" aria-label="Remove ${escapeHtml(getElementGrabDisplayName(grab))}">${createIcon('close')}</button></span>`
+      )
+    }
+    for (const attachment of this.feedbackAttachments) {
+      const statusSuffix = attachment.status === 'uploading' ? '…' : ''
+      pills.push(
+        `<span class="obv-row-pill">${createIcon('paperclip')}<span class="obv-row-pill-label">${escapeHtml(attachment.name)}${statusSuffix}</span><button class="obv-row-pill-x" type="button" data-remove-attachment="${escapeHtml(attachment.id)}" aria-label="Remove ${escapeHtml(attachment.name)}">${createIcon('close')}</button></span>`
+      )
+    }
+    for (const m of this.measurementItems) {
+      pills.push(
+        `<span class="obv-row-pill">${createIcon('ruler')}<span class="obv-row-pill-label">${escapeHtml(m.description)}</span><button class="obv-row-pill-x" type="button" data-remove-measurement="${escapeHtml(m.id)}" aria-label="Remove measurement">${createIcon('close')}</button></span>`
+      )
+    }
+    return pills.length > 0 ? `<div class="obv-row-meta">${pills.join('')}</div>` : ''
+  }
+
+  private renderRoundItemList(): string {
+    const rows = this.roundItems.map((item, index) => {
+      const num = index + 1
+      const pillsRow = this.renderItemPills(item)
+      return `<div class="obv-list-row" data-item-id="${escapeHtml(item.id)}"><span class="obv-row-number">${num}</span><input class="obv-row-input" type="text" value="${escapeHtml(item.description)}" data-item-input="${escapeHtml(item.id)}" /></div>${pillsRow}`
+    })
+
+    const newNum = this.roundItems.length + 1
+    const newRow = `<div class="obv-list-row" data-item-id="__new"><span class="obv-row-number">${newNum}</span><input class="obv-row-input" type="text" value="${escapeHtml(this.newRowDraft)}" placeholder="What's wrong? (Enter for new line)" data-item-input="__new" /></div>`
+    const composePills = this.renderComposePills()
+
+    return `${rows.join('')}${newRow}${composePills}`
+  }
+
+  private removeRoundItem(id: string): void {
+    this.syncAllInputsToRoundItems()
+    this.roundItems = this.roundItems.filter((item) => item.id !== id)
+    this.persistDraftRound()
+    this.emitOpenIssueCountChange()
+    this.openCard()
+  }
+
+  private renderIssueHistorySection(): string {
+    if (this.issueHistory.length === 0) {
+      return ''
+    }
+    const renderedEntries = this.issueHistory
+      .map((entry, index) => ({ entry, index }))
+      .sort(
+        (left, right) =>
+          Number(isTerminalIssueStatus(left.entry.status)) - Number(isTerminalIssueStatus(right.entry.status))
+      )
+    return `
+      <section class="obv-issue-section" aria-label="Recently reported feedback statuses">
+        <div class="obv-issue-list">
+          ${renderedEntries.map(({ entry, index }) => this.renderIssueHistoryEntry(entry, index)).join('')}
+        </div>
+      </section>
+    `
+  }
+  private renderIssueHistoryEntry(entry: FeedbackIssueHistoryEntry, index: number): string {
+    const title = entry.title?.trim() || `Issue ${entry.issueId.slice(0, 8)}`
+    const titleMarkup = `<button class="obv-issue-title obv-button obv-button-secondary" type="button" data-history-detail-index="${index}" aria-label="Open status details for ${escapeHtml(title)}">${escapeHtml(title)}</button>`
+    const icon = entry.status === 'resolved' ? createIcon('check') : createIcon('status')
+    const meta = [
+      formatRelativeTime(entry.reportedAt ?? entry.updatedAt ?? entry.checkedAt),
+      historyStatusLabel(entry.status),
+    ]
+      .filter(Boolean)
+      .join(' • ')
+    const isTerminal = isTerminalIssueStatus(entry.status)
+    return `
+      <div class="obv-issue-row" data-terminal="${isTerminal ? 'true' : 'false'}">
+        <span class="obv-issue-status-icon" aria-hidden="true">${icon}</span>
+        ${titleMarkup}
+        <span class="obv-issue-meta">${escapeHtml(meta)}</span>
+        <button class="obv-icon-button obv-issue-dismiss" type="button" aria-label="Dismiss ${escapeHtml(title)}" data-history-dismiss-index="${index}">${createIcon('close')}</button>
+      </div>
+    `
+  }
+
+  private renderSelectedIssueDetail(): string {
+    const entry = this.issueHistory.find((candidate) => candidate.issueId === this.selectedIssueId)
+    if (!entry) {
+      return ''
+    }
+    const title = entry.title?.trim() || `Issue ${entry.issueId.slice(0, 8)}`
+    const timestamps = [
+      entry.reportedAt ? `Reported ${formatRelativeTime(entry.reportedAt)}` : null,
+      entry.updatedAt ? `Updated ${formatRelativeTime(entry.updatedAt)}` : null,
+    ]
+      .filter(Boolean)
+      .join(' • ')
+    const aiHeadline = entry.aiSummary?.headline?.trim()
+    const aiProgress = entry.aiSummary?.progress?.trim()
+    const workerThreadUrl = getSafeExternalUrl(entry.links?.workerThread?.url ?? entry.workerThread?.url)
+    const pullRequest = entry.links?.pullRequest
+    const pullRequestUrl = getSafeExternalUrl(pullRequest?.url)
+    const links = [
+      workerThreadUrl
+        ? `<a href="${escapeHtml(workerThreadUrl)}" target="_blank" rel="noreferrer">Worker thread</a>`
+        : '',
+      pullRequest && pullRequestUrl
+        ? `<a href="${escapeHtml(pullRequestUrl)}" target="_blank" rel="noreferrer">PR #${pullRequest.number}</a>`
+        : '',
+    ].filter(Boolean)
+    return `
+      <section class="obv-issue-detail" aria-label="Issue status details" tabindex="-1" data-issue-detail="true">
+        <div class="obv-issue-detail-header">
+          <div>
+            <div class="obv-kicker">Current status</div>
+            <div class="obv-issue-detail-title">${escapeHtml(title)}</div>
+          </div>
+          <button class="obv-icon-button" type="button" aria-label="Close issue status details" data-issue-detail-close="true">${createIcon('close')}</button>
+        </div>
+        <div class="obv-issue-detail-status">${entry.status === 'resolved' ? createIcon('check') : createIcon('status')}${escapeHtml(historyStatusLabel(entry.status))}</div>
+        ${aiHeadline ? `<div class="obv-issue-detail-body"><strong>${escapeHtml(aiHeadline)}</strong></div>` : ''}
+        ${aiProgress ? `<div class="obv-issue-detail-body">${escapeHtml(aiProgress)}</div>` : ''}
+        ${entry.resolvedNote ? `<div class="obv-issue-detail-body">${escapeHtml(entry.resolvedNote)}</div>` : ''}
+        ${timestamps ? `<div class="obv-issue-detail-meta">${escapeHtml(timestamps)}</div>` : ''}
+        ${links.length > 0 ? `<div class="obv-issue-detail-links">${links.join('')}</div>` : ''}
+      </section>
+    `
+  }
+
+  private openIssueDetail(issueId: string): void {
+    this.syncAllInputsToRoundItems()
+    this.selectedIssueId = issueId
+    this.refreshIssueHistoryEntry(issueId)
+      .catch(() => undefined)
+      .finally(() => {
+        if (!this.destroyed && this.selectedIssueId === issueId && this.isCardOpen() && !this.markupOverlayOpen) {
+          const activeElement = document.activeElement
+          const detailElementBeforeRefresh = this.shadowRoot.querySelector('[data-issue-detail="true"]')
+          const hadDetailFocus = !!activeElement && detailElementBeforeRefresh?.contains(activeElement)
+          this.openCard()
+          const detailElement = this.shadowRoot.querySelector('[data-issue-detail="true"]') as HTMLElement | null
+          if (hadDetailFocus) {
+            detailElement?.focus()
+          }
+        }
+      })
+    this.openCard()
+    ;(this.shadowRoot.querySelector('[data-issue-detail="true"]') as HTMLElement | null)?.focus()
+  }
+
+  private bindIssueStatusTray(): void {
+    this.issueHistory.forEach((entry, index) => {
+      this.shadowRoot.querySelector(`[data-history-detail-index="${index}"]`)?.addEventListener('click', () => {
+        this.openIssueDetail(entry.issueId)
+      })
+      this.shadowRoot.querySelector(`[data-history-dismiss-index="${index}"]`)?.addEventListener('click', () => {
+        this.syncAllInputsToRoundItems()
+        this.issueHistory = this.issueHistory.filter((candidate) => candidate.issueId !== entry.issueId)
+        if (this.selectedIssueId === entry.issueId) {
+          this.selectedIssueId = null
+        }
+        this.persistIssueHistory()
+        this.emitOpenIssueCountChange()
+        this.openCard()
+      })
+    })
+    this.shadowRoot.querySelector('[data-issue-detail-close="true"]')?.addEventListener('click', () => {
+      this.selectedIssueId = null
+      this.openCard()
+    })
+  }
+
+  private captureMarkupContext(): FeedbackMarkupContext {
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      scroll: { x: window.scrollX, y: window.scrollY },
+      devicePixelRatio: getDevicePixelRatio(),
+      domSnapshot: this.config.capturePageContext
+        ? serializeDomSnapshot(document.body, this.config.redactSelectors)
+        : undefined,
+      capturedAt: new Date().toISOString(),
+    }
+  }
+
+  private createAnnotationPayload(): FeedbackMarkupPayload | undefined {
+    if (this.markupItems.length === 0 || !this.markupContext) {
+      return undefined
+    }
+    return {
+      ...this.markupContext,
+      items: this.markupItems,
+    }
+  }
+
+  private renderMarkupOverlay(): void {
+    this.cancelMarkupSvgRender()
+    this.markupOverlayOpen = true
+    this.shadowRoot.innerHTML = `
+      <style>${createStyles()}</style>
+      ${this.renderMarkupOverlayContent()}
+    `
+    this.bindMarkupOverlay()
+  }
+
+  private renderMarkupOverlayContent(): string {
+    return `
+      <div class="obv-markup-overlay" role="application" aria-label="Feedback markup canvas. Drag to add a ${escapeHtml(this.markupTool)} callout. Press Escape to cancel this edit." tabindex="0">
+        <svg class="obv-markup-svg" aria-hidden="true">${this.renderMarkupSvg()}</svg>
+      </div>
+      <div class="obv-markup-toolbar" role="toolbar" aria-label="Feedback markup tools">
+        ${MARKUP_TOOLS.map((tool) => this.renderMarkupToolButton(tool)).join('')}
+        <button class="obv-icon-button obv-toolbar-button" type="button" aria-label="Undo last markup" data-markup-undo="true" ${this.markupItems.length === 0 ? 'disabled aria-disabled="true"' : ''}>${createIcon('undo')}</button>
+        <button class="obv-icon-button obv-toolbar-button" type="button" aria-label="Cancel markup" data-markup-cancel="true">${createIcon('close')}</button>
+        <button class="obv-button" type="button" data-markup-done="true">${createIcon('check')}Done</button>
+      </div>
+    `
+  }
+
+  private renderMarkupSvg(): string {
+    return [...this.markupItems, ...(this.markupDraft ? [this.markupDraft] : [])]
+      .map((item) => this.renderMarkupItem(item))
+      .join('')
+  }
+
+  private renderMarkupToolButton(tool: FeedbackMarkupTool): string {
+    const label = tool === 'point' ? 'Point marker' : tool === 'pen' ? 'Pen tool' : 'Rectangle tool'
+    const iconName = tool === 'point' ? 'point' : tool === 'pen' ? 'pen' : 'rectangle'
+    return `<button class="obv-icon-button obv-toolbar-button obv-markup-tool" type="button" data-markup-tool="${tool}" aria-label="${label}" aria-pressed="${String(this.markupTool === tool)}">${createIcon(iconName)}</button>`
+  }
+
+  private renderMarkupItem(item: FeedbackMarkupItem | FeedbackMarkupDraft): string {
+    const points = item.points
+    const tool = item.tool
+    const first = points[0] ?? ('start' in item ? item.start : { x: 0, y: 0 })
+    const last = points[points.length - 1] ?? first
+    if (tool === 'rectangle') {
+      const x = Math.min(first.x, last.x)
+      const y = Math.min(first.y, last.y)
+      const width = Math.abs(last.x - first.x)
+      const height = Math.abs(last.y - first.y)
+      return `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="rgba(196,181,253,0.16)" stroke="#7c3aed" stroke-width="3" rx="6" />`
+    }
+    if (tool === 'pen') {
+      return `<polyline points="${points.map((point) => `${point.x},${point.y}`).join(' ')}" fill="none" stroke="#7c3aed" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />`
+    }
+    const angle = Math.atan2(last.y - first.y, last.x - first.x)
+    const arrowLength = 18
+    const arrowAngle = Math.PI / 6
+    const leftPoint = {
+      x: Math.round(last.x - arrowLength * Math.cos(angle - arrowAngle)),
+      y: Math.round(last.y - arrowLength * Math.sin(angle - arrowAngle)),
+    }
+    const rightPoint = {
+      x: Math.round(last.x - arrowLength * Math.cos(angle + arrowAngle)),
+      y: Math.round(last.y - arrowLength * Math.sin(angle + arrowAngle)),
+    }
+    return `<line x1="${first.x}" y1="${first.y}" x2="${last.x}" y2="${last.y}" stroke="#7c3aed" stroke-width="3" stroke-linecap="round" /><polyline points="${leftPoint.x},${leftPoint.y} ${last.x},${last.y} ${rightPoint.x},${rightPoint.y}" fill="none" stroke="#7c3aed" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />`
+  }
+
+  private bindMarkupOverlay(): void {
+    const overlay = this.shadowRoot.querySelector('.obv-markup-overlay') as HTMLElement | null
+    this.installMarkupKeydownListener()
+    overlay?.addEventListener('pointerdown', (event) => this.handleMarkupPointerDown(event as PointerEvent))
+    overlay?.addEventListener('pointermove', (event) => this.handleMarkupPointerMove(event as PointerEvent))
+    overlay?.addEventListener('pointerup', (event) => this.handleMarkupPointerUp(event as PointerEvent))
+    overlay?.addEventListener('pointercancel', (event) => {
+      event.stopPropagation?.()
+      this.suppressNextMarkupCanvasClick = false
+      this.markupDraft = null
+      this.renderMarkupOverlay()
+    })
+    overlay?.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation?.()
+    })
+    this.shadowRoot.querySelectorAll('[data-markup-tool]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const markupTool = resolveMarkupTool(button.getAttribute('data-markup-tool'))
+        if (markupTool) {
+          this.markupTool = markupTool
+        }
+        this.renderMarkupOverlay()
+      })
+    })
+    this.shadowRoot.querySelector('[data-markup-undo="true"]')?.addEventListener('click', () => {
+      this.markupItems = this.markupItems.slice(0, -1)
+      if (this.markupItems.length === 0) {
+        this.markupContext = null
+      }
+      this.renderMarkupOverlay()
+    })
+    this.shadowRoot.querySelector('[data-markup-cancel="true"]')?.addEventListener('click', () => {
+      this.cancelMarkupEditSession()
+      this.uninstallMarkupKeydownListener()
+      this.openCard()
+    })
+    this.shadowRoot.querySelector('[data-markup-done="true"]')?.addEventListener('click', () => {
+      this.markupDraft = null
+      this.markupSessionSnapshot = null
+      this.uninstallMarkupKeydownListener()
+      this.openCard()
+    })
+  }
+
+  private readonly handleMarkupKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !this.markupOverlayOpen) {
+      return
+    }
+    event.preventDefault()
+    this.cancelMarkupEditSession()
+    this.uninstallMarkupKeydownListener()
+    this.openCard()
+  }
+
+  private readonly handleMarkupCanvasClick = (event: MouseEvent): void => {
+    if (!this.markupOverlayOpen || !this.suppressNextMarkupCanvasClick) {
+      return
+    }
+    this.suppressNextMarkupCanvasClick = false
+    const overlay = this.shadowRoot.querySelector('.obv-markup-overlay')
+    const path: readonly unknown[] = typeof event.composedPath === 'function' ? event.composedPath() : []
+    const targetsMarkupCanvas = overlay ? path.includes(overlay) || event.target === overlay : false
+    if (!targetsMarkupCanvas) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  private installMarkupKeydownListener(): void {
+    if (this.markupKeydownListenerInstalled) {
+      return
+    }
+    window.addEventListener('keydown', this.handleMarkupKeydown)
+    window.addEventListener('click', this.handleMarkupCanvasClick, true)
+    this.markupKeydownListenerInstalled = true
+  }
+
+  private uninstallMarkupKeydownListener(): void {
+    if (!this.markupKeydownListenerInstalled) {
+      return
+    }
+    window.removeEventListener('keydown', this.handleMarkupKeydown)
+    window.removeEventListener('click', this.handleMarkupCanvasClick, true)
+    this.suppressNextMarkupCanvasClick = false
+    this.markupKeydownListenerInstalled = false
+  }
+
+  private beginMarkupEditSession(): void {
+    const sessionContext = this.markupContext ?? this.captureMarkupContext()
+    this.markupContext = sessionContext
+    this.markupSessionSnapshot = {
+      items: this.markupItems.map((item) => ({ ...item, points: [...item.points] })),
+      context: sessionContext,
+    }
+    this.renderMarkupOverlay()
+  }
+
+  private cancelMarkupEditSession(): void {
+    this.markupDraft = null
+    if (this.markupSessionSnapshot) {
+      this.markupItems = this.markupSessionSnapshot.items.map((item) => ({ ...item, points: [...item.points] }))
+      this.markupContext = this.markupSessionSnapshot.context
+    } else {
+      this.markupItems = []
+      this.markupContext = null
+    }
+    this.markupSessionSnapshot = null
+  }
+
+  private clearMarkupState(): void {
+    this.markupDraft = null
+    this.markupItems = []
+    this.markupContext = null
+    this.markupSessionSnapshot = null
+  }
+
+  private clearSubmissionDraftState(): void {
+    this.clearMarkupState()
+    this.elementGrabItems = []
+    this.measurementItems = []
+    this.clearElementGrabHoverState()
+    this.feedbackAttachments = []
+    this.newRowDraft = ''
+  }
+
+  private clearElementGrabHoverState(): void {
+    this.elementGrabHoverTarget = null
+    this.elementGrabHoverInfo = null
+    if (this.elementGrabResolveTimer !== null) {
+      window.clearTimeout(this.elementGrabResolveTimer)
+      this.elementGrabResolveTimer = null
+    }
+  }
+
+  private getElementAtPoint(point: FeedbackMarkupPoint, overlaySelector: string): Element | null {
+    if (typeof document.elementFromPoint !== 'function') {
+      return null
+    }
+    const overlay = this.shadowRoot.querySelector(overlaySelector)
+    if (!(overlay instanceof HTMLElement)) {
+      return null
+    }
+    const previousPointerEvents = overlay.style.pointerEvents
+    overlay.style.pointerEvents = 'none'
+    const element = document.elementFromPoint(point.x, point.y)
+    overlay.style.pointerEvents = previousPointerEvents
+    if (!element || element === this.host || this.host.contains(element)) {
+      return null
+    }
+    return element
+  }
+
+  private createHoverInfo(target: Element, sourceInfo: ElementSourceInfo | null): ElementGrabHoverInfo {
+    return {
+      tagName: target.tagName,
+      componentName: sourceInfo?.componentName ?? null,
+      sourceFile: sourceInfo?.source?.filePath ?? null,
+      lineNumber: sourceInfo?.source?.lineNumber ?? null,
+    }
+  }
+
+  private async resolveElementSourceInfo(target: Element): Promise<ElementSourceInfo | null> {
+    if (!this.config.elementSourceResolver) {
+      return null
+    }
+    const cachedResult = this.elementSourceCache.get(target)
+    if (cachedResult) {
+      return cachedResult
+    }
+    const resolverResult = this.config.elementSourceResolver(target).catch(() => null)
+    this.elementSourceCache.set(target, resolverResult)
+    return resolverResult
+  }
+
+  private queueElementGrabHoverResolution(target: Element): void {
+    if (!this.config.elementSourceResolver) {
+      return
+    }
+    if (this.elementGrabResolveTimer !== null) {
+      window.clearTimeout(this.elementGrabResolveTimer)
+    }
+    this.elementGrabResolveTimer = window.setTimeout(() => {
+      this.elementGrabResolveTimer = null
+      this.resolveElementSourceInfo(target)
+        .then((sourceInfo) => {
+          if (this.destroyed || !this.elementPickerOpen || this.elementGrabHoverTarget !== target) {
+            return
+          }
+          this.elementGrabHoverInfo = this.createHoverInfo(target, sourceInfo)
+          this.updateElementPickerHoverOverlay()
+        })
+        .catch(() => undefined)
+    }, 150)
+  }
+
+  private updateElementGrabHover(point: FeedbackMarkupPoint): void {
+    const target = this.getElementAtPoint(point, '.obv-element-picker-overlay')
+    if (target === this.elementGrabHoverTarget) {
+      this.updateElementPickerHoverOverlay()
+      return
+    }
+    this.elementGrabHoverTarget = target
+    this.elementGrabHoverInfo = target ? this.createHoverInfo(target, null) : null
+    this.updateElementPickerHoverOverlay()
+    if (target) {
+      this.queueElementGrabHoverResolution(target)
+    } else if (this.elementGrabResolveTimer !== null) {
+      window.clearTimeout(this.elementGrabResolveTimer)
+      this.elementGrabResolveTimer = null
+    }
+  }
+
+  private async createElementGrabItem(target: Element): Promise<ElementGrabItem> {
+    const sourceInfo = await this.resolveElementSourceInfo(target)
+    return {
+      id: createElementGrabId(),
+      tagName: target.tagName,
+      cssSelector: buildCssSelector(target),
+      outerHtml: truncateOuterHtml(target),
+      textContent: truncateText((target.textContent ?? '').trim().replace(/\s+/g, ' '), MAX_TEXT_LENGTH),
+      boundingRect: createElementGrabRect(target.getBoundingClientRect()),
+      componentName: sourceInfo?.componentName ?? null,
+      sourceFile: sourceInfo?.source?.filePath ?? null,
+      lineNumber: sourceInfo?.source?.lineNumber ?? null,
+      componentStack:
+        sourceInfo?.stack.map((frame) => ({
+          filePath: frame.filePath,
+          lineNumber: frame.lineNumber,
+          componentName: frame.componentName,
+        })) ?? [],
+    }
+  }
+
+  private renderElementPickerOverlay(): void {
+    this.elementPickerOpen = true
+    this.markupOverlayOpen = false
+    this.shadowRoot.innerHTML = `
+      <style>${createStyles()}</style>
+      <div class="obv-element-picker-overlay" role="application" aria-label="Select an element on the page. Click to attach it, press Escape to cancel." tabindex="0">
+        <div class="obv-element-grab-highlight" hidden></div>
+        <div class="obv-element-grab-label" hidden></div>
+      </div>
+      <div class="obv-element-picker-bar">
+        <span>Click an element to attach it</span>
+        <button class="obv-button" type="button" data-element-picker-done="true">${createIcon('close')}Cancel</button>
+      </div>
+    `
+    this.bindElementPickerOverlay()
+  }
+
+  private bindElementPickerOverlay(): void {
+    const overlay = this.shadowRoot.querySelector('.obv-element-picker-overlay')
+    if (overlay instanceof HTMLElement) {
+      overlay.focus()
+      overlay.addEventListener('pointermove', (event) => {
+        this.updateElementGrabHover(getMarkupPoint(event))
+        event.preventDefault()
+      })
+      overlay.addEventListener('pointerup', (event) => {
+        void this.handleElementPickerClick(event)
+      })
+      overlay.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          this.clearElementGrabHoverState()
+          this.elementPickerOpen = false
+          this.openCard()
+        }
+      })
+    }
+    this.shadowRoot.querySelector('[data-element-picker-done="true"]')?.addEventListener('click', () => {
+      this.clearElementGrabHoverState()
+      this.elementPickerOpen = false
+      this.openCard()
+    })
+  }
+
+  private async handleElementPickerClick(event: PointerEvent): Promise<void> {
+    const point = getMarkupPoint(event)
+    this.updateElementGrabHover(point)
+    const target = this.elementGrabHoverTarget ?? this.getElementAtPoint(point, '.obv-element-picker-overlay')
+    if (!target || this.elementGrabItems.length >= MAX_ELEMENT_GRABS) {
+      event.preventDefault()
+      return
+    }
+    const nextItem = await this.createElementGrabItem(target)
+    if (this.destroyed || !this.elementPickerOpen) {
+      return
+    }
+    this.elementGrabItems = [...this.elementGrabItems, nextItem]
+    this.clearElementGrabHoverState()
+    this.elementPickerOpen = false
+    this.openCard()
+  }
+
+  private renderRulerOverlay(): void {
+    this.measureOverlayOpen = true
+    this.markupOverlayOpen = false
+    this.elementPickerOpen = false
+    this.rulerLines = []
+    this.selectedRulerId = null
+    this.rulerPreview = null
+    this.draggingRulerId = null
+    this.rulerShiftHeld = false
+    this.shadowRoot.innerHTML = `
+      <style>${createStyles()}</style>
+      <div class="obv-ruler-overlay" role="application" aria-label="Click to place rulers. Shift+click for vertical. Press Escape to cancel." tabindex="0">
+        <div class="obv-ruler-snap-highlight" hidden></div>
+        <svg class="obv-ruler-svg"></svg>
+      </div>
+      <div class="obv-measure-bar">
+        <span>Click to place ruler. Shift+click for vertical.</span>
+        <button class="obv-button" type="button" data-measure-done="true">${createIcon('check')}Done</button>
+        <button class="obv-button obv-button-secondary" type="button" data-measure-cancel="true">Cancel</button>
+      </div>
+    `
+    this.bindRulerOverlay()
+  }
+
+  private updateRulerSnapHighlight(snap: SnapResult | null): void {
+    const highlight = this.shadowRoot.querySelector('.obv-ruler-snap-highlight') as HTMLElement | null
+    if (!highlight) {
+      return
+    }
+    if (!snap) {
+      highlight.setAttribute('hidden', 'true')
+      return
+    }
+    highlight.removeAttribute('hidden')
+    highlight.setAttribute('data-edge', snap.edge)
+    highlight.style.left = `${Math.round(snap.rect.left)}px`
+    highlight.style.top = `${Math.round(snap.rect.top)}px`
+    highlight.style.width = `${Math.round(snap.rect.width)}px`
+    highlight.style.height = `${Math.round(snap.rect.height)}px`
+  }
+
+  private updateRulerSvg(): void {
+    const svg = this.shadowRoot.querySelector('.obv-ruler-svg')
+    if (svg) {
+      svg.innerHTML = renderRulerSvg(
+        this.rulerLines,
+        this.rulerPreview,
+        this.selectedRulerId,
+        window.innerWidth,
+        window.innerHeight
+      )
+      this.bindRulerHandles()
+    }
+  }
+
+  private bindRulerHandles(): void {
+    this.shadowRoot.querySelectorAll('[data-ruler-handle]').forEach((handle) => {
+      handle.addEventListener('pointerdown', (event) => {
+        event.stopPropagation()
+        event.preventDefault()
+        const id = (handle as Element).getAttribute('data-ruler-handle')
+        if (id) {
+          this.selectedRulerId = id
+          this.draggingRulerId = id
+          ;(handle as Element).setPointerCapture?.((event as PointerEvent).pointerId)
+        }
+      })
+    })
+  }
+
+  private bindRulerOverlay(): void {
+    const overlay = this.shadowRoot.querySelector('.obv-ruler-overlay')
+    if (!(overlay instanceof HTMLElement)) {
+      return
+    }
+    overlay.focus()
+
+    overlay.addEventListener('pointermove', (event) => {
+      const pointerEvent = event as PointerEvent
+      if (this.draggingRulerId) {
+        const ruler = this.rulerLines.find((r) => r.id === this.draggingRulerId)
+        if (ruler) {
+          const rawPos = ruler.orientation === 'horizontal' ? pointerEvent.clientY : pointerEvent.clientX
+          const snap = findSnapPosition(rawPos, ruler.orientation, pointerEvent.clientX, pointerEvent.clientY)
+          ruler.position = snap ? snap.position : Math.round(rawPos)
+          ruler.snappedTo = snap ? snap.selector : null
+          ruler.snappedElement = snap ? snap.element : null
+          ruler.snappedEdge = snap ? snap.edge : null
+          this.updateRulerSnapHighlight(snap)
+          this.updateRulerSvg()
+        }
+        pointerEvent.preventDefault()
+        return
+      }
+      const orientation: 'horizontal' | 'vertical' = this.rulerShiftHeld ? 'vertical' : 'horizontal'
+      const rawPos = orientation === 'horizontal' ? pointerEvent.clientY : pointerEvent.clientX
+      const snap = findSnapPosition(rawPos, orientation, pointerEvent.clientX, pointerEvent.clientY)
+      this.rulerPreview = { orientation, position: snap ? snap.position : Math.round(rawPos) }
+      this.updateRulerSnapHighlight(snap)
+      this.updateRulerSvg()
+      pointerEvent.preventDefault()
+    })
+
+    overlay.addEventListener('pointerup', (event) => {
+      if (this.draggingRulerId) {
+        this.draggingRulerId = null
+        this.updateRulerSnapHighlight(null)
+        event.preventDefault()
+        return
+      }
+      const pointerEvent = event as PointerEvent
+      const orientation: 'horizontal' | 'vertical' = this.rulerShiftHeld ? 'vertical' : 'horizontal'
+      const rawPos = orientation === 'horizontal' ? pointerEvent.clientY : pointerEvent.clientX
+      const snap = findSnapPosition(rawPos, orientation, pointerEvent.clientX, pointerEvent.clientY)
+      const position = snap ? snap.position : Math.round(rawPos)
+      const newRuler: RulerLine = {
+        id: createRulerId(),
+        orientation,
+        position,
+        snappedTo: snap ? snap.selector : null,
+        snappedElement: snap ? snap.element : null,
+        snappedEdge: snap ? snap.edge : null,
+      }
+      this.rulerLines = [...this.rulerLines, newRuler]
+      this.selectedRulerId = newRuler.id
+      this.updateRulerSnapHighlight(null)
+      this.updateRulerSvg()
+      pointerEvent.preventDefault()
+    })
+
+    overlay.addEventListener('pointercancel', () => {
+      this.draggingRulerId = null
+      this.updateRulerSnapHighlight(null)
+    })
+
+    overlay.addEventListener('keydown', (event) => {
+      const keyEvent = event as KeyboardEvent
+      if (keyEvent.key === 'Escape') {
+        keyEvent.preventDefault()
+        this.cancelMeasurement()
+        return
+      }
+      if ((keyEvent.key === 'Backspace' || keyEvent.key === 'Delete') && this.selectedRulerId) {
+        keyEvent.preventDefault()
+        this.rulerLines = this.rulerLines.filter((r) => r.id !== this.selectedRulerId)
+        this.selectedRulerId = null
+        this.updateRulerSvg()
+        return
+      }
+      if (keyEvent.key === 'Shift') {
+        this.rulerShiftHeld = true
+        if (this.rulerPreview) {
+          this.rulerPreview = { ...this.rulerPreview, orientation: 'vertical' }
+          this.updateRulerSvg()
+        }
+      }
+    })
+
+    overlay.addEventListener('keyup', (event) => {
+      if ((event as KeyboardEvent).key === 'Shift') {
+        this.rulerShiftHeld = false
+        if (this.rulerPreview) {
+          this.rulerPreview = { ...this.rulerPreview, orientation: 'horizontal' }
+          this.updateRulerSvg()
+        }
+      }
+    })
+
+    this.shadowRoot.querySelector('[data-measure-done="true"]')?.addEventListener('click', () => {
+      this.finishMeasurement()
+    })
+    this.shadowRoot.querySelector('[data-measure-cancel="true"]')?.addEventListener('click', () => {
+      this.cancelMeasurement()
+    })
+  }
+
+  private async finishMeasurement(): Promise<void> {
+    if (this.rulerLines.length === 0) {
+      this.cancelMeasurement()
+      return
+    }
+    const rawDistances = computeRulerDistances(this.rulerLines)
+
+    const serializeRuler = async (ruler: RulerLine): Promise<FeedbackMeasurementRuler> => {
+      let snappedElement: FeedbackMeasurementRuler['snappedElement'] = null
+      if (ruler.snappedElement && document.contains(ruler.snappedElement)) {
+        const sourceInfo = await this.resolveElementSourceInfo(ruler.snappedElement)
+        const rect = ruler.snappedElement.getBoundingClientRect()
+        snappedElement = {
+          cssSelector: ruler.snappedTo ?? buildCssSelector(ruler.snappedElement),
+          tagName: ruler.snappedElement.tagName,
+          componentName: sourceInfo?.componentName ?? null,
+          sourceFile: sourceInfo?.source?.filePath ?? null,
+          lineNumber: sourceInfo?.source?.lineNumber ?? null,
+          boundingRect: createElementGrabRect(rect),
+        }
+      }
+      return {
+        orientation: ruler.orientation,
+        position: ruler.position,
+        edge: ruler.snappedEdge,
+        snappedElement,
+      }
+    }
+
+    const rulerMap = new Map<string, FeedbackMeasurementRuler>()
+    for (const ruler of this.rulerLines) {
+      rulerMap.set(ruler.id, await serializeRuler(ruler))
+    }
+
+    const rulers = this.rulerLines
+      .map((r) => rulerMap.get(r.id))
+      .filter((r): r is FeedbackMeasurementRuler => r !== undefined)
+
+    const distances: FeedbackMeasurementDistance[] = rawDistances.map((d) => ({
+      pixelDistance: d.distance,
+      orientation: d.orientation,
+      rulerA: rulerMap.get(d.rulerAId) ?? rulers[0],
+      rulerB: rulerMap.get(d.rulerBId) ?? rulers[0],
+    }))
+
+    const descParts: string[] = []
+    for (const d of distances) {
+      const labelA =
+        d.rulerA.snappedElement?.componentName ?? d.rulerA.snappedElement?.cssSelector ?? `${d.rulerA.position}px`
+      const labelB =
+        d.rulerB.snappedElement?.componentName ?? d.rulerB.snappedElement?.cssSelector ?? `${d.rulerB.position}px`
+      descParts.push(`${d.pixelDistance}px (${labelA} ${d.rulerA.edge ?? ''} → ${labelB} ${d.rulerB.edge ?? ''})`)
+    }
+    if (descParts.length === 0 && rulers.length > 0) {
+      descParts.push(`${rulers.length} ruler${rulers.length === 1 ? '' : 's'}`)
+    }
+    const description = descParts.length > 0 ? descParts.join(', ') : 'Measurement'
+
+    const measurement: FeedbackMeasurement = {
+      id: createMeasurementId(),
+      description,
+      rulers,
+      distances,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    }
+    this.measurementItems = [...this.measurementItems, measurement]
+    this.rulerLines = []
+    this.selectedRulerId = null
+    this.rulerPreview = null
+    this.draggingRulerId = null
+    this.measureOverlayOpen = false
+    this.openCard()
+  }
+
+  private cancelMeasurement(): void {
+    this.rulerLines = []
+    this.selectedRulerId = null
+    this.rulerPreview = null
+    this.draggingRulerId = null
+    this.measureOverlayOpen = false
+    this.openCard()
+  }
+
+  private updateElementPickerHoverOverlay(): void {
+    const highlight = this.shadowRoot.querySelector('.obv-element-grab-highlight')
+    const label = this.shadowRoot.querySelector('.obv-element-grab-label')
+    if (
+      !(highlight instanceof HTMLElement) ||
+      !(label instanceof HTMLElement) ||
+      !this.elementPickerOpen ||
+      !this.elementGrabHoverTarget
+    ) {
+      if (highlight instanceof HTMLElement) {
+        highlight.setAttribute('hidden', 'true')
+      }
+      if (label instanceof HTMLElement) {
+        label.setAttribute('hidden', 'true')
+      }
+      return
+    }
+    const rect = this.elementGrabHoverTarget.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) {
+      highlight.setAttribute('hidden', 'true')
+      label.setAttribute('hidden', 'true')
+      return
+    }
+    highlight.removeAttribute('hidden')
+    highlight.style.left = `${Math.round(rect.left)}px`
+    highlight.style.top = `${Math.round(rect.top)}px`
+    highlight.style.width = `${Math.round(rect.width)}px`
+    highlight.style.height = `${Math.round(rect.height)}px`
+
+    const fallbackInfo: ElementGrabHoverInfo = {
+      tagName: this.elementGrabHoverTarget.tagName,
+      componentName: null,
+      sourceFile: null,
+      lineNumber: null,
+    }
+    const hoverInfo = this.elementGrabHoverInfo ?? fallbackInfo
+    label.removeAttribute('hidden')
+    label.textContent = getElementGrabHoverLabel(hoverInfo)
+    label.style.left = `${Math.max(8, Math.round(rect.left))}px`
+    label.style.top = `${Math.max(8, Math.round(rect.top - 36))}px`
+  }
+
+  private handleMarkupPointerDown(event: PointerEvent): void {
+    this.suppressNextMarkupCanvasClick = true
+    event.stopPropagation?.()
+    if (!this.markupContext) {
+      this.markupContext = this.captureMarkupContext()
+    }
+    const point = getMarkupPoint(event)
+    this.markupDraft = { id: createMarkupId(), tool: this.markupTool, start: point, points: [point] }
+    if (event.currentTarget instanceof Element) {
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+    }
+    event.preventDefault()
+  }
+
+  private handleMarkupPointerMove(event: PointerEvent): void {
+    event.stopPropagation?.()
+    if (!this.markupDraft) {
+      return
+    }
+    this.appendMarkupDraftPoint(getMarkupPoint(event))
+    this.scheduleMarkupSvgRender()
+    event.preventDefault()
+  }
+
+  private handleMarkupPointerUp(event: PointerEvent): void {
+    event.stopPropagation?.()
+    if (!this.markupDraft) {
+      return
+    }
+    this.appendMarkupDraftPoint(getMarkupPoint(event), { force: true })
+    const item = normalizeMarkupItem(this.markupDraft)
+    if (item && this.markupItems.length < MAX_MARKUP_ITEMS) {
+      this.markupItems = [...this.markupItems, item]
+    }
+    this.markupDraft = null
+    this.renderMarkupOverlay()
+    event.preventDefault()
+  }
+
+  private appendMarkupDraftPoint(point: FeedbackMarkupPoint, options: { force?: boolean } = {}): void {
+    if (!this.markupDraft) {
+      return
+    }
+    if (this.markupDraft.tool !== 'pen') {
+      this.markupDraft.points = [this.markupDraft.start, point]
+      return
+    }
+    if (this.markupDraft.points.length >= MAX_MARKUP_POINTS_PER_ITEM) {
+      return
+    }
+    const previousPoint = this.markupDraft.points[this.markupDraft.points.length - 1] ?? this.markupDraft.start
+    const distance = distanceBetweenPoints(previousPoint, point)
+    if (distance === 0 || (!options.force && distance < MARKUP_POINTER_MOVE_THRESHOLD_PX)) {
+      return
+    }
+    this.markupDraft.points = [...this.markupDraft.points, point]
+  }
+
+  private scheduleMarkupSvgRender(): void {
+    if (this.markupRenderFrame !== null) {
+      return
+    }
+    const requestAnimationFrame = window.requestAnimationFrame?.bind(window)
+    if (!requestAnimationFrame) {
+      this.renderMarkupSvgNow()
+      return
+    }
+    this.markupRenderFrame = requestAnimationFrame(() => this.renderMarkupSvgNow())
+  }
+
+  private renderMarkupSvgNow(): void {
+    this.markupRenderFrame = null
+    const svg = this.shadowRoot.querySelector('.obv-markup-svg')
+    if (svg) {
+      svg.innerHTML = this.renderMarkupSvg()
+    }
+  }
+
+  private cancelMarkupSvgRender(): void {
+    if (this.markupRenderFrame === null) {
+      return
+    }
+    window.cancelAnimationFrame?.(this.markupRenderFrame)
+    this.markupRenderFrame = null
+  }
+
+  private addAttachmentFiles(files: File[]): void {
+    if (files.length === 0 || this.config.previewOnly) {
+      return
+    }
+    this.syncAllInputsToRoundItems()
+    const acceptedFiles = files.slice(0, Math.max(0, MAX_FEEDBACK_ATTACHMENTS - this.feedbackAttachments.length))
+    if (acceptedFiles.length === 0) {
+      this.openCard({ error: `Feedback supports up to ${MAX_FEEDBACK_ATTACHMENTS} attachments` })
+      return
+    }
+    const partialWarning =
+      acceptedFiles.length < files.length
+        ? `Only ${acceptedFiles.length} of ${files.length} files accepted (limit: ${MAX_FEEDBACK_ATTACHMENTS} attachments)`
+        : null
+    const newAttachments = acceptedFiles.map((file) => ({
+      id: createFeedbackAttachmentId(),
+      file,
+      name: file.name || 'attachment',
+      mimeType: normalizeAttachmentMimeType(file),
+      sizeBytes: file.size,
+      status: 'uploading' as const,
+    }))
+    this.feedbackAttachments = [...this.feedbackAttachments, ...newAttachments]
+    this.openCard({ error: partialWarning })
+    for (const attachment of newAttachments) {
+      this.uploadAttachment(attachment.id).catch(() => undefined)
+    }
+  }
+
+  private removeAttachment(id: string): void {
+    this.syncAllInputsToRoundItems()
+    this.feedbackAttachments = this.feedbackAttachments.filter((attachment) => attachment.id !== id)
+    this.openCard()
+  }
+
+  private hasBlockingAttachmentUpload(): boolean {
+    return this.feedbackAttachments.some((attachment) => attachment.status !== 'ready')
+  }
+
+  private getAttachmentSubmitBlocker(): string | null {
+    if (this.feedbackAttachments.some((attachment) => attachment.status === 'uploading')) {
+      return 'Please wait for attachments to finish uploading before submitting.'
+    }
+    if (this.feedbackAttachments.some((attachment) => attachment.status === 'error')) {
+      return 'Remove failed attachments before submitting feedback.'
+    }
+    return null
+  }
+
+  private getReadyAttachmentTokens(): string[] {
+    return this.feedbackAttachments
+      .filter((attachment) => attachment.status === 'ready')
+      .map((attachment) => attachment.attachmentToken)
+      .filter(
+        (attachmentToken): attachmentToken is string =>
+          typeof attachmentToken === 'string' && attachmentToken.length > 0
+      )
+  }
+
+  private async uploadAttachment(id: string): Promise<void> {
+    const attachment = this.feedbackAttachments.find((candidate) => candidate.id === id)
+    if (!attachment) return
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), FEEDBACK_ATTACHMENT_UPLOAD_TIMEOUT_MS)
+    try {
+      if (attachment.sizeBytes < 1) throw new Error('Attachment is empty')
+      if (attachment.sizeBytes > MAX_FEEDBACK_ATTACHMENT_SIZE_BYTES) {
+        throw new Error(`File exceeds the ${formatAttachmentSize(MAX_FEEDBACK_ATTACHMENT_SIZE_BYTES)} size limit`)
+      }
+      const presignResponse = await fetch(
+        createFeedbackApiUrl(this.config.apiBaseUrl, '/v1/feedback/attachments/upload'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            publicKey: this.config.publicKey,
+            sessionId: this.attachmentSessionId,
+            clientAttachmentId: attachment.id,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+          }),
+        }
+      )
+      if (!presignResponse.ok) throw new Error(`Attachment upload setup failed (${presignResponse.status})`)
+      const payload = (await presignResponse.json()) as FeedbackAttachmentUploadResponse
+      const uploadUrl = payload.data?.uploadUrl
+      const attachmentToken = payload.data?.attachmentToken
+      if (!uploadUrl || !attachmentToken) throw new Error('Attachment upload setup response was incomplete')
+      const putResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': attachment.mimeType },
+        signal: controller.signal,
+        body: attachment.file,
+      })
+      if (!putResponse.ok) throw new Error(`Attachment upload failed (${putResponse.status})`)
+      this.updateAttachment(id, { status: 'ready', attachmentToken, error: undefined })
+    } catch (err: unknown) {
+      this.updateAttachment(id, {
+        status: 'error',
+        error: controller.signal.aborted
+          ? 'Attachment upload timed out'
+          : err instanceof Error
+            ? err.message
+            : 'Attachment upload failed',
+      })
+    } finally {
+      window.clearTimeout(timeoutId)
+    }
+  }
+
+  private updateAttachment(id: string, patch: Partial<FeedbackAttachmentUpload>): void {
+    if (this.destroyed) {
+      return
+    }
+    let changed = false
+    this.feedbackAttachments = this.feedbackAttachments.map((attachment) => {
+      if (attachment.id !== id) return attachment
+      changed = true
+      return { ...attachment, ...patch }
+    })
+    if (changed && this.isCardOpen() && !this.markupOverlayOpen) {
+      this.syncAllInputsToRoundItems()
+      this.openCard()
+    }
+  }
+
+  private async resolveSessionReplayUrl(input: FeedbackSubmissionInput): Promise<string | undefined> {
+    const explicitUrl = input.sessionReplayUrl?.trim()
+    if (explicitUrl) {
+      return explicitUrl
+    }
+
+    const resolver = this.config.sessionReplayUrlResolver
+    if (!resolver) {
+      return undefined
+    }
+
+    let timeoutHandle: number | undefined
+    try {
+      const timeout = new Promise<null>((resolve) => {
+        timeoutHandle = window.setTimeout(() => resolve(null), SESSION_REPLAY_URL_RESOLVER_TIMEOUT_MS)
+      })
+      const resolvedUrl = await Promise.race([Promise.resolve(resolver()), timeout])
+      window.clearTimeout(timeoutHandle)
+      const normalizedUrl = resolvedUrl?.trim()
+      return normalizedUrl || undefined
+    } catch (error) {
+      window.clearTimeout(timeoutHandle)
+      console.debug('[ObviousFeedback] Session replay URL resolver failed; continuing without replay URL', error)
+      return undefined
+    }
+  }
+
+  private async submitFeedback(input: FeedbackSubmissionInput): Promise<void> {
+    const sessionReplayUrl = await this.resolveSessionReplayUrl(input)
+    const response = await fetch(createFeedbackApiUrl(this.config.apiBaseUrl, '/v1/feedback/submit'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        publicKey: this.config.publicKey,
+        identityToken: this.config.identityToken,
+        env: this.config.env,
+        prNumber: this.config.prNumber,
+        sourceUrl: redactUrl(window.location.href),
+        sdkVersion: '0.0.1',
+        type: input.type,
+        severity: input.severity,
+        title: input.title,
+        description: input.description,
+        sessionReplayUrl,
+        domSnapshot: this.config.capturePageContext
+          ? serializeDomSnapshot(document.body, this.config.redactSelectors)
+          : undefined,
+        consoleLogs: this.consoleBuffer.read(),
+        networkLog: this.networkBuffer.read(),
+        annotationPayload: this.createAnnotationPayload(),
+        elementGrabs: this.elementGrabItems.length > 0 ? this.elementGrabItems : undefined,
+        measurements: this.measurementItems.length > 0 ? this.measurementItems : undefined,
+        context: this.config.capturePageContext
+          ? {
+              url: redactUrl(window.location.href),
+              userAgent: navigator.userAgent,
+              viewport: { width: window.innerWidth, height: window.innerHeight },
+              scroll: { x: window.scrollX, y: window.scrollY },
+            }
+          : undefined,
+        attachmentTokens:
+          input.attachmentTokens !== undefined
+            ? input.attachmentTokens.filter((token) => token.length > 0)
+            : this.getReadyAttachmentTokens(),
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Feedback submission failed (${response.status})`)
+    }
+
+    const payload = (await response.json()) as {
+      data?: {
+        issueId?: string
+        status?: FeedbackClientStatus
+        title?: string
+        reportedAt?: string
+        issueUrl?: string
+        workerThread?: FeedbackWorkerThreadLink
+      }
+    }
+    if (this.destroyed) {
+      return
+    }
+    this.issueId = payload.data?.issueId ?? null
+    this.statusPollIndex = 0
+    this.clearStatusTimer()
+    if (this.issueId) {
+      this.rememberIssueHistoryEntry({
+        issueId: this.issueId,
+        status: payload.data?.status ?? 'received',
+        title: payload.data?.title,
+        reportedAt: payload.data?.reportedAt,
+        workerThread: normalizeWorkerThreadLink(payload.data?.workerThread),
+      })
+    }
+    this.roundItems = []
+    this.focusedItemId = null
+    this.clearSubmissionDraftState()
+    this.feedbackFormError = null
+    this.submittedIssueUrl = payload.data?.issueUrl ?? null
+    this.persistDraftRound()
+    this.emitOpenIssueCountChange()
+    this.openCard()
+    this.scheduleStatusPoll(this.issueId)
+  }
+
+  private rememberIssueHistoryEntry(entry: FeedbackIssueHistoryEntry): void {
+    const checkedAt = entry.checkedAt ?? new Date().toISOString()
+    const existingEntry = this.issueHistory.find((candidate) => candidate.issueId === entry.issueId)
+    const updatedEntry = { ...existingEntry, ...entry, checkedAt }
+    this.issueHistory = [
+      updatedEntry,
+      ...this.issueHistory.filter((candidate) => candidate.issueId !== entry.issueId),
+    ].slice(0, MAX_ISSUE_HISTORY_ENTRIES)
+    this.persistIssueHistory()
+    this.emitOpenIssueCountChange()
+  }
+
+  private updateIssueHistoryEntry(entry: FeedbackIssueHistoryEntry): void {
+    const existingIndex = this.issueHistory.findIndex((candidate) => candidate.issueId === entry.issueId)
+    if (existingIndex === -1) {
+      this.rememberIssueHistoryEntry(entry)
+      return
+    }
+    this.issueHistory = this.issueHistory
+      .map((candidate, index) =>
+        index === existingIndex
+          ? {
+              ...candidate,
+              ...entry,
+              acknowledgedStatusVersions: entry.acknowledgedStatusVersions ?? candidate.acknowledgedStatusVersions,
+            }
+          : candidate
+      )
+      .sort((left, right) => Number(isTerminalIssueStatus(left.status)) - Number(isTerminalIssueStatus(right.status)))
+    this.persistIssueHistory()
+    this.emitOpenIssueCountChange()
+  }
+
+  private acknowledgeIssueStatusVersion(
+    issueId: string,
+    status: FeedbackIssueHistoryStatus,
+    updatedAt?: string | null,
+    reportedAt?: string | null
+  ): void {
+    const version = getIssueStatusVersion({ status, updatedAt, reportedAt })
+    const existingEntry = this.issueHistory.find((candidate) => candidate.issueId === issueId)
+    const acknowledgedStatusVersions = Array.from(
+      new Set([...(existingEntry?.acknowledgedStatusVersions ?? []), version])
+    )
+    this.rememberIssueHistoryEntry({
+      ...existingEntry,
+      issueId,
+      status,
+      updatedAt: updatedAt ?? existingEntry?.updatedAt,
+      reportedAt: reportedAt ?? existingEntry?.reportedAt,
+      acknowledgedStatusVersions,
+    })
+  }
+
+  private acknowledgeOpenStatusCard(): void {
+    if (!this.statusCardIssueId || !this.statusCardStatus) {
+      return
+    }
+    this.acknowledgeIssueStatusVersion(
+      this.statusCardIssueId,
+      this.statusCardStatus,
+      this.statusCardUpdatedAt,
+      this.statusCardReportedAt
+    )
+    this.statusCardIssueId = null
+    this.statusCardStatus = null
+    this.statusCardUpdatedAt = null
+    this.statusCardReportedAt = null
+  }
+
+  private persistIssueHistory(): void {
+    persistIssueHistory(this.issueHistoryStorageKey, this.issueHistory)
+  }
+
+  private async refreshIssueHistoryStatuses(): Promise<void> {
+    if (!this.config.publicKey || this.issueHistory.length === 0 || this.historyRefreshInFlight) {
+      return
+    }
+    this.historyRefreshInFlight = true
+    try {
+      const refreshCandidates = this.issueHistory
+        .filter((entry) => !isTerminalIssueStatus(entry.status))
+        .filter((entry) => !entry.checkedAt || Date.now() - Date.parse(entry.checkedAt) > HISTORY_REFRESH_STALE_MS)
+        .slice(0, MAX_HISTORY_REFRESH_PER_OPEN)
+      for (const entry of refreshCandidates) {
+        await this.refreshIssueHistoryEntry(entry.issueId)
+      }
+      if (this.isCardOpen() && !this.markupOverlayOpen) {
+        this.syncAllInputsToRoundItems()
+        this.openCard()
+      }
+    } finally {
+      this.historyRefreshInFlight = false
+    }
+  }
+
+  private async refreshIssueHistoryEntry(issueId: string): Promise<void> {
+    const checkedAt = new Date().toISOString()
+    try {
+      const { url, init } = this.createStatusRequest(issueId)
+      const response = init ? await fetch(url.toString(), init) : await fetch(url.toString())
+      if (!this.issueHistory.some((entry) => entry.issueId === issueId)) {
+        return
+      }
+      if (!response.ok) {
+        this.updateIssueHistoryEntry({ issueId, status: 'unavailable', checkedAt })
+        return
+      }
+      const payload = (await response.json()) as { data?: FeedbackStatusResponse }
+      if (!this.issueHistory.some((entry) => entry.issueId === issueId)) {
+        return
+      }
+      if (!payload.data) {
+        this.updateIssueHistoryEntry({ issueId, status: 'unavailable', checkedAt })
+        return
+      }
+      this.updateIssueHistoryEntry({
+        issueId: payload.data.issueId,
+        status: payload.data.status,
+        title: payload.data.title,
+        description: payload.data.description,
+        resolvedNote: payload.data.resolvedNote,
+        aiSummary: normalizeFeedbackAiSummary(payload.data.aiSummary),
+        links: getFeedbackIssueLinks(payload.data),
+        reportedAt: payload.data.reportedAt,
+        updatedAt: payload.data.updatedAt,
+        checkedAt,
+        workerThread: normalizeWorkerThreadLink(payload.data.workerThread),
+      })
+    } catch {
+      this.updateIssueHistoryEntry({ issueId, status: 'unavailable', checkedAt })
+    }
+  }
+
+  private renderStatusCard(
+    status: FeedbackClientStatus,
+    note?: string,
+    issueId: string | null = this.issueId,
+    updatedAt?: string | null,
+    reportedAt?: string | null,
+    issueUrl?: string
+  ): void {
+    this.statusCardIssueId = issueId
+    this.statusCardStatus = status
+    this.statusCardUpdatedAt = updatedAt ?? null
+    this.statusCardReportedAt = reportedAt ?? null
+    this.activePanel = null
+    this.markupOverlayOpen = false
+    this.installGlobalFileDropGuards()
+    const feedbackCardPlacement = this.getFeedbackCardPlacement('status')
+    const safeIssueUrl = getSafeExternalUrl(issueUrl)
+    const linkSentence = safeIssueUrl
+      ? ` You can monitor its progress <a href="${escapeHtml(safeIssueUrl)}" target="_blank" rel="noreferrer" style="color: var(--obv-feedback-text); font-weight: 650;">here</a>.`
+      : ''
+    const statusMessage =
+      note !== undefined
+        ? `${escapeHtml(note)}${linkSentence}`
+        : safeIssueUrl
+          ? `Autobuild has started addressing your issues.${linkSentence}`
+          : 'Autobuild has started addressing your issues.'
+    this.shadowRoot.innerHTML = `
+      <style>${createStyles()}</style>
+      ${this.renderTriggerButton()}
+      <div class="obv-card" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-dialog-direction="${escapeHtml(feedbackCardPlacement.direction)}" style="${escapeHtml(feedbackCardPlacement.style)}">
+        <div class="obv-kicker">Feedback state</div>
+        <div class="obv-title obv-status-title">${createIcon('status')}${escapeHtml(statusLabel(status))}</div>
+        <div class="obv-status">${statusMessage}</div>
+        <div class="obv-actions" style="margin-top: 12px; justify-content: flex-end;">
+          <button class="obv-button" type="button" data-new="true">${createIcon('compose')}New feedback</button>
+        </div>
+      </div>
+    `
+    this.bindTrigger(() => {
+      this.acknowledgeOpenStatusCard()
+      this.renderTrigger()
+    })
+    this.observeAnchoredFeedbackCard()
+    this.shadowRoot.querySelector('[data-new="true"]')?.addEventListener('click', () => {
+      this.acknowledgeOpenStatusCard()
+      this.startNewFeedbackSession()
+    })
+  }
+
+  private startNewFeedbackSession(): void {
+    this.issueId = null
+    this.statusPollIndex = 0
+    this.clearStatusTimer()
+    this.selectedIssueId = null
+    this.roundItems = []
+    this.focusedItemId = null
+    this.persistDraftRound()
+
+    this.clearSubmissionDraftState()
+    this.feedbackFormError = null
+    this.emitOpenIssueCountChange()
+    this.openCard()
+  }
+
+  private clearStatusTimer(): void {
+    if (this.statusTimer) {
+      window.clearTimeout(this.statusTimer)
+      this.statusTimer = null
+    }
+  }
+
+  private scheduleStatusPoll(issueId: string | null): void {
+    if (this.destroyed || !issueId || issueId !== this.issueId) {
+      return
+    }
+    this.clearStatusTimer()
+    const delays = [120_000, 300_000, 600_000, 86_400_000]
+    const delay = delays[Math.min(this.statusPollIndex, delays.length - 1)] ?? 86_400_000
+    this.statusTimer = window.setTimeout(() => {
+      this.statusTimer = null
+      this.pollStatus(issueId).catch(() => undefined)
+    }, delay)
+    this.statusPollIndex += 1
+  }
+
+  private async pollStatus(issueId: string): Promise<void> {
+    if (this.destroyed || !this.issueId || issueId !== this.issueId) {
+      if (!this.destroyed && this.isCardOpen()) {
+        this.syncAllInputsToRoundItems()
+        this.openCard()
+      }
+      return
+    }
+    const { url, init } = this.createStatusRequest(issueId)
+    const response = init ? await fetch(url.toString(), init) : await fetch(url.toString())
+    if (this.destroyed || !this.issueId || issueId !== this.issueId) {
+      return
+    }
+    if (!response.ok) {
+      this.scheduleStatusPoll(issueId)
+      return
+    }
+    const payload = (await response.json()) as { data?: FeedbackStatusResponse }
+    if (this.destroyed || !this.issueId || issueId !== this.issueId) {
+      return
+    }
+    const status = payload.data?.status ?? 'received'
+    if (payload.data) {
+      this.rememberIssueHistoryEntry({
+        issueId: payload.data.issueId,
+        status,
+        title: payload.data.title,
+        description: payload.data.description,
+        resolvedNote: payload.data.resolvedNote,
+        aiSummary: normalizeFeedbackAiSummary(payload.data.aiSummary),
+        links: getFeedbackIssueLinks(payload.data),
+        reportedAt: payload.data.reportedAt,
+        updatedAt: payload.data.updatedAt,
+        workerThread: normalizeWorkerThreadLink(payload.data.workerThread),
+      })
+    }
+
+    const isTerminalStatus = status === 'resolved' || status === 'no_action' || status === 'duplicate'
+    if (this.markupOverlayOpen) {
+      if (!isTerminalStatus) {
+        this.scheduleStatusPoll(issueId)
+      }
+      return
+    }
+    if (this.isCardOpen()) {
+      this.syncAllInputsToRoundItems()
+      this.openCard()
+      if (!isTerminalStatus) {
+        this.scheduleStatusPoll(issueId)
+      }
+      return
+    }
+    this.acknowledgeIssueStatusVersion(issueId, status, payload.data?.updatedAt, payload.data?.reportedAt)
+    this.renderTrigger()
+    if (!isTerminalStatus) {
+      this.scheduleStatusPoll(issueId)
+    }
+  }
+
+  private createStatusRequest(issueId: string): { url: URL; init?: RequestInit } {
+    const url = new URL(createFeedbackApiUrl(this.config.apiBaseUrl, `/v1/feedback/status/${issueId}`))
+    url.searchParams.set('publicKey', this.config.publicKey)
+    const headers: Record<string, string> = {}
+    if (this.config.identityToken) {
+      headers.Authorization = `Bearer ${this.config.identityToken}`
+    }
+    return Object.keys(headers).length > 0 ? { url, init: { headers } } : { url }
+  }
+}
+
+let activeWidget: ObviousFeedbackWidget | null = null
+
+export const ObviousFeedback = {
+  init(config: FeedbackSdkConfig): FeedbackSdkHandle {
+    if (!config.publicKey && !config.previewOnly) {
+      throw new Error('ObviousFeedback.init requires publicKey')
+    }
+    activeWidget?.destroy()
+    activeWidget = new ObviousFeedbackWidget(config)
+    return {
+      destroy: () => {
+        activeWidget?.destroy()
+        activeWidget = null
+      },
+      open: () => activeWidget?.open(),
+      getOpenIssueCount: () => activeWidget?.getOpenIssueCount() ?? 0,
+      subscribeToOpenIssueCount: (listener) => activeWidget?.subscribeToOpenIssueCount(listener) ?? (() => {}),
+    }
+  },
+}
+
+function initFromCurrentScript(): void {
+  const script = document.currentScript
+  if (!(script instanceof HTMLScriptElement)) {
+    return
+  }
+  const publicKey = script.dataset.pubKey
+  if (!publicKey) {
+    return
+  }
+  const dataTheme = script.dataset.theme
+  ObviousFeedback.init({
+    publicKey,
+    apiBaseUrl: script.dataset.apiBaseUrl,
+    identityToken: script.dataset.identityToken,
+    env: script.dataset.env,
+    prNumber: script.dataset.prNumber ? Number(script.dataset.prNumber) : undefined,
+    triggerLabel: script.dataset.triggerLabel,
+    theme: dataTheme === 'light' || dataTheme === 'dark' || dataTheme === 'system' ? dataTheme : undefined,
+  })
+}
+
+if (typeof document !== 'undefined') {
+  initFromCurrentScript()
+}

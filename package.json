@@ -1,0 +1,48 @@
+{
+  "name": "obvious-feedback-sdk",
+  "version": "0.1.0",
+  "description": "Embeddable browser feedback widget — drop into any web app to collect user feedback powered by Obvious",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": "./dist/index.global.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist",
+    "test": "bun test",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "feedback",
+    "widget",
+    "bug-report",
+    "obvious",
+    "sdk",
+    "browser"
+  ],
+  "author": "Obvious <hello@obvious.ai>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FlatFilers/obvious-feedback-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/FlatFilers/obvious-feedback-sdk/issues"
+  },
+  "homepage": "https://github.com/FlatFilers/obvious-feedback-sdk#readme",
+  "devDependencies": {
+    "bun-types": "^1.2.23",
+    "tsup": "^6.7.0",
+    "typescript": "^5.4.5"
+  }
+}

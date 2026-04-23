@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Obvious Feedback SDK Local QA Harness</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        background: #f8fafc;
+        color: #0f172a;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 40px 24px 120px;
+      }
+
+      .hero,
+      .panel,
+      .evidence {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 24px;
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+      }
+
+      .hero {
+        padding: 32px;
+        margin-bottom: 24px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(360px, 1.2fr) minmax(320px, 0.8fr);
+        gap: 24px;
+      }
+
+      .panel,
+      .evidence {
+        padding: 24px;
+      }
+
+      h1,
+      h2,
+      p,
+      label,
+      pre,
+      button,
+      input,
+      textarea,
+      select {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 32px;
+        letter-spacing: -0.04em;
+      }
+
+      h2 {
+        font-size: 18px;
+        letter-spacing: -0.03em;
+        margin-bottom: 16px;
+      }
+
+      p,
+      label,
+      .hint,
+      .status {
+        font-size: 14px;
+        line-height: 1.6;
+        color: #475569;
+      }
+
+      form {
+        display: grid;
+        gap: 14px;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      input,
+      textarea,
+      select,
+      button {
+        font: inherit;
+      }
+
+      input,
+      textarea,
+      select {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #cbd5e1;
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: #fff;
+        color: #0f172a;
+      }
+
+      textarea {
+        min-height: 88px;
+        resize: vertical;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 12px 18px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        background: #0f172a;
+        color: #fff;
+      }
+
+      button.secondary {
+        background: #e2e8f0;
+        color: #0f172a;
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #0f172a;
+        color: #e2e8f0;
+        border-radius: 18px;
+        padding: 18px;
+        font-size: 12px;
+        line-height: 1.6;
+        min-height: 220px;
+      }
+
+      .status {
+        margin-top: 14px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: #f1f5f9;
+      }
+
+      .hint {
+        margin-top: 12px;
+      }
+
+      @media (max-width: 860px) {
+        .grid,
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Feedback SDK local QA harness</h1>
+        <p class="hint">
+          This sample host app validates script/npm init config, signed and invalid identity flows,
+          domain whitelist rejection, DOM snapshot redaction, annotation payload submission, status
+          polling, and PR/control-project fallback behavior. Press <kbd>Cmd/Ctrl</kbd> +
+          <kbd>Shift</kbd> + <kbd>.</kbd> or use the floating SDK trigger after initializing.
+        </p>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <h2>SDK init + identity controls</h2>
+          <form id="sdk-config-form">
+            <div class="row">
+              <label>
+                Public key
+                <input id="public-key" value="fsk_pub_local_example" autocomplete="off" />
+              </label>
+              <label>
+                API base URL
+                <input id="api-base-url" value="http://localhost:4001" autocomplete="off" />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                Environment
+                <input id="env" value="local-dev" autocomplete="off" />
+              </label>
+              <label>
+                PR number
+                <input id="pr-number" type="number" min="1" value="13446" />
+              </label>
+            </div>
+            <label>
+              Identity token
+              <textarea id="identity-token" placeholder="Paste a signed identity token or an invalid token"></textarea>
+            </label>
+            <label>
+              Redact selectors
+              <input id="redact-selectors" value="[data-sensitive], .secret-copy" autocomplete="off" />
+            </label>
+            <div class="actions">
+              <button type="submit">Initialize SDK</button>
+              <button type="button" class="secondary" id="destroy-sdk">Destroy widget</button>
+              <button type="button" class="secondary" id="fill-invalid-identity">Use invalid identity</button>
+            </div>
+          </form>
+          <p class="status" id="sdk-status">SDK not initialized.</p>
+        </article>
+
+        <article class="panel">
+          <h2>Host app state + annotation fixture</h2>
+          <label>
+            Sensitive customer token (must be redacted)
+            <input data-sensitive="true" value="sk_live_should_not_leave_browser" />
+          </label>
+          <div style="height: 14px"></div>
+          <label>
+            Internal launch note (redacted by selector)
+            <textarea class="secret-copy">Customer ACME has a private rollout note.</textarea>
+          </label>
+          <div style="height: 14px"></div>
+          <label>
+            Visible reproduction details
+            <textarea id="visible-note">Clicking Export from the preview app returns a 500 after the second retry.</textarea>
+          </label>
+          <p class="hint">
+            Use this panel to verify DOM snapshots include visible reproduction text while redacting
+            sensitive fields and selector-matched content.
+          </p>
+        </article>
+      </section>
+
+      <section class="evidence" style="margin-top: 24px">
+        <h2>Manual API QA runner</h2>
+        <form id="api-form">
+          <div class="row">
+            <label>
+              Issue type
+              <select id="issue-type">
+                <option value="bug">bug</option>
+                <option value="improvement">improvement</option>
+                <option value="question">question</option>
+              </select>
+            </label>
+            <label>
+              Severity
+              <select id="severity">
+                <option value="low">low</option>
+                <option value="medium" selected>medium</option>
+                <option value="high">high</option>
+                <option value="critical">critical</option>
+              </select>
+            </label>
+          </div>
+          <label>
+            Title
+            <input id="title" value="Sample host app feedback" />
+          </label>
+          <label>
+            Description
+            <textarea id="description">Submitted from the local QA harness to validate routing, identity, and DOM snapshot capture.</textarea>
+          </label>
+          <div class="actions">
+            <button type="submit">Submit manual API payload</button>
+            <button type="button" class="secondary" id="poll-status">Poll latest status</button>
+            <button type="button" class="secondary" id="simulate-console-network">Generate console/network evidence</button>
+          </div>
+        </form>
+        <p class="status" id="api-status">No manual API calls yet.</p>
+        <pre id="api-output">{}</pre>
+      </section>
+    </main>
+
+    <script type="module">
+      import { ObviousFeedback } from '../../src/index.ts'
+
+      const sdkConfigForm = document.querySelector('#sdk-config-form')
+      const sdkStatus = document.querySelector('#sdk-status')
+      const apiForm = document.querySelector('#api-form')
+      const apiStatus = document.querySelector('#api-status')
+      const apiOutput = document.querySelector('#api-output')
+      const identityTokenField = document.querySelector('#identity-token')
+      const publicKeyField = document.querySelector('#public-key')
+      const apiBaseUrlField = document.querySelector('#api-base-url')
+      const envField = document.querySelector('#env')
+      const prNumberField = document.querySelector('#pr-number')
+      const redactSelectorsField = document.querySelector('#redact-selectors')
+      const titleField = document.querySelector('#title')
+      const descriptionField = document.querySelector('#description')
+      const issueTypeField = document.querySelector('#issue-type')
+      const severityField = document.querySelector('#severity')
+
+      let widgetHandle = null
+      let latestIssueId = null
+
+      function parseRedactSelectors() {
+        return redactSelectorsField.value
+          .split(',')
+          .map((selector) => selector.trim())
+          .filter(Boolean)
+      }
+
+      function readConfig() {
+        const prNumberValue = Number(prNumberField.value)
+        return {
+          publicKey: publicKeyField.value.trim(),
+          apiBaseUrl: apiBaseUrlField.value.trim(),
+          identityToken: identityTokenField.value.trim() || undefined,
+          env: envField.value.trim() || undefined,
+          prNumber: Number.isFinite(prNumberValue) && prNumberValue > 0 ? prNumberValue : undefined,
+          redactSelectors: parseRedactSelectors(),
+          triggerLabel: 'Send QA feedback',
+        }
+      }
+
+      function setSdkStatus(message) {
+        sdkStatus.textContent = message
+      }
+
+      function renderApiResult(message, payload) {
+        apiStatus.textContent = message
+        apiOutput.textContent = JSON.stringify(payload, null, 2)
+      }
+
+      function buildDomSnapshot() {
+        return {
+          tag: 'body',
+          attrs: { harness: 'manual-api-runner' },
+          children: [
+            {
+              tag: 'textarea',
+              attrs: { id: 'visible-note' },
+              text: document.querySelector('#visible-note').value,
+            },
+            { tag: 'input', redacted: true },
+            { tag: 'textarea', redacted: true },
+          ],
+        }
+      }
+
+      async function submitManualFeedback(event) {
+        event.preventDefault()
+        const config = readConfig()
+        const response = await fetch(`${config.apiBaseUrl}/v1/feedback/submit`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            publicKey: config.publicKey,
+            identityToken: config.identityToken,
+            env: config.env,
+            prNumber: config.prNumber,
+            sourceUrl: window.location.href,
+            sdkVersion: 'local-harness',
+            type: issueTypeField.value,
+            severity: severityField.value,
+            title: titleField.value,
+            description: descriptionField.value,
+            annotationPayload: {
+              mode: 'manual-harness',
+              screenshotRequested: true,
+              marker: { x: 0.42, y: 0.24, label: 'Export button failure' },
+            },
+            context: {
+              url: window.location.href,
+              viewport: { width: window.innerWidth, height: window.innerHeight },
+              harness: 'examples/feedback-sdk-host',
+            },
+            domSnapshot: buildDomSnapshot(),
+            consoleLogs: [
+              {
+                level: 'warn',
+                message: 'Synthetic warning from manual QA harness',
+                timestamp: new Date().toISOString(),
+              },
+            ],
+            networkLog: [
+              {
+                method: 'POST',
+                url: `${config.apiBaseUrl}/v1/feedback/submit`,
+                status: 200,
+                durationMs: 128,
+                timestamp: new Date().toISOString(),
+              },
+            ],
+          }),
+        })
+        const payload = await response.json().catch(() => ({ success: false, error: 'Invalid JSON response' }))
+        latestIssueId = payload.data?.issueId ?? latestIssueId
+        renderApiResult(`Submit response: HTTP ${response.status}`, payload)
+      }
+
+      async function pollLatestStatus() {
+        const config = readConfig()
+        if (!latestIssueId) {
+          renderApiResult('No issue ID available. Submit feedback first.', { latestIssueId })
+          return
+        }
+        const url = new URL(`${config.apiBaseUrl}/v1/feedback/status/${latestIssueId}`)
+        url.searchParams.set('publicKey', config.publicKey)
+        const response = await fetch(url.toString())
+        const payload = await response.json().catch(() => ({ success: false, error: 'Invalid JSON response' }))
+        renderApiResult(`Status response: HTTP ${response.status}`, payload)
+      }
+
+      sdkConfigForm.addEventListener('submit', (event) => {
+        event.preventDefault()
+        try {
+          widgetHandle?.destroy()
+          widgetHandle = ObviousFeedback.init(readConfig())
+          setSdkStatus('SDK initialized. Open the floating widget or use the keyboard shortcut.')
+        } catch (error) {
+          setSdkStatus(error instanceof Error ? error.message : 'Failed to initialize SDK')
+        }
+      })
+
+      document.querySelector('#destroy-sdk').addEventListener('click', () => {
+        widgetHandle?.destroy()
+        widgetHandle = null
+        setSdkStatus('SDK destroyed.')
+      })
+
+      document.querySelector('#fill-invalid-identity').addEventListener('click', () => {
+        identityTokenField.value = 'invalid.identity.token'
+        setSdkStatus('Inserted an invalid identity token. Reinitialize SDK or submit manually to verify unverified fallback.')
+      })
+
+      document.querySelector('#simulate-console-network').addEventListener('click', async () => {
+        console.info('Manual QA harness info log')
+        console.warn('Manual QA harness warning log')
+        try {
+          await fetch(`${apiBaseUrlField.value.trim()}/health`)
+        } catch (error) {
+          console.warn('Health probe failed', error)
+        }
+        renderApiResult('Generated console/network activity for SDK buffers.', {
+          console: 'info + warn emitted',
+          network: `GET ${apiBaseUrlField.value.trim()}/health`,
+        })
+      })
+
+      apiForm.addEventListener('submit', submitManualFeedback)
+      document.querySelector('#poll-status').addEventListener('click', pollLatestStatus)
+
+      widgetHandle = ObviousFeedback.init(readConfig())
+      setSdkStatus('SDK initialized with default local QA config.')
+    </script>
+  </body>
+</html>
