@@ -6,15 +6,17 @@ Embeddable browser widget that lets users submit feedback from any web app. Feed
 
 ### npm / yarn / pnpm / bun
 
+> **npm registry publishing coming soon.** For now, install directly from the GitHub release:
+
 ```bash
-npm install obvious-feedback-sdk
+npm install https://github.com/FlatFilers/obvious-feedback-sdk/releases/download/v0.1.0/obvious-feedback-sdk-0.1.0.tgz
 ```
 
-### Script tag (CDN)
+### Script tag
 
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/obvious-feedback-sdk@latest/dist/index.global.js"
+  src="https://github.com/FlatFilers/obvious-feedback-sdk/releases/download/v0.1.0/index.global.js"
   data-pub-key="fsk_pub_..."
 ></script>
 ```
@@ -39,7 +41,7 @@ const widget = ObviousFeedback.init({
 
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/obvious-feedback-sdk@latest/dist/index.global.js"
+  src="https://github.com/FlatFilers/obvious-feedback-sdk/releases/download/v0.1.0/index.global.js"
   data-pub-key="fsk_pub_..."
   data-theme="dark"
   data-env="staging"
