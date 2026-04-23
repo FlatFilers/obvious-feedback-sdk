@@ -6,17 +6,24 @@ Embeddable browser widget that lets users submit feedback from any web app. Feed
 
 ### npm / yarn / pnpm / bun
 
-> **npm registry publishing coming soon.** For now, install directly from the GitHub release:
-
 ```bash
-npm install https://github.com/FlatFilers/obvious-feedback-sdk/releases/download/v0.1.0/obvious-feedback-sdk-0.1.0.tgz
+npm install @obvi/feedback-sdk
 ```
 
-### Script tag
+### Script tag (CDN)
 
 ```html
 <script
-  src="https://github.com/FlatFilers/obvious-feedback-sdk/releases/download/v0.1.0/index.global.js"
+  src="https://cdn.jsdelivr.net/npm/@obvi/feedback-sdk@latest/dist/index.global.js"
+  data-pub-key="fsk_pub_..."
+></script>
+```
+
+Or via unpkg:
+
+```html
+<script
+  src="https://unpkg.com/@obvi/feedback-sdk@latest/dist/index.global.js"
   data-pub-key="fsk_pub_..."
 ></script>
 ```
@@ -28,7 +35,7 @@ The script auto-initializes the widget when `data-pub-key` is present.
 ### ES module
 
 ```js
-import { ObviousFeedback } from 'obvious-feedback-sdk'
+import { ObviousFeedback } from '@obvi/feedback-sdk'
 
 const widget = ObviousFeedback.init({
   publicKey: 'fsk_pub_...',
@@ -41,7 +48,7 @@ const widget = ObviousFeedback.init({
 
 ```html
 <script
-  src="https://github.com/FlatFilers/obvious-feedback-sdk/releases/download/v0.1.0/index.global.js"
+  src="https://cdn.jsdelivr.net/npm/@obvi/feedback-sdk@latest/dist/index.global.js"
   data-pub-key="fsk_pub_..."
   data-theme="dark"
   data-env="staging"

@@ -1,10 +1,10 @@
 # Monorepo Migration Guide
 
-After validating the published SDK package externally, follow these steps to switch the Obvious monorepo from the workspace package to the published npm package.
+After validating the published SDK package externally, follow these steps to switch the Obvious monorepo from the workspace package to the published npm package `@obvi/feedback-sdk`.
 
 ## Prerequisites
 
-- The package is published to npm (e.g. `obvious-feedback-sdk@0.1.0`)
+- The package is published to npm as `@obvi/feedback-sdk@1.0.x` or later
 - At least one external example app has been validated against it
 
 ## Steps
@@ -19,7 +19,7 @@ rm -rf packages/feedback-sdk
 
 ```bash
 cd dashboard
-bun add obvious-feedback-sdk
+bun add @obvi/feedback-sdk
 ```
 
 ### 3. Update the dashboard import
@@ -33,7 +33,7 @@ import { type FeedbackSdkConfig, type FeedbackSdkHandle, ObviousFeedback } from 
 to:
 
 ```typescript
-import { type FeedbackSdkConfig, type FeedbackSdkHandle, ObviousFeedback } from 'obvious-feedback-sdk'
+import { type FeedbackSdkConfig, type FeedbackSdkHandle, ObviousFeedback } from '@obvi/feedback-sdk'
 ```
 
 ### 4. Update any other imports
@@ -45,7 +45,7 @@ rg '@obvious/feedback-sdk' --files-with-matches
 ```
 
 Files that may need updating:
-- `dashboard/package.json` (remove `"@obvious/feedback-sdk": "workspace:*"`)
+- `dashboard/package.json` (remove `"@obvious/feedback-sdk": "workspace:*"`, add `"@obvi/feedback-sdk": "^1.0.0"`)
 - `dashboard/src/features/feedback-sdk-integration/feedback-sdk-integration.tsx`
 - `dashboard/src/features/feedback-sdk-integration/feedback-sdk-integration.test.tsx`
 

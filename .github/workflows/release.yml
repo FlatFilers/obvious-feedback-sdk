@@ -1,3 +1,17 @@
+# Release workflow for @obvi/feedback-sdk
+#
+# Setup required before this can publish:
+# 1. The @obvi npm scope must allow publishing from this repo's automation token.
+#    Either grant FlatFilers org access to the scope, or use a token from an
+#    account that already has publish access (currently @dboskovic).
+# 2. Add an NPM_TOKEN secret at:
+#    https://github.com/FlatFilers/obvious-feedback-sdk/settings/secrets/actions
+#    Use a Granular Access Token scoped to @obvi/feedback-sdk with publish permission.
+# 3. Bump the version in package.json before creating a release tag.
+#
+# To trigger a release:
+#   gh release create v1.0.X --title "v1.0.X" --notes "..."
+
 name: Release
 
 on:

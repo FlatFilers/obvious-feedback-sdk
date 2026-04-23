@@ -1,10 +1,16 @@
 {
-  "name": "obvious-feedback-sdk",
-  "version": "0.1.0",
+  "name": "@obvi/feedback-sdk",
+  "version": "1.0.1",
   "description": "Embeddable browser feedback widget — drop into any web app to collect user feedback powered by Obvious",
   "type": "module",
   "main": "dist/index.js",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
+  "unpkg": "dist/index.global.js",
+  "jsdelivr": "dist/index.global.js",
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist"
   ],
