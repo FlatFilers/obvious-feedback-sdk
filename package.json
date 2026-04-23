@@ -19,7 +19,11 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
-    "test": "bun test",
+    "test": "bun test src/",
+    "test:unit": "bun test tests/unit/",
+    "test:e2e": "bunx playwright test --config tests/e2e/playwright.config.ts",
+    "test:e2e:live": "bunx playwright test --config tests/e2e/playwright.config.ts tests/e2e/specs/live-obvious.spec.ts",
+    "test:all": "bun run test:unit && bun run build && bun run test:e2e",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -41,6 +45,7 @@
   },
   "homepage": "https://github.com/FlatFilers/obvious-feedback-sdk#readme",
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "bun-types": "^1.2.23",
     "tsup": "^6.7.0",
     "typescript": "^5.4.5"

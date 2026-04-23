@@ -24,5 +24,26 @@ jobs:
       - name: Typecheck
         run: bunx tsc --noEmit
 
-      - name: Test
-        run: bun test
+      - name: Unit tests
+        run: bun run test:unit
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build SDK
+        run: bun run build
+
+      - name: Install Playwright browsers
+        run: bunx playwright install chromium --with-deps
+
+      - name: Run e2e smoke tests
+        run: bun run test:e2e
