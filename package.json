@@ -9,7 +9,8 @@
   "unpkg": "dist/index.global.js",
   "jsdelivr": "dist/index.global.js",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "files": [
     "dist"

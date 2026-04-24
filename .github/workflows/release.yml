@@ -11,6 +11,7 @@
 name: Release
 
 on:
+  workflow_dispatch:
   release:
     types: [published]
 
@@ -37,6 +38,12 @@ jobs:
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
+
+      - name: Use latest npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Show npm version
+        run: npm --version
 
       - name: Publish to npm
         run: npm publish --provenance --access public
