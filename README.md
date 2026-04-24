@@ -59,21 +59,23 @@ const widget = ObviousFeedback.init({
 
 Pass options to `ObviousFeedback.init()` or use `data-*` attributes on the script tag.
 
-| Option | `data-*` attribute | Type | Default | Description |
-|---|---|---|---|---|
-| `publicKey` | `data-pub-key` | `string` | — | **Required.** Your workspace feedback key. |
-| `apiBaseUrl` | `data-api-base-url` | `string` | `https://app.obvious.ai` | Base URL for the Obvious API. |
-| `identityToken` | `data-identity-token` | `string` | — | Signed JWT for verified identity (see below). |
-| `env` | `data-env` | `string` | `production` | Environment label attached to submissions. |
-| `prNumber` | `data-pr-number` | `number` | — | PR number for preview environment routing. |
-| `theme` | `data-theme` | `'light' \| 'dark' \| 'system'` | `light` | Widget color scheme. |
-| `triggerLabel` | `data-trigger-label` | `string` | `Open feedback` | Tooltip text on the trigger button. |
-| `assistantPosition` | — | `'bottom-right' \| 'bottom-left' \| 'top-right' \| 'top-left'` | `bottom-right` | Corner for the floating trigger. |
-| `redactSelectors` | — | `string[]` | `[]` | CSS selectors for elements to redact from DOM snapshots. |
-| `captureConsole` | — | `boolean` | `false` | Include recent console logs with submissions. |
-| `captureNetwork` | — | `boolean` | `false` | Include recent network requests with submissions. |
-| `sessionReplayUrlResolver` | — | `() => string \| null` | — | Returns a session replay URL (e.g. FullStory, LogRocket). |
-| `previewOnly` | — | `boolean` | `false` | Show the widget in read-only mode without submitting. |
+
+| Option                     | `data-*` attribute    | Type                                                        | Default                  | Description                                               |
+| -------------------------- | --------------------- | ----------------------------------------------------------- | ------------------------ | --------------------------------------------------------- |
+| `publicKey`                | `data-pub-key`        | `string`                                                    | —                        | **Required.** Your workspace feedback key.                |
+| `apiBaseUrl`               | `data-api-base-url`   | `string`                                                    | `https://api.app.obvious.ai` | Base URL for the Obvious API.                         |
+| `identityToken`            | `data-identity-token` | `string`                                                    | —                        | Signed JWT for verified identity (see below).             |
+| `env`                      | `data-env`            | `string`                                                    | `production`             | Environment label attached to submissions.                |
+| `prNumber`                 | `data-pr-number`      | `number`                                                    | —                        | PR number for preview environment routing.                |
+| `theme`                    | `data-theme`          | `'light' | 'dark' | 'system'`                               | `light`                  | Widget color scheme.                                      |
+| `triggerLabel`             | `data-trigger-label`  | `string`                                                    | `Open feedback`          | Tooltip text on the trigger button.                       |
+| `assistantPosition`        | —                     | `'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'` | `bottom-right`           | Corner for the floating trigger.                          |
+| `redactSelectors`          | —                     | `string[]`                                                  | `[]`                     | CSS selectors for elements to redact from DOM snapshots.  |
+| `captureConsole`           | —                     | `boolean`                                                   | `false`                  | Include recent console logs with submissions.             |
+| `captureNetwork`           | —                     | `boolean`                                                   | `false`                  | Include recent network requests with submissions.         |
+| `sessionReplayUrlResolver` | —                     | `() => string | null`                                       | —                        | Returns a session replay URL (e.g. FullStory, LogRocket). |
+| `previewOnly`              | —                     | `boolean`                                                   | `false`                  | Show the widget in read-only mode without submitting.     |
+
 
 ## Setup
 
@@ -145,12 +147,14 @@ Initialize the widget. Only one instance can be active at a time; calling `init`
 
 Returns a handle with:
 
-| Method | Description |
-|---|---|
-| `destroy()` | Remove the widget from the page. |
-| `open()` | Programmatically open the feedback card. |
-| `getOpenIssueCount()` | Number of non-terminal issues submitted in this session. |
+
+| Method                                | Description                                                             |
+| ------------------------------------- | ----------------------------------------------------------------------- |
+| `destroy()`                           | Remove the widget from the page.                                        |
+| `open()`                              | Programmatically open the feedback card.                                |
+| `getOpenIssueCount()`                 | Number of non-terminal issues submitted in this session.                |
 | `subscribeToOpenIssueCount(listener)` | Subscribe to open issue count changes. Returns an unsubscribe function. |
+
 
 ## Keyboard shortcut
 
@@ -173,6 +177,7 @@ The SDK targets ES2020 and uses Shadow DOM, `ResizeObserver`, and `crypto.random
 ### Widget is invisible
 
 If the widget trigger blends into the page background:
+
 - Check the `theme` setting. If your page is light-only, use `theme: 'light'` (the default), not `'system'`.
 - On macOS with auto light/dark mode, `theme: 'system'` will switch the widget to dark when the OS is in dark mode, even if the host page stays light.
 

@@ -323,7 +323,7 @@ const FEEDBACK_ATTACHMENT_UPLOAD_TIMEOUT_MS = 30_000
 const DEFAULT_ATTACHMENT_MIME_TYPE = 'application/octet-stream'
 const FEEDBACK_ATTACHMENT_SESSION_PREFIX = 'fas'
 
-const DEFAULT_API_BASE_URL = 'https://app.obvious.ai'
+const DEFAULT_API_BASE_URL = 'https://api.app.obvious.ai'
 const API_ROUTE_PREFIX = '/prepare'
 
 const DEFAULT_ENV = 'production'
