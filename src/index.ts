@@ -1477,9 +1477,9 @@ function createStyles(): string {
     .obv-shortcut-hint { color: var(--obv-feedback-muted); font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.7; margin-left: 6px; }
     .obv-card-close { width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 999px; }
     .obv-list-body { padding: 2px 0; min-height: 40px; }
-    .obv-list-row { display: flex; align-items: baseline; gap: 0; padding: 3px 2px; }
+    .obv-list-row { display: flex; align-items: baseline; gap: 0; padding: 3px 0; }
     .obv-row-number {
-      width: 22px; flex-shrink: 0; text-align: right; padding-right: 8px;
+      width: 22px; flex-shrink: 0; text-align: left; padding-right: 8px;
       color: var(--obv-feedback-muted); font-size: 12px; font-weight: 600;
       font-variant-numeric: tabular-nums; user-select: none;
       transition: color 120ms ease;
