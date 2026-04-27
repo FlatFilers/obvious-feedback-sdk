@@ -1870,6 +1870,16 @@ function createElementGrabRect(rect: DOMRect): ElementGrabRect {
 }
 
 function normalizeVisualSuggestionTarget(target: HTMLElement): HTMLElement {
+  const interactiveParent = target.closest(
+    'button, a, [role="button"], [role="tab"], [role="menuitem"]',
+  );
+  if (
+    interactiveParent instanceof HTMLElement &&
+    getVisualSuggestionTargetLabel(interactiveParent) === "Card" &&
+    getVisualSuggestionTargetKind(target) === "text"
+  ) {
+    return target;
+  }
   if (
     target.matches(
       'button, a, [role="button"], [role="tab"], [role="menuitem"]',
@@ -1877,9 +1887,6 @@ function normalizeVisualSuggestionTarget(target: HTMLElement): HTMLElement {
   ) {
     return target;
   }
-  const interactiveParent = target.closest(
-    'button, a, [role="button"], [role="tab"], [role="menuitem"]',
-  );
   return interactiveParent instanceof HTMLElement ? interactiveParent : target;
 }
 
@@ -2031,7 +2038,10 @@ function getVisualSuggestionTargetProperties(
     return ["font-size", "color"];
   }
 
-  if (kind === "container") {
+  if (
+    kind === "container" ||
+    getVisualSuggestionTargetLabel(element) === "Card"
+  ) {
     return [
       ...shapeProperties,
       "padding",

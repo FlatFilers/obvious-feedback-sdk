@@ -28,6 +28,21 @@
         border-radius: 8px;
         font-size: 14px;
       }
+      #card-target {
+        width: 280px;
+        min-height: 120px;
+        margin-top: 20px;
+        padding: 16px;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        background: #fafafa;
+        cursor: pointer;
+      }
+      #card-title {
+        font-size: 16px;
+        line-height: 1.4;
+        color: #111;
+      }
     </style>
   </head>
   <body>
@@ -37,6 +52,9 @@
         This page loads the SDK via the IIFE bundle and initializes it against
         the mock API.
       </p>
+      <div id="card-target" role="button" tabindex="0">
+        <div id="card-title">Card title text should resize when clicked.</div>
+      </div>
       <input data-sensitive="true" value="secret-value-should-be-redacted" />
       <textarea id="visible-note">
 Visible reproduction details for testing.</textarea

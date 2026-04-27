@@ -134,4 +134,43 @@ test.describe("Mock submit flow", () => {
         },
       });
   });
+
+  test("visual suggestions resize card text when the title is clicked", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#status")).toHaveText(
+      "SDK initialized successfully.",
+    );
+
+    await page.locator(".obv-trigger").click();
+    await page
+      .locator('[data-item-input="__new"]')
+      .fill("Make the card title larger");
+    await page.locator('[data-visual-suggest-start="true"]').click();
+
+    const titleBox = await page.locator("#card-title").boundingBox();
+    expect(titleBox).not.toBeNull();
+    await page.mouse.click(
+      titleBox!.x + titleBox!.width / 2,
+      titleBox!.y + titleBox!.height / 2,
+    );
+
+    await expect(page.locator(".obv-vs-target")).toContainText("Text");
+
+    const fontSizeSlider = page.locator('[data-vs-slider="font-size"]');
+    await expect(fontSizeSlider).toBeVisible();
+    await fontSizeSlider.evaluate((element) => {
+      const input = element as HTMLInputElement;
+      input.value = "28";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await expect(page.locator("#card-title")).toHaveCSS("font-size", "28px");
+    await expect(page.locator("#card-target")).not.toHaveCSS(
+      "font-size",
+      "28px",
+    );
+  });
 });
