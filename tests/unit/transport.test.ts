@@ -46,6 +46,34 @@ describe("transport", () => {
     expect(calledUrl).toContain("/prepare/v1/feedback/");
   });
 
+  it("enables round submit as soon as the draft row has text", async () => {
+    const { body } = installDom();
+    const { ObviousFeedback } = await import(
+      `../../src/index?draft-submit-enable=${Date.now()}`
+    );
+    ObviousFeedback.init({ publicKey: "fsk_pub_test" });
+    const host = body.children[1];
+    host.shadowRoot
+      ?.querySelector(".obv-trigger")
+      ?.dispatch("click", { preventDefault() {} } as Event);
+
+    expect(host.shadowRoot?.innerHTML).toContain(
+      'data-submit-round="true" disabled aria-disabled="true"',
+    );
+
+    const input = host.shadowRoot?.querySelector(
+      '[data-item-input="__new"]',
+    ) as MiniInputElement | null;
+    input!.value = "Submit this without pressing enter first";
+    input!.dispatch("input", {} as Event);
+
+    const submitButton = host.shadowRoot?.querySelector(
+      '[data-submit-round="true"]',
+    ) as HTMLButtonElement | null;
+    expect(submitButton?.hasAttribute("disabled")).toBe(false);
+    expect(submitButton?.getAttribute("aria-disabled")).toBe(null);
+  });
+
   it("does not duplicate the API route prefix when callers include it in apiBaseUrl", async () => {
     installDom();
     const mod = await import(`../../src/index?transport-nodup=${Date.now()}`);

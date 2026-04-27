@@ -3112,10 +3112,11 @@ class ObviousFeedbackWidget {
   }
 
   private renderUnifiedPanel(): string {
-    const itemCount = this.roundItems.length;
     const submitLabel = this.config.previewOnly
       ? "Preview only"
       : `${createIcon("arrow")}Fix with Autobuild`;
+    const isSubmitDisabled =
+      this.config.previewOnly || !this.hasRoundSubmitContent();
 
     if (this.submittedIssueUrl) {
       const safeUrl = getSafeExternalUrl(this.submittedIssueUrl);
@@ -3159,10 +3160,35 @@ class ObviousFeedbackWidget {
             ${this.visualSuggestions ? `<button class="obv-icon-button obv-footer-tool-btn" type="button" data-visual-suggest-start="true" data-tooltip="Suggest visual change" aria-label="Suggest visual change">${createIcon("dial")}<span class="obv-visual-suggest-flag-dot" aria-hidden="true"></span></button>` : ""}
             <input class="obv-attachment-input" data-attachment-input="true" type="file" multiple tabindex="-1" aria-hidden="true" style="display:none" />
           </div>
-          <button class="obv-button" type="button" data-submit-round="true" ${this.config.previewOnly || itemCount === 0 ? 'disabled aria-disabled="true"' : ""}>${submitLabel}</button>
+          <button class="obv-button" type="button" data-submit-round="true" ${isSubmitDisabled ? 'disabled aria-disabled="true"' : ""}>${submitLabel}</button>
         </div>
       </div>
     `;
+  }
+
+  private hasRoundSubmitContent(): boolean {
+    return (
+      this.roundItems.some((item) => item.description.trim().length > 0) ||
+      this.newRowDraft.trim().length > 0
+    );
+  }
+
+  private updateRoundSubmitButtonState(): void {
+    const button = this.shadowRoot.querySelector(
+      '[data-submit-round="true"]',
+    ) as HTMLButtonElement | null;
+    if (!button) {
+      return;
+    }
+    const isDisabled = this.config.previewOnly || !this.hasRoundSubmitContent();
+    button.disabled = isDisabled;
+    if (isDisabled) {
+      button.setAttribute("disabled", "");
+      button.setAttribute("aria-disabled", "true");
+    } else {
+      button.removeAttribute("disabled");
+      button.removeAttribute("aria-disabled");
+    }
   }
 
   private bindUnifiedPanel(): void {
@@ -3278,6 +3304,7 @@ class ObviousFeedbackWidget {
       input.addEventListener("input", () => {
         if (itemId === "__new") {
           this.newRowDraft = input.value;
+          this.updateRoundSubmitButtonState();
           return;
         }
         const item = this.roundItems.find(
@@ -3286,6 +3313,7 @@ class ObviousFeedbackWidget {
         if (item) {
           item.description = input.value;
         }
+        this.updateRoundSubmitButtonState();
       });
 
       input.addEventListener("keydown", (event) => {

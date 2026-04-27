@@ -50,6 +50,21 @@ export class MiniElement {
     return this.attrs.get(name) ?? null
   }
 
+  removeAttribute(name: string): void {
+    this.attrs.delete(name)
+    if (name === 'style') {
+      this.style = ''
+    }
+    if (this.innerHTMLSnapshot) {
+      const attrPattern = new RegExp(`\\s${name}(="[^"]*")?`)
+      this.innerHTMLSnapshot = this.innerHTMLSnapshot.replace(attrPattern, '')
+    }
+    this.attributes = Array.from(this.attrs.entries()).map(([attrName, attrValue]) => ({
+      name: attrName,
+      value: attrValue,
+    }))
+  }
+
   hasAttribute(name: string): boolean {
     return this.attrs.has(name)
   }
