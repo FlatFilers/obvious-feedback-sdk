@@ -12,10 +12,12 @@ test.describe('Theme visibility', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
 
     await page.evaluate(() => {
-      const existingWidget = (window as Record<string, unknown>).__feedbackWidget as { destroy: () => void } | undefined
+      const existingWidget = (window as unknown as Record<string, unknown>).__feedbackWidget as
+        | { destroy: () => void }
+        | undefined
       existingWidget?.destroy()
 
-      const ns = (window as Record<string, unknown>).ObviousFeedback as Record<string, unknown>
+      const ns = (window as unknown as Record<string, unknown>).ObviousFeedback as Record<string, unknown>
       const sdk = (ns.ObviousFeedback ?? ns) as { init: (config: Record<string, unknown>) => unknown }
       sdk.init({
         publicKey: 'fsk_pub_test',
@@ -33,10 +35,12 @@ test.describe('Theme visibility', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
 
     await page.evaluate(() => {
-      const existingWidget = (window as Record<string, unknown>).__feedbackWidget as { destroy: () => void } | undefined
+      const existingWidget = (window as unknown as Record<string, unknown>).__feedbackWidget as
+        | { destroy: () => void }
+        | undefined
       existingWidget?.destroy()
 
-      const ns = (window as Record<string, unknown>).ObviousFeedback as Record<string, unknown>
+      const ns = (window as unknown as Record<string, unknown>).ObviousFeedback as Record<string, unknown>
       const sdk = (ns.ObviousFeedback ?? ns) as { init: (config: Record<string, unknown>) => unknown }
       sdk.init({
         publicKey: 'fsk_pub_test',

@@ -24,7 +24,7 @@ describe('theme', () => {
     installDom()
     const mod = await import(`../../src/index?theme-tokens=${Date.now()}`)
     const source = await Bun.file(new URL('../../src/index.ts', import.meta.url).pathname).text()
-    const hostTokenPattern = /var\(--(?!obv-feedback-)[a-z]/
+    const hostTokenPattern = /var\(--(?!obv-(feedback|vs)-)[a-z]/
     const styleMatches = source.match(/`[^`]*var\(--[^`]*`/g) ?? []
     for (const block of styleMatches) {
       expect(hostTokenPattern.test(block)).toBe(false)

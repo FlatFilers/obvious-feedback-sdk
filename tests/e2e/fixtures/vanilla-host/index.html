@@ -5,37 +5,81 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Feedback SDK - Vanilla IIFE Test</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 40px; background: #fff; color: #111; }
-      h1 { font-size: 24px; }
-      .test-content { margin-top: 20px; }
-      input[data-sensitive] { border: 1px solid #ccc; padding: 8px; }
-      #status { margin-top: 16px; padding: 12px; background: #f5f5f5; border-radius: 8px; font-size: 14px; }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 40px;
+        background: #fff;
+        color: #111;
+      }
+      h1 {
+        font-size: 24px;
+      }
+      .test-content {
+        margin-top: 20px;
+      }
+      input[data-sensitive] {
+        border: 1px solid #ccc;
+        padding: 8px;
+      }
+      #status {
+        margin-top: 16px;
+        padding: 12px;
+        background: #f5f5f5;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+      #card-target {
+        width: 280px;
+        min-height: 120px;
+        margin-top: 20px;
+        padding: 16px;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        background: #fafafa;
+        cursor: pointer;
+      }
+      #card-title {
+        font-size: 16px;
+        line-height: 1.4;
+        color: #111;
+      }
     </style>
   </head>
   <body>
     <h1>Vanilla IIFE Fixture</h1>
     <div class="test-content">
-      <p>This page loads the SDK via the IIFE bundle and initializes it against the mock API.</p>
+      <p id="visual-target" style="font-size: 16px; color: rgb(17, 17, 17)">
+        This page loads the SDK via the IIFE bundle and initializes it against
+        the mock API.
+      </p>
+      <div id="card-target" role="button" tabindex="0">
+        <div id="card-title">Card title text should resize when clicked.</div>
+      </div>
       <input data-sensitive="true" value="secret-value-should-be-redacted" />
-      <textarea id="visible-note">Visible reproduction details for testing.</textarea>
+      <textarea id="visible-note">
+Visible reproduction details for testing.</textarea
+      >
     </div>
     <div id="status">SDK not initialized.</div>
 
     <script src="/dist/index.global.js"></script>
     <script>
       try {
-        var sdk = ObviousFeedback.ObviousFeedback || ObviousFeedback
+        var sdk = ObviousFeedback.ObviousFeedback || ObviousFeedback;
         var widget = sdk.init({
-          publicKey: 'fsk_pub_test',
-          apiBaseUrl: 'http://localhost:4444',
-          theme: 'light',
-          redactSelectors: ['[data-sensitive]'],
-        })
-        document.getElementById('status').textContent = 'SDK initialized successfully.'
-        window.__feedbackWidget = widget
-        window.__feedbackSdk = sdk
+          publicKey: "fsk_pub_test",
+          apiBaseUrl: "http://localhost:4444",
+          theme: "light",
+          redactSelectors: ["[data-sensitive]"],
+          visualSuggestions: { enabled: true },
+        });
+        document.getElementById("status").textContent =
+          "SDK initialized successfully.";
+        window.__feedbackWidget = widget;
+        window.__feedbackSdk = sdk;
       } catch (error) {
-        document.getElementById('status').textContent = 'SDK init failed: ' + error.message
+        document.getElementById("status").textContent =
+          "SDK init failed: " + error.message;
       }
     </script>
   </body>

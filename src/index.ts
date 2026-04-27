@@ -1,38 +1,63 @@
-export type FeedbackIssueType = 'bug' | 'improvement' | 'question'
-export type FeedbackIssueSeverity = 'critical' | 'high' | 'medium' | 'low'
-export type FeedbackClientStatus = 'received' | 'under_review' | 'in_progress' | 'resolved' | 'no_action' | 'duplicate'
+import {
+  cssColorToHex,
+  createVisualSuggestionElementRef,
+  formatCssNumericValue,
+  getDefaultScrubStart,
+  getVisualSuggestionSliderConfig,
+  isVisualSuggestionColorProperty,
+  parseCssNumericValue,
+  VISUAL_SUGGESTION_PROPERTIES,
+  VISUAL_SUGGESTION_PROPERTY_LABELS,
+} from "./visual-suggestion-helpers";
+import {
+  type VisualSuggestionTargetInput,
+  VisualSuggestionManager,
+} from "./visual-suggestion-manager";
 
-const SESSION_REPLAY_URL_RESOLVER_TIMEOUT_MS = 250
+export type FeedbackIssueType = "bug" | "improvement" | "question";
+export type FeedbackIssueSeverity = "critical" | "high" | "medium" | "low";
+export type FeedbackClientStatus =
+  | "received"
+  | "under_review"
+  | "in_progress"
+  | "resolved"
+  | "no_action"
+  | "duplicate";
 
-export type SessionReplayUrlResolver = () => string | null | Promise<string | null>
+const SESSION_REPLAY_URL_RESOLVER_TIMEOUT_MS = 250;
 
-export type FeedbackSdkTheme = 'light' | 'dark' | 'system'
+export type SessionReplayUrlResolver = () =>
+  | string
+  | null
+  | Promise<string | null>;
+
+export type FeedbackSdkTheme = "light" | "dark" | "system";
 
 export interface FeedbackSdkHandle {
-  destroy: () => void
-  open: () => void
-  getOpenIssueCount: () => number
-  subscribeToOpenIssueCount: (listener: (count: number) => void) => () => void
+  destroy: () => void;
+  open: () => void;
+  getOpenIssueCount: () => number;
+  subscribeToOpenIssueCount: (listener: (count: number) => void) => () => void;
 }
 
 export interface FeedbackSdkConfig {
-  publicKey?: string
-  apiBaseUrl?: string
-  identityToken?: string
-  env?: string
-  prNumber?: number
-  redactSelectors?: string[]
-  triggerLabel?: string
-  triggerLabels?: string[]
-  assistantPosition?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'
-  capturePageContext?: boolean
+  publicKey?: string;
+  apiBaseUrl?: string;
+  identityToken?: string;
+  env?: string;
+  prNumber?: number;
+  redactSelectors?: string[];
+  triggerLabel?: string;
+  triggerLabels?: string[];
+  assistantPosition?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  capturePageContext?: boolean;
   /** Optionally resolves a provider-neutral replay URL to include with feedback submissions. */
-  sessionReplayUrlResolver?: SessionReplayUrlResolver
-  captureConsole?: boolean
-  captureNetwork?: boolean
-  previewOnly?: boolean
-  previewOnlyReason?: string
-  elementSourceResolver?: ElementSourceResolver
+  sessionReplayUrlResolver?: SessionReplayUrlResolver;
+  captureConsole?: boolean;
+  captureNetwork?: boolean;
+  previewOnly?: boolean;
+  previewOnlyReason?: string;
+  elementSourceResolver?: ElementSourceResolver;
   /**
    * Controls the widget color scheme.
    * - `'light'` (default) — always light, safe for light-only host pages.
@@ -41,513 +66,646 @@ export interface FeedbackSdkConfig {
    *
    * Host pages can further customize colors via `--obv-feedback-*` CSS custom properties.
    */
-  theme?: FeedbackSdkTheme
+  theme?: FeedbackSdkTheme;
+  /**
+   * Feedback SDK "Suggest visual change" flow (Budge-inspired). Disabled by default.
+   * When enabled, reporters can select a page element, nudge a safe CSS property,
+   * and attach the suggested change (original → suggested value + generated prompt)
+   * to their feedback report. The original page is never mutated permanently: any
+   * preview is restored before submit.
+   */
+  visualSuggestions?: FeedbackVisualSuggestionsConfig;
+}
+
+export interface FeedbackVisualSuggestionsConfig {
+  enabled?: boolean;
 }
 
 export interface FeedbackSubmissionInput {
-  type: FeedbackIssueType
-  severity?: FeedbackIssueSeverity
-  title?: string
-  description: string
-  sessionReplayUrl?: string
+  type: FeedbackIssueType;
+  severity?: FeedbackIssueSeverity;
+  title?: string;
+  description: string;
+  sessionReplayUrl?: string;
   /** When set (including empty), used instead of compose-state attachment tokens (e.g. round item submit). */
-  attachmentTokens?: string[]
+  attachmentTokens?: string[];
 }
 
 export interface FeedbackStatusResponse {
-  issueId: string
-  status: FeedbackClientStatus
-  triageStatus: string
-  title: string
-  description: string | null
-  resolvedNote: string | null
-  aiSummary?: FeedbackAiSummary | null
-  links?: FeedbackIssueLinks | null
-  updatedAt: string
-  reportedAt?: string
-  workerThread?: FeedbackWorkerThreadLink
+  issueId: string;
+  status: FeedbackClientStatus;
+  triageStatus: string;
+  title: string;
+  description: string | null;
+  resolvedNote: string | null;
+  aiSummary?: FeedbackAiSummary | null;
+  links?: FeedbackIssueLinks | null;
+  updatedAt: string;
+  reportedAt?: string;
+  workerThread?: FeedbackWorkerThreadLink;
 }
 
 interface FeedbackAiSummary {
-  headline?: string | null
-  progress?: string | null
-  updatedAt?: string | null
+  headline?: string | null;
+  progress?: string | null;
+  updatedAt?: string | null;
 }
 
 interface FeedbackWorkerThreadLink {
-  id: string
-  url: string
+  id: string;
+  url: string;
 }
 
 interface FeedbackPullRequestLink {
-  id: string
-  number: number
-  title: string
-  url: string
-  status: string
-  ciStatus: string
-  reviewStatus: string
-  isDraft: boolean
+  id: string;
+  number: number;
+  title: string;
+  url: string;
+  status: string;
+  ciStatus: string;
+  reviewStatus: string;
+  isDraft: boolean;
 }
 
 interface FeedbackIssueLinks {
-  workerThread?: FeedbackWorkerThreadLink
-  pullRequest?: FeedbackPullRequestLink
+  workerThread?: FeedbackWorkerThreadLink;
+  pullRequest?: FeedbackPullRequestLink;
 }
 
-type FeedbackIssueHistoryStatus = FeedbackClientStatus | 'unavailable'
+type FeedbackIssueHistoryStatus = FeedbackClientStatus | "unavailable";
 
 interface FeedbackIssueHistoryEntry {
-  issueId: string
-  status: FeedbackIssueHistoryStatus
-  title?: string
-  description?: string | null
-  resolvedNote?: string | null
-  aiSummary?: FeedbackAiSummary | null
-  links?: FeedbackIssueLinks | null
-  reportedAt?: string
-  updatedAt?: string
-  checkedAt?: string
-  workerThread?: FeedbackWorkerThreadLink
-  acknowledgedStatusVersions?: string[]
+  issueId: string;
+  status: FeedbackIssueHistoryStatus;
+  title?: string;
+  description?: string | null;
+  resolvedNote?: string | null;
+  aiSummary?: FeedbackAiSummary | null;
+  links?: FeedbackIssueLinks | null;
+  reportedAt?: string;
+  updatedAt?: string;
+  checkedAt?: string;
+  workerThread?: FeedbackWorkerThreadLink;
+  acknowledgedStatusVersions?: string[];
 }
 
 interface DomSnapshotNode {
-  tag: string
-  text?: string
-  attrs?: Record<string, string>
-  children?: DomSnapshotNode[]
-  redacted?: boolean
-  truncated?: boolean
+  tag: string;
+  text?: string;
+  attrs?: Record<string, string>;
+  children?: DomSnapshotNode[];
+  redacted?: boolean;
+  truncated?: boolean;
 }
 
-type FeedbackTriggerCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+type FeedbackTriggerCorner =
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
 
 interface FeedbackTriggerPosition {
-  corner: FeedbackTriggerCorner
-  offsetX: number
-  offsetY: number
+  corner: FeedbackTriggerCorner;
+  offsetX: number;
+  offsetY: number;
 }
 
 interface FeedbackTriggerDragState {
-  initialPosition: FeedbackTriggerPosition
+  initialPosition: FeedbackTriggerPosition;
 
-  pointerId: number
-  startClientX: number
-  startClientY: number
-  startLeft: number
-  startTop: number
-  moved: boolean
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startLeft: number;
+  startTop: number;
+  moved: boolean;
 }
 
 interface ConsoleLogEntry {
-  level: 'log' | 'info' | 'warn' | 'error'
-  message: string
-  timestamp: string
+  level: "log" | "info" | "warn" | "error";
+  message: string;
+  timestamp: string;
 }
 
 interface NetworkLogEntry {
-  method: string
-  url: string
-  status: number | null
-  durationMs: number
-  timestamp: string
+  method: string;
+  url: string;
+  status: number | null;
+  durationMs: number;
+  timestamp: string;
 }
 
 export interface ElementSourceInfo {
-  componentName: string | null
-  source: ElementSourceLocation | null
-  stack: ElementSourceStackFrame[]
+  componentName: string | null;
+  source: ElementSourceLocation | null;
+  stack: ElementSourceStackFrame[];
 }
 
 export interface ElementSourceLocation {
-  filePath: string
-  lineNumber: number | null
-  columnNumber: number | null
+  filePath: string;
+  lineNumber: number | null;
+  columnNumber: number | null;
 }
 
 export interface ElementSourceStackFrame {
-  filePath: string
-  lineNumber: number | null
-  componentName: string | null
+  filePath: string;
+  lineNumber: number | null;
+  componentName: string | null;
 }
 
 export interface ElementGrabItem {
-  id: string
-  tagName: string
-  cssSelector: string
-  outerHtml: string
-  textContent: string
-  boundingRect: ElementGrabRect
-  componentName: string | null
-  sourceFile: string | null
-  lineNumber: number | null
-  componentStack: ElementSourceStackFrame[]
+  id: string;
+  tagName: string;
+  cssSelector: string;
+  outerHtml: string;
+  textContent: string;
+  boundingRect: ElementGrabRect;
+  componentName: string | null;
+  sourceFile: string | null;
+  lineNumber: number | null;
+  componentStack: ElementSourceStackFrame[];
 }
 
 export interface ElementGrabRect {
-  x: number
-  y: number
-  width: number
-  height: number
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface ElementGrabHoverInfo {
-  tagName: string
-  componentName: string | null
-  sourceFile: string | null
-  lineNumber: number | null
+  tagName: string;
+  componentName: string | null;
+  sourceFile: string | null;
+  lineNumber: number | null;
 }
 
-export type ElementSourceResolver = (element: Element) => Promise<ElementSourceInfo | null>
+export type ElementSourceResolver = (
+  element: Element,
+) => Promise<ElementSourceInfo | null>;
 
-type FeedbackPanel = 'unified'
+export type FeedbackVisualSuggestionProperty =
+  | "font-size"
+  | "border-radius"
+  | "padding"
+  | "gap"
+  | "color"
+  | "background-color";
 
-type FeedbackMarkupTool = 'rectangle' | 'point' | 'pen'
+export interface FeedbackVisualSuggestionElementRef {
+  id: string;
+  tagName: string;
+  cssSelector: string;
+  boundingRect: ElementGrabRect;
+  componentName: string | null;
+  sourceFile: string | null;
+  lineNumber: number | null;
+}
+
+export type FeedbackVisualSuggestionScopeKind = "element" | "similar-siblings";
+
+export interface FeedbackVisualSuggestionScope {
+  kind: FeedbackVisualSuggestionScopeKind;
+  label: string;
+  matchedCount: number;
+  parentElement?: {
+    tagName: string;
+    cssSelector: string;
+  };
+  matchedElements?: Array<{
+    tagName: string;
+    cssSelector: string;
+    textContent: string;
+    componentName: string | null;
+  }>;
+}
+
+export interface FeedbackVisualSuggestion {
+  id: string;
+  property: FeedbackVisualSuggestionProperty;
+  originalValue: string;
+  suggestedValue: string;
+  prompt: string;
+  element: FeedbackVisualSuggestionElementRef;
+  scope?: FeedbackVisualSuggestionScope;
+  capturedAt: string;
+}
+
+export interface FeedbackVisualSuggestionsPayload {
+  version: 1;
+  suggestions: FeedbackVisualSuggestion[];
+}
+
+type FeedbackPanel = "unified";
+
+type FeedbackMarkupTool = "rectangle" | "point" | "pen";
 
 interface FeedbackMarkupPoint {
-  x: number
-  y: number
+  x: number;
+  y: number;
 }
 
 interface FeedbackMarkupItem {
-  id: string
-  tool: FeedbackMarkupTool
-  points: FeedbackMarkupPoint[]
+  id: string;
+  tool: FeedbackMarkupTool;
+  points: FeedbackMarkupPoint[];
 }
 
 interface FeedbackMarkupPayload {
-  items: FeedbackMarkupItem[]
-  viewport: { width: number; height: number }
-  scroll: { x: number; y: number }
-  devicePixelRatio: number
-  domSnapshot?: DomSnapshotNode
-  capturedAt: string
+  items: FeedbackMarkupItem[];
+  viewport: { width: number; height: number };
+  scroll: { x: number; y: number };
+  devicePixelRatio: number;
+  domSnapshot?: DomSnapshotNode;
+  capturedAt: string;
 }
 
-type FeedbackMarkupContext = Omit<FeedbackMarkupPayload, 'items'>
+type FeedbackMarkupContext = Omit<FeedbackMarkupPayload, "items">;
 
 interface FeedbackMarkupDraft {
-  id: string
-  tool: FeedbackMarkupTool
-  start: FeedbackMarkupPoint
-  points: FeedbackMarkupPoint[]
+  id: string;
+  tool: FeedbackMarkupTool;
+  start: FeedbackMarkupPoint;
+  points: FeedbackMarkupPoint[];
 }
 
 interface FeedbackMarkupSessionSnapshot {
-  items: FeedbackMarkupItem[]
-  context: FeedbackMarkupContext | null
+  items: FeedbackMarkupItem[];
+  context: FeedbackMarkupContext | null;
 }
 
-type FeedbackAttachmentUploadStatus = 'uploading' | 'ready' | 'error'
+type FeedbackAttachmentUploadStatus = "uploading" | "ready" | "error";
 
 interface FeedbackAttachmentUpload {
-  id: string
-  file: File
-  name: string
-  mimeType: string
-  sizeBytes: number
-  status: FeedbackAttachmentUploadStatus
-  attachmentToken?: string
-  error?: string
+  id: string;
+  file: File;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: FeedbackAttachmentUploadStatus;
+  attachmentToken?: string;
+  error?: string;
 }
 
 interface FeedbackAttachmentUploadResponse {
   data?: {
-    uploadUrl?: string
-    attachmentToken?: string
-  }
+    uploadUrl?: string;
+    attachmentToken?: string;
+  };
 }
 
 interface FeedbackMeasurementRuler {
-  orientation: 'horizontal' | 'vertical'
-  position: number
-  edge: 'top' | 'bottom' | 'left' | 'right' | null
+  orientation: "horizontal" | "vertical";
+  position: number;
+  edge: "top" | "bottom" | "left" | "right" | null;
   snappedElement: {
-    cssSelector: string
-    tagName: string
-    componentName: string | null
-    sourceFile: string | null
-    lineNumber: number | null
-    boundingRect: ElementGrabRect
-  } | null
+    cssSelector: string;
+    tagName: string;
+    componentName: string | null;
+    sourceFile: string | null;
+    lineNumber: number | null;
+    boundingRect: ElementGrabRect;
+  } | null;
 }
 
 interface FeedbackMeasurementDistance {
-  pixelDistance: number
-  orientation: 'horizontal' | 'vertical'
-  rulerA: FeedbackMeasurementRuler
-  rulerB: FeedbackMeasurementRuler
+  pixelDistance: number;
+  orientation: "horizontal" | "vertical";
+  rulerA: FeedbackMeasurementRuler;
+  rulerB: FeedbackMeasurementRuler;
 }
 
 interface FeedbackMeasurement {
-  id: string
-  description: string
-  rulers: FeedbackMeasurementRuler[]
-  distances: FeedbackMeasurementDistance[]
-  viewport: { width: number; height: number }
+  id: string;
+  description: string;
+  rulers: FeedbackMeasurementRuler[];
+  distances: FeedbackMeasurementDistance[];
+  viewport: { width: number; height: number };
 }
 
 interface FeedbackRoundItem {
-  id: string
-  description: string
-  markupPayload?: FeedbackMarkupPayload
-  elementGrabs?: ElementGrabItem[]
-  measurements?: FeedbackMeasurement[]
-  attachmentTokens?: string[]
+  id: string;
+  description: string;
+  markupPayload?: FeedbackMarkupPayload;
+  elementGrabs?: ElementGrabItem[];
+  measurements?: FeedbackMeasurement[];
+  visualSuggestions?: FeedbackVisualSuggestion[];
+  attachmentTokens?: string[];
 }
 
-const TRIGGER_POSITION_STORAGE_KEY = 'obvious.feedback.triggerPosition'
-const ISSUE_HISTORY_STORAGE_PREFIX = 'obvious.feedback.issueHistory'
-const DRAFT_ROUND_STORAGE_PREFIX = 'obvious.feedback.draftRound'
-const MAX_ROUND_ITEMS = 15
-const MAX_DRAFT_ROUND_STORAGE_BYTES = 512 * 1024
-const MAX_ISSUE_HISTORY_ENTRIES = 5
-const HISTORY_REFRESH_STALE_MS = 5 * 60 * 1000
-const MAX_HISTORY_REFRESH_PER_OPEN = 2
-const TRIGGER_DRAG_THRESHOLD_PX = 4
-const TRIGGER_VIEWPORT_MARGIN_PX = 8
-const DEFAULT_TRIGGER_SIZE_PX = 44
-const FEEDBACK_CARD_GAP_PX = 12
-const FEEDBACK_CARD_VIEWPORT_MARGIN_PX = 20
-const FEEDBACK_CARD_MAX_WIDTH_PX = 392
-const FEEDBACK_FORM_ESTIMATED_HEIGHT_PX = 420
-const FEEDBACK_STATUS_CARD_ESTIMATED_HEIGHT_PX = 260
-const MARKUP_POINTER_MOVE_THRESHOLD_PX = 3
-const MAX_MARKUP_ITEMS = 40
-const MAX_ELEMENT_GRABS = 10
-const MAX_MARKUP_POINTS_PER_ITEM = 240
-const MAX_FEEDBACK_ATTACHMENTS = 10
-const MAX_FEEDBACK_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024
-const FEEDBACK_ATTACHMENT_UPLOAD_TIMEOUT_MS = 30_000
-const DEFAULT_ATTACHMENT_MIME_TYPE = 'application/octet-stream'
-const FEEDBACK_ATTACHMENT_SESSION_PREFIX = 'fas'
+interface VisualSuggestionScopeOption {
+  kind: FeedbackVisualSuggestionScopeKind;
+  label: string;
+  targets: VisualSuggestionTargetInput[];
+  scope: FeedbackVisualSuggestionScope;
+}
 
-const DEFAULT_API_BASE_URL = 'https://api.app.obvious.ai'
-const API_ROUTE_PREFIX = '/prepare'
+type VisualSuggestionTargetKind = "text" | "control" | "field" | "container";
 
-const DEFAULT_ENV = 'production'
-const MAX_DOM_NODES = 600
-const MAX_TEXT_LENGTH = 300
-const MAX_ATTR_LENGTH = 300
-const MAX_LOG_ENTRIES = 100
-const MAX_NETWORK_ENTRIES = 50
-const SENSITIVE_ATTRS = new Set(['value', 'placeholder', 'data-sensitive', 'aria-label', 'href', 'src', 'action'])
-const DEFAULT_TRIGGER_LABEL = 'Open feedback'
+interface VisualSuggestionTargetOption {
+  id: string;
+  kind: VisualSuggestionTargetKind;
+  label: string;
+  element: HTMLElement;
+  ref: FeedbackVisualSuggestionElementRef;
+  scopeOptions: VisualSuggestionScopeOption[];
+}
+
+const TRIGGER_POSITION_STORAGE_KEY = "obvious.feedback.triggerPosition";
+const ISSUE_HISTORY_STORAGE_PREFIX = "obvious.feedback.issueHistory";
+const DRAFT_ROUND_STORAGE_PREFIX = "obvious.feedback.draftRound";
+const MAX_ROUND_ITEMS = 15;
+const MAX_DRAFT_ROUND_STORAGE_BYTES = 512 * 1024;
+const MAX_ISSUE_HISTORY_ENTRIES = 5;
+const HISTORY_REFRESH_STALE_MS = 5 * 60 * 1000;
+const MAX_HISTORY_REFRESH_PER_OPEN = 2;
+const TRIGGER_DRAG_THRESHOLD_PX = 4;
+const TRIGGER_VIEWPORT_MARGIN_PX = 8;
+const DEFAULT_TRIGGER_SIZE_PX = 44;
+const FEEDBACK_CARD_GAP_PX = 12;
+const FEEDBACK_CARD_VIEWPORT_MARGIN_PX = 20;
+const FEEDBACK_CARD_MAX_WIDTH_PX = 392;
+const FEEDBACK_FORM_ESTIMATED_HEIGHT_PX = 420;
+const FEEDBACK_STATUS_CARD_ESTIMATED_HEIGHT_PX = 260;
+const MARKUP_POINTER_MOVE_THRESHOLD_PX = 3;
+const MAX_MARKUP_ITEMS = 40;
+const MAX_ELEMENT_GRABS = 10;
+const MAX_MARKUP_POINTS_PER_ITEM = 240;
+const MAX_FEEDBACK_ATTACHMENTS = 10;
+const MAX_FEEDBACK_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
+const FEEDBACK_ATTACHMENT_UPLOAD_TIMEOUT_MS = 30_000;
+const DEFAULT_ATTACHMENT_MIME_TYPE = "application/octet-stream";
+const FEEDBACK_ATTACHMENT_SESSION_PREFIX = "fas";
+
+const DEFAULT_API_BASE_URL = "https://api.app.obvious.ai";
+const API_ROUTE_PREFIX = "/prepare";
+
+const DEFAULT_ENV = "production";
+const MAX_DOM_NODES = 600;
+const MAX_TEXT_LENGTH = 300;
+const MAX_ATTR_LENGTH = 300;
+const MAX_LOG_ENTRIES = 100;
+const MAX_NETWORK_ENTRIES = 50;
+const SENSITIVE_ATTRS = new Set([
+  "value",
+  "placeholder",
+  "data-sensitive",
+  "aria-label",
+  "href",
+  "src",
+  "action",
+]);
+const DEFAULT_TRIGGER_LABEL = "Open feedback";
 
 const SECRET_QUERY_KEYS = new Set([
-  'token',
-  'access_token',
-  'refresh_token',
-  'id_token',
-  'code',
-  'secret',
-  'api_key',
-  'apikey',
-  'key',
-  'password',
-  'session',
-])
+  "token",
+  "access_token",
+  "refresh_token",
+  "id_token",
+  "code",
+  "secret",
+  "api_key",
+  "apikey",
+  "key",
+  "password",
+  "session",
+]);
 
-const DEFAULT_FEEDBACK_ISSUE_TYPE: FeedbackIssueType = 'improvement'
-const DEFAULT_FEEDBACK_ISSUE_SEVERITY: FeedbackIssueSeverity = 'medium'
-const MARKUP_TOOLS: FeedbackMarkupTool[] = ['rectangle', 'point', 'pen']
+const DEFAULT_FEEDBACK_ISSUE_TYPE: FeedbackIssueType = "improvement";
+const DEFAULT_FEEDBACK_ISSUE_SEVERITY: FeedbackIssueSeverity = "medium";
+const MARKUP_TOOLS: FeedbackMarkupTool[] = ["rectangle", "point", "pen"];
+const MAX_VISUAL_SUGGESTION_SCOPE_TARGETS = 12;
+const MAX_VISUAL_SUGGESTION_SCOPE_DEPTH = 5;
 const SILLY_FEEDBACK_MESSAGES = [
-  'Feature request',
-  'Report a bug',
-  'Love something?',
-  'Hate something?',
-  'Sign the Guest Book',
-  'Something broken?',
-  'Quick thought?',
-  'Tell us anything',
-  'Make a wish',
-  'Found a typo?',
-  'Would you like a cookie?',
-  'I have a question',
-  'This could be better',
-  'Submission box',
-  'Needs more cowbell',
-  'Flag something',
-  'Feedback',
-  'Something’s off',
-  'Salt and Pepper',
-]
-const SILLY_FEEDBACK_LOAD_PROBABILITY = 0.05
+  "Feature request",
+  "Report a bug",
+  "Love something?",
+  "Hate something?",
+  "Sign the Guest Book",
+  "Something broken?",
+  "Quick thought?",
+  "Tell us anything",
+  "Make a wish",
+  "Found a typo?",
+  "Would you like a cookie?",
+  "I have a question",
+  "This could be better",
+  "Submission box",
+  "Needs more cowbell",
+  "Flag something",
+  "Feedback",
+  "Something’s off",
+  "Salt and Pepper",
+];
+const SILLY_FEEDBACK_LOAD_PROBABILITY = 0.05;
 
 function getRandomSillyFeedbackMessage(): string {
   return (
-    SILLY_FEEDBACK_MESSAGES[Math.floor(Math.random() * SILLY_FEEDBACK_MESSAGES.length)] ?? SILLY_FEEDBACK_MESSAGES[0]
-  )
+    SILLY_FEEDBACK_MESSAGES[
+      Math.floor(Math.random() * SILLY_FEEDBACK_MESSAGES.length)
+    ] ?? SILLY_FEEDBACK_MESSAGES[0]
+  );
 }
 
 function shouldShowSillyFeedbackMessageOnLoad(): boolean {
-  return Math.random() < SILLY_FEEDBACK_LOAD_PROBABILITY
+  return Math.random() < SILLY_FEEDBACK_LOAD_PROBABILITY;
 }
 
 function truncateText(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value
+  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
 }
 
 function escapeHtml(value: string): string {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function redactUrl(rawUrl: string): string {
   try {
-    const url = new URL(rawUrl, typeof window !== 'undefined' ? window.location.origin : 'https://example.invalid')
+    const url = new URL(
+      rawUrl,
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "https://example.invalid",
+    );
     for (const key of Array.from(url.searchParams.keys())) {
-      if (SECRET_QUERY_KEYS.has(key.toLowerCase()) || /token|secret|password|key|code/i.test(key)) {
-        url.searchParams.set(key, '[REDACTED]')
+      if (
+        SECRET_QUERY_KEYS.has(key.toLowerCase()) ||
+        /token|secret|password|key|code/i.test(key)
+      ) {
+        url.searchParams.set(key, "[REDACTED]");
       }
     }
-    url.hash = ''
-    return truncateText(url.toString(), 500)
+    url.hash = "";
+    return truncateText(url.toString(), 500);
   } catch {
-    return truncateText(rawUrl.split('?')[0] ?? rawUrl, 500)
+    return truncateText(rawUrl.split("?")[0] ?? rawUrl, 500);
   }
 }
 
-function isSensitiveElement(element: Element, redactSelectors: string[]): boolean {
-  const tagName = element.tagName.toLowerCase()
-  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
-    return true
+function isSensitiveElement(
+  element: Element,
+  redactSelectors: string[],
+): boolean {
+  const tagName = element.tagName.toLowerCase();
+  if (tagName === "input" || tagName === "textarea" || tagName === "select") {
+    return true;
   }
-  if (element.getAttribute('type') === 'password' || element.hasAttribute('data-sensitive')) {
-    return true
+  if (
+    element.getAttribute("type") === "password" ||
+    element.hasAttribute("data-sensitive")
+  ) {
+    return true;
   }
   return redactSelectors.some((selector) => {
     try {
-      return element.matches(selector)
+      return element.matches(selector);
     } catch {
-      return false
+      return false;
     }
-  })
+  });
 }
 
 function createFeedbackApiUrl(apiBaseUrl: string, path: string): string {
-  const normalizedBaseUrl = apiBaseUrl.replace(/\/+$/, '')
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const normalizedBaseUrl = apiBaseUrl.replace(/\/+$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   // API_ROUTE_PREFIX includes the leading slash so this only skips when the base URL already ends in a full `/prepare` path segment.
-  const routePrefix = normalizedBaseUrl.endsWith(API_ROUTE_PREFIX) ? '' : API_ROUTE_PREFIX
-  return `${normalizedBaseUrl}${routePrefix}${normalizedPath}`
+  const routePrefix = normalizedBaseUrl.endsWith(API_ROUTE_PREFIX)
+    ? ""
+    : API_ROUTE_PREFIX;
+  return `${normalizedBaseUrl}${routePrefix}${normalizedPath}`;
 }
 
-function serializeDomSnapshot(root: Element, redactSelectors: string[]): DomSnapshotNode {
-  let visitedNodes = 0
+function serializeDomSnapshot(
+  root: Element,
+  redactSelectors: string[],
+): DomSnapshotNode {
+  let visitedNodes = 0;
 
   function walk(element: Element): DomSnapshotNode {
-    visitedNodes += 1
+    visitedNodes += 1;
     if (visitedNodes > MAX_DOM_NODES) {
-      return { tag: element.tagName.toLowerCase(), truncated: true }
+      return { tag: element.tagName.toLowerCase(), truncated: true };
     }
 
     if (isSensitiveElement(element, redactSelectors)) {
-      return { tag: element.tagName.toLowerCase(), redacted: true }
+      return { tag: element.tagName.toLowerCase(), redacted: true };
     }
 
-    const attrs: Record<string, string> = {}
+    const attrs: Record<string, string> = {};
     for (const attr of Array.from(element.attributes).slice(0, 20)) {
       if (SENSITIVE_ATTRS.has(attr.name.toLowerCase())) {
-        continue
+        continue;
       }
-      attrs[attr.name] = truncateText(attr.value, MAX_ATTR_LENGTH)
+      attrs[attr.name] = truncateText(attr.value, MAX_ATTR_LENGTH);
     }
 
     const children = Array.from(element.children)
       .slice(0, 30)
-      .map((child) => walk(child))
+      .map((child) => walk(child));
 
-    const text = truncateText((element.textContent ?? '').trim().replace(/\s+/g, ' '), MAX_TEXT_LENGTH)
+    const text = truncateText(
+      (element.textContent ?? "").trim().replace(/\s+/g, " "),
+      MAX_TEXT_LENGTH,
+    );
 
     return {
       tag: element.tagName.toLowerCase(),
       ...(text ? { text } : {}),
       ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
       ...(children.length > 0 ? { children } : {}),
-    }
+    };
   }
 
-  return walk(root)
+  return walk(root);
 }
 
-function createConsoleBuffer(): { read: () => ConsoleLogEntry[]; restore: () => void } {
-  const entries: ConsoleLogEntry[] = []
+function createConsoleBuffer(): {
+  read: () => ConsoleLogEntry[];
+  restore: () => void;
+} {
+  const entries: ConsoleLogEntry[] = [];
   const originals = {
     log: console.log,
     info: console.info,
     warn: console.warn,
     error: console.error,
-  }
+  };
 
-  function capture(level: ConsoleLogEntry['level'], args: unknown[]): void {
+  function capture(level: ConsoleLogEntry["level"], args: unknown[]): void {
     entries.push({
       level,
-      message: truncateText(args.map((arg) => String(arg)).join(' '), 500),
+      message: truncateText(args.map((arg) => String(arg)).join(" "), 500),
       timestamp: new Date().toISOString(),
-    })
+    });
     if (entries.length > MAX_LOG_ENTRIES) {
-      entries.shift()
+      entries.shift();
     }
   }
 
   console.log = (...args: unknown[]) => {
-    capture('log', args)
-    originals.log(...args)
-  }
+    capture("log", args);
+    originals.log(...args);
+  };
   console.info = (...args: unknown[]) => {
-    capture('info', args)
-    originals.info(...args)
-  }
+    capture("info", args);
+    originals.info(...args);
+  };
   console.warn = (...args: unknown[]) => {
-    capture('warn', args)
-    originals.warn(...args)
-  }
+    capture("warn", args);
+    originals.warn(...args);
+  };
   console.error = (...args: unknown[]) => {
-    capture('error', args)
-    originals.error(...args)
-  }
+    capture("error", args);
+    originals.error(...args);
+  };
 
   return {
     read: () => [...entries],
     restore: () => {
-      console.log = originals.log
-      console.info = originals.info
-      console.warn = originals.warn
-      console.error = originals.error
+      console.log = originals.log;
+      console.info = originals.info;
+      console.warn = originals.warn;
+      console.error = originals.error;
     },
-  }
+  };
 }
 
-function createNetworkBuffer(): { read: () => NetworkLogEntry[]; restore: () => void } {
-  const entries: NetworkLogEntry[] = []
-  if (typeof window === 'undefined' || typeof window.fetch !== 'function') {
-    return { read: () => [], restore: () => {} }
+function createNetworkBuffer(): {
+  read: () => NetworkLogEntry[];
+  restore: () => void;
+} {
+  const entries: NetworkLogEntry[] = [];
+  if (typeof window === "undefined" || typeof window.fetch !== "function") {
+    return { read: () => [], restore: () => {} };
   }
-  const originalFetch = window.fetch.bind(window)
+  const originalFetch = window.fetch.bind(window);
 
-  const wrappedFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const startedAt = Date.now()
-    const method = init?.method ?? (input instanceof Request ? input.method : 'GET')
-    const url = input instanceof Request ? input.url : String(input)
+  const wrappedFetch = async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const startedAt = Date.now();
+    const method =
+      init?.method ?? (input instanceof Request ? input.method : "GET");
+    const url = input instanceof Request ? input.url : String(input);
     try {
-      const response = await originalFetch(input, init)
+      const response = await originalFetch(input, init);
       entries.push({
         method,
         url: redactUrl(url),
         status: response.status,
         durationMs: Date.now() - startedAt,
         timestamp: new Date().toISOString(),
-      })
+      });
       if (entries.length > MAX_NETWORK_ENTRIES) {
-        entries.shift()
+        entries.shift();
       }
-      return response
+      return response;
     } catch (err) {
       entries.push({
         method,
@@ -555,283 +713,371 @@ function createNetworkBuffer(): { read: () => NetworkLogEntry[]; restore: () => 
         status: null,
         durationMs: Date.now() - startedAt,
         timestamp: new Date().toISOString(),
-      })
+      });
       if (entries.length > MAX_NETWORK_ENTRIES) {
-        entries.shift()
+        entries.shift();
       }
-      throw err
+      throw err;
     }
-  }
+  };
 
-  window.fetch = Object.assign(wrappedFetch, originalFetch)
+  window.fetch = Object.assign(wrappedFetch, originalFetch);
 
   return {
     read: () => [...entries],
     restore: () => {
-      window.fetch = originalFetch
+      window.fetch = originalFetch;
     },
-  }
+  };
 }
 
 interface FeedbackViewportBounds {
-  left: number
-  top: number
-  width: number
-  height: number
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }
 
 function getViewportBounds(): FeedbackViewportBounds {
-  const visualViewport = window.visualViewport
+  const visualViewport = window.visualViewport;
   const width = Math.max(
     visualViewport?.width ?? window.innerWidth ?? 0,
-    DEFAULT_TRIGGER_SIZE_PX + TRIGGER_VIEWPORT_MARGIN_PX * 2
-  )
+    DEFAULT_TRIGGER_SIZE_PX + TRIGGER_VIEWPORT_MARGIN_PX * 2,
+  );
   const height = Math.max(
     visualViewport?.height ?? window.innerHeight ?? 0,
-    DEFAULT_TRIGGER_SIZE_PX + TRIGGER_VIEWPORT_MARGIN_PX * 2
-  )
+    DEFAULT_TRIGGER_SIZE_PX + TRIGGER_VIEWPORT_MARGIN_PX * 2,
+  );
   return {
     left: visualViewport?.offsetLeft ?? 0,
     top: visualViewport?.offsetTop ?? 0,
     width,
     height,
-  }
+  };
 }
 
 function getViewportSize(): { width: number; height: number } {
-  const viewport = getViewportBounds()
-  return { width: viewport.width, height: viewport.height }
+  const viewport = getViewportBounds();
+  return { width: viewport.width, height: viewport.height };
 }
 
 function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
+  return Math.min(Math.max(value, min), max);
 }
 
-function getFallbackTriggerPosition(assistantPosition: FeedbackTriggerCorner): FeedbackTriggerPosition {
+function getFallbackTriggerPosition(
+  assistantPosition: FeedbackTriggerCorner,
+): FeedbackTriggerPosition {
   return {
     corner: assistantPosition,
     offsetX: 20,
     offsetY: 96,
-  }
+  };
 }
 
 function parseStoredTriggerPosition(): FeedbackTriggerPosition | null {
   try {
-    const rawValue = window.localStorage?.getItem(TRIGGER_POSITION_STORAGE_KEY)
+    const rawValue = window.localStorage?.getItem(TRIGGER_POSITION_STORAGE_KEY);
     if (!rawValue) {
-      return null
+      return null;
     }
-    const parsed = JSON.parse(rawValue) as Partial<FeedbackTriggerPosition>
+    const parsed = JSON.parse(rawValue) as Partial<FeedbackTriggerPosition>;
     if (
-      parsed.corner !== 'top-left' &&
-      parsed.corner !== 'top-right' &&
-      parsed.corner !== 'bottom-left' &&
-      parsed.corner !== 'bottom-right'
+      parsed.corner !== "top-left" &&
+      parsed.corner !== "top-right" &&
+      parsed.corner !== "bottom-left" &&
+      parsed.corner !== "bottom-right"
     ) {
-      return null
+      return null;
     }
-    const offsetX = Number(parsed.offsetX)
-    const offsetY = Number(parsed.offsetY)
+    const offsetX = Number(parsed.offsetX);
+    const offsetY = Number(parsed.offsetY);
     if (!Number.isFinite(offsetX) || !Number.isFinite(offsetY)) {
-      return null
+      return null;
     }
-    return { corner: parsed.corner, offsetX, offsetY }
+    return { corner: parsed.corner, offsetX, offsetY };
   } catch {
-    return null
+    return null;
   }
 }
 
 function persistTriggerPosition(position: FeedbackTriggerPosition): void {
   try {
-    window.localStorage?.setItem(TRIGGER_POSITION_STORAGE_KEY, JSON.stringify(position))
+    window.localStorage?.setItem(
+      TRIGGER_POSITION_STORAGE_KEY,
+      JSON.stringify(position),
+    );
   } catch {
     // localStorage may be unavailable in embedded or privacy-restricted contexts.
   }
 }
 
-function getFeedbackIssueHistoryStorageKey(publicKey: string, env: string): string | null {
+function getFeedbackIssueHistoryStorageKey(
+  publicKey: string,
+  env: string,
+): string | null {
   if (!publicKey) {
-    return null
+    return null;
   }
-  const sourceOrigin = typeof window !== 'undefined' ? window.location.origin : 'unknown-origin'
-  return [ISSUE_HISTORY_STORAGE_PREFIX, publicKey, env, sourceOrigin].map((part) => encodeURIComponent(part)).join(':')
+  const sourceOrigin =
+    typeof window !== "undefined" ? window.location.origin : "unknown-origin";
+  return [ISSUE_HISTORY_STORAGE_PREFIX, publicKey, env, sourceOrigin]
+    .map((part) => encodeURIComponent(part))
+    .join(":");
 }
 
 function isFeedbackClientStatus(value: unknown): value is FeedbackClientStatus {
   return (
-    value === 'received' ||
-    value === 'under_review' ||
-    value === 'in_progress' ||
-    value === 'resolved' ||
-    value === 'no_action' ||
-    value === 'duplicate'
-  )
+    value === "received" ||
+    value === "under_review" ||
+    value === "in_progress" ||
+    value === "resolved" ||
+    value === "no_action" ||
+    value === "duplicate"
+  );
 }
 
-function isFeedbackIssueHistoryStatus(value: unknown): value is FeedbackIssueHistoryStatus {
-  return isFeedbackClientStatus(value) || value === 'unavailable'
+function isFeedbackIssueHistoryStatus(
+  value: unknown,
+): value is FeedbackIssueHistoryStatus {
+  return isFeedbackClientStatus(value) || value === "unavailable";
 }
 
-function parseStoredIssueHistory(storageKey: string | null): FeedbackIssueHistoryEntry[] {
+function parseStoredIssueHistory(
+  storageKey: string | null,
+): FeedbackIssueHistoryEntry[] {
   if (!storageKey) {
-    return []
+    return [];
   }
   try {
-    const rawValue = window.localStorage?.getItem(storageKey)
-    const parsed = rawValue ? JSON.parse(rawValue) : []
+    const rawValue = window.localStorage?.getItem(storageKey);
+    const parsed = rawValue ? JSON.parse(rawValue) : [];
     if (!Array.isArray(parsed)) {
-      return []
+      return [];
     }
-    const entries: FeedbackIssueHistoryEntry[] = []
+    const entries: FeedbackIssueHistoryEntry[] = [];
     for (const item of parsed) {
-      if (!item || typeof item !== 'object' || !('issueId' in item) || typeof item.issueId !== 'string') {
-        continue
+      if (
+        !item ||
+        typeof item !== "object" ||
+        !("issueId" in item) ||
+        typeof item.issueId !== "string"
+      ) {
+        continue;
       }
-      const status = 'status' in item && isFeedbackIssueHistoryStatus(item.status) ? item.status : 'received'
+      const status =
+        "status" in item && isFeedbackIssueHistoryStatus(item.status)
+          ? item.status
+          : "received";
       const workerThread =
-        'workerThread' in item &&
+        "workerThread" in item &&
         item.workerThread &&
-        typeof item.workerThread === 'object' &&
-        'id' in item.workerThread &&
-        typeof item.workerThread.id === 'string' &&
-        'url' in item.workerThread &&
-        typeof item.workerThread.url === 'string'
-          ? normalizeWorkerThreadLink({ id: item.workerThread.id, url: item.workerThread.url })
-          : undefined
+        typeof item.workerThread === "object" &&
+        "id" in item.workerThread &&
+        typeof item.workerThread.id === "string" &&
+        "url" in item.workerThread &&
+        typeof item.workerThread.url === "string"
+          ? normalizeWorkerThreadLink({
+              id: item.workerThread.id,
+              url: item.workerThread.url,
+            })
+          : undefined;
       const acknowledgedStatusVersions =
-        'acknowledgedStatusVersions' in item && Array.isArray(item.acknowledgedStatusVersions)
-          ? item.acknowledgedStatusVersions.filter((version: unknown): version is string => typeof version === 'string')
-          : undefined
+        "acknowledgedStatusVersions" in item &&
+        Array.isArray(item.acknowledgedStatusVersions)
+          ? item.acknowledgedStatusVersions.filter(
+              (version: unknown): version is string =>
+                typeof version === "string",
+            )
+          : undefined;
       entries.push({
         issueId: item.issueId,
         status,
-        title: 'title' in item && typeof item.title === 'string' ? item.title : undefined,
-        description: 'description' in item && typeof item.description === 'string' ? item.description : null,
-        resolvedNote: 'resolvedNote' in item && typeof item.resolvedNote === 'string' ? item.resolvedNote : null,
-        aiSummary: normalizeFeedbackAiSummary('aiSummary' in item ? item.aiSummary : undefined),
-        links: normalizeFeedbackIssueLinks('links' in item ? item.links : undefined),
-        reportedAt: 'reportedAt' in item && typeof item.reportedAt === 'string' ? item.reportedAt : undefined,
-        updatedAt: 'updatedAt' in item && typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
-        checkedAt: 'checkedAt' in item && typeof item.checkedAt === 'string' ? item.checkedAt : undefined,
+        title:
+          "title" in item && typeof item.title === "string"
+            ? item.title
+            : undefined,
+        description:
+          "description" in item && typeof item.description === "string"
+            ? item.description
+            : null,
+        resolvedNote:
+          "resolvedNote" in item && typeof item.resolvedNote === "string"
+            ? item.resolvedNote
+            : null,
+        aiSummary: normalizeFeedbackAiSummary(
+          "aiSummary" in item ? item.aiSummary : undefined,
+        ),
+        links: normalizeFeedbackIssueLinks(
+          "links" in item ? item.links : undefined,
+        ),
+        reportedAt:
+          "reportedAt" in item && typeof item.reportedAt === "string"
+            ? item.reportedAt
+            : undefined,
+        updatedAt:
+          "updatedAt" in item && typeof item.updatedAt === "string"
+            ? item.updatedAt
+            : undefined,
+        checkedAt:
+          "checkedAt" in item && typeof item.checkedAt === "string"
+            ? item.checkedAt
+            : undefined,
         workerThread,
         acknowledgedStatusVersions,
-      })
+      });
     }
-    return entries.slice(0, MAX_ISSUE_HISTORY_ENTRIES)
+    return entries.slice(0, MAX_ISSUE_HISTORY_ENTRIES);
   } catch {
-    return []
+    return [];
   }
 }
 
-function persistIssueHistory(storageKey: string | null, issueHistory: FeedbackIssueHistoryEntry[]): void {
+function persistIssueHistory(
+  storageKey: string | null,
+  issueHistory: FeedbackIssueHistoryEntry[],
+): void {
   if (!storageKey) {
-    return
+    return;
   }
   try {
-    const persistedEntries = issueHistory.slice(0, MAX_ISSUE_HISTORY_ENTRIES).map((entry) => ({
-      issueId: entry.issueId,
-      status: entry.status,
-      title: entry.title,
-      description: entry.description,
-      resolvedNote: entry.resolvedNote,
-      aiSummary: entry.aiSummary,
-      links: entry.links,
-      reportedAt: entry.reportedAt,
-      updatedAt: entry.updatedAt,
-      checkedAt: entry.checkedAt,
-      workerThread: entry.workerThread,
-      acknowledgedStatusVersions: entry.acknowledgedStatusVersions,
-    }))
-    window.localStorage?.setItem(storageKey, JSON.stringify(persistedEntries))
+    const persistedEntries = issueHistory
+      .slice(0, MAX_ISSUE_HISTORY_ENTRIES)
+      .map((entry) => ({
+        issueId: entry.issueId,
+        status: entry.status,
+        title: entry.title,
+        description: entry.description,
+        resolvedNote: entry.resolvedNote,
+        aiSummary: entry.aiSummary,
+        links: entry.links,
+        reportedAt: entry.reportedAt,
+        updatedAt: entry.updatedAt,
+        checkedAt: entry.checkedAt,
+        workerThread: entry.workerThread,
+        acknowledgedStatusVersions: entry.acknowledgedStatusVersions,
+      }));
+    window.localStorage?.setItem(storageKey, JSON.stringify(persistedEntries));
   } catch {
     // localStorage may be unavailable in embedded or privacy-restricted contexts.
   }
 }
 
 function getIssueStatusVersion(entry: {
-  status: FeedbackIssueHistoryStatus
-  updatedAt?: string | null
-  reportedAt?: string | null
-  checkedAt?: string | null
+  status: FeedbackIssueHistoryStatus;
+  updatedAt?: string | null;
+  reportedAt?: string | null;
+  checkedAt?: string | null;
 }): string {
-  return [entry.status, entry.updatedAt ?? entry.reportedAt ?? entry.checkedAt ?? 'unknown'].join(':')
+  return [
+    entry.status,
+    entry.updatedAt ?? entry.reportedAt ?? entry.checkedAt ?? "unknown",
+  ].join(":");
 }
 
-function clampTriggerPosition(position: FeedbackTriggerPosition): FeedbackTriggerPosition {
-  const viewport = getViewportSize()
+function clampTriggerPosition(
+  position: FeedbackTriggerPosition,
+): FeedbackTriggerPosition {
+  const viewport = getViewportSize();
   return {
     corner: position.corner,
     offsetX: clamp(
       position.offsetX,
       TRIGGER_VIEWPORT_MARGIN_PX,
-      viewport.width - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX
+      viewport.width - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX,
     ),
     offsetY: clamp(
       position.offsetY,
       TRIGGER_VIEWPORT_MARGIN_PX,
-      viewport.height - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX
+      viewport.height - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX,
     ),
-  }
+  };
 }
 
-function positionToViewportPoint(position: FeedbackTriggerPosition): { left: number; top: number } {
-  const viewport = getViewportSize()
-  const clamped = clampTriggerPosition(position)
+function positionToViewportPoint(position: FeedbackTriggerPosition): {
+  left: number;
+  top: number;
+} {
+  const viewport = getViewportSize();
+  const clamped = clampTriggerPosition(position);
   return {
-    left: clamped.corner.endsWith('left')
+    left: clamped.corner.endsWith("left")
       ? clamped.offsetX
       : viewport.width - DEFAULT_TRIGGER_SIZE_PX - clamped.offsetX,
-    top: clamped.corner.startsWith('top')
+    top: clamped.corner.startsWith("top")
       ? clamped.offsetY
       : viewport.height - DEFAULT_TRIGGER_SIZE_PX - clamped.offsetY,
-  }
+  };
 }
 
-function viewportPointToNearestCorner(left: number, top: number): FeedbackTriggerPosition {
-  const viewport = getViewportSize()
+function viewportPointToNearestCorner(
+  left: number,
+  top: number,
+): FeedbackTriggerPosition {
+  const viewport = getViewportSize();
   const clampedLeft = clamp(
     left,
     TRIGGER_VIEWPORT_MARGIN_PX,
-    viewport.width - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX
-  )
+    viewport.width - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX,
+  );
   const clampedTop = clamp(
     top,
     TRIGGER_VIEWPORT_MARGIN_PX,
-    viewport.height - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX
-  )
-  const horizontalCorner = clampedLeft + DEFAULT_TRIGGER_SIZE_PX / 2 <= viewport.width / 2 ? 'left' : 'right'
-  const verticalCorner = clampedTop + DEFAULT_TRIGGER_SIZE_PX / 2 <= viewport.height / 2 ? 'top' : 'bottom'
+    viewport.height - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX,
+  );
+  const horizontalCorner =
+    clampedLeft + DEFAULT_TRIGGER_SIZE_PX / 2 <= viewport.width / 2
+      ? "left"
+      : "right";
+  const verticalCorner =
+    clampedTop + DEFAULT_TRIGGER_SIZE_PX / 2 <= viewport.height / 2
+      ? "top"
+      : "bottom";
   return {
     corner: `${verticalCorner}-${horizontalCorner}` as FeedbackTriggerCorner,
-    offsetX: horizontalCorner === 'left' ? clampedLeft : viewport.width - DEFAULT_TRIGGER_SIZE_PX - clampedLeft,
-    offsetY: verticalCorner === 'top' ? clampedTop : viewport.height - DEFAULT_TRIGGER_SIZE_PX - clampedTop,
-  }
+    offsetX:
+      horizontalCorner === "left"
+        ? clampedLeft
+        : viewport.width - DEFAULT_TRIGGER_SIZE_PX - clampedLeft,
+    offsetY:
+      verticalCorner === "top"
+        ? clampedTop
+        : viewport.height - DEFAULT_TRIGGER_SIZE_PX - clampedTop,
+  };
 }
 
 interface FeedbackAnchorRect {
-  left: number
-  top: number
-  width: number
-  height: number
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }
 
 interface FeedbackCardPlacement {
-  direction: 'down-left' | 'down-right' | 'up-left' | 'up-right'
-  style: string
+  direction: "down-left" | "down-right" | "up-left" | "up-right";
+  style: string;
 }
 
-function getFallbackTriggerRect(position: FeedbackTriggerPosition): FeedbackAnchorRect {
-  const point = positionToViewportPoint(position)
+function getFallbackTriggerRect(
+  position: FeedbackTriggerPosition,
+): FeedbackAnchorRect {
+  const point = positionToViewportPoint(position);
   return {
     left: point.left,
     top: point.top,
     width: DEFAULT_TRIGGER_SIZE_PX,
     height: DEFAULT_TRIGGER_SIZE_PX,
-  }
+  };
 }
 
-function getTriggerAnchorRect(trigger: Element | null, position: FeedbackTriggerPosition): FeedbackAnchorRect {
-  const rect = typeof trigger?.getBoundingClientRect === 'function' ? trigger.getBoundingClientRect() : null
+function getTriggerAnchorRect(
+  trigger: Element | null,
+  position: FeedbackTriggerPosition,
+): FeedbackAnchorRect {
+  const rect =
+    typeof trigger?.getBoundingClientRect === "function"
+      ? trigger.getBoundingClientRect()
+      : null;
   if (
     rect &&
     Number.isFinite(rect.left) &&
@@ -846,88 +1092,102 @@ function getTriggerAnchorRect(trigger: Element | null, position: FeedbackTrigger
       top: rect.top,
       width: rect.width,
       height: rect.height,
-    }
+    };
   }
-  return getFallbackTriggerRect(position)
+  return getFallbackTriggerRect(position);
 }
 
 function createFeedbackCardPlacement(
   trigger: Element | null,
   position: FeedbackTriggerPosition,
   estimatedHeight: number,
-  measuredSize?: { width: number; height: number }
+  measuredSize?: { width: number; height: number },
 ): FeedbackCardPlacement {
-  const viewport = getViewportBounds()
-  const triggerRect = getTriggerAnchorRect(trigger, position)
-  const viewportLeft = viewport.left + FEEDBACK_CARD_VIEWPORT_MARGIN_PX
-  const viewportTop = viewport.top + FEEDBACK_CARD_VIEWPORT_MARGIN_PX
-  const viewportRight = viewport.left + viewport.width - FEEDBACK_CARD_VIEWPORT_MARGIN_PX
-  const viewportBottom = viewport.top + viewport.height - FEEDBACK_CARD_VIEWPORT_MARGIN_PX
+  const viewport = getViewportBounds();
+  const triggerRect = getTriggerAnchorRect(trigger, position);
+  const viewportLeft = viewport.left + FEEDBACK_CARD_VIEWPORT_MARGIN_PX;
+  const viewportTop = viewport.top + FEEDBACK_CARD_VIEWPORT_MARGIN_PX;
+  const viewportRight =
+    viewport.left + viewport.width - FEEDBACK_CARD_VIEWPORT_MARGIN_PX;
+  const viewportBottom =
+    viewport.top + viewport.height - FEEDBACK_CARD_VIEWPORT_MARGIN_PX;
   const cardWidth = Math.min(
-    measuredSize?.width && measuredSize.width > 0 ? measuredSize.width : FEEDBACK_CARD_MAX_WIDTH_PX,
-    Math.max(1, viewport.width - FEEDBACK_CARD_VIEWPORT_MARGIN_PX * 2)
-  )
+    measuredSize?.width && measuredSize.width > 0
+      ? measuredSize.width
+      : FEEDBACK_CARD_MAX_WIDTH_PX,
+    Math.max(1, viewport.width - FEEDBACK_CARD_VIEWPORT_MARGIN_PX * 2),
+  );
   const cardHeight = Math.min(
-    measuredSize?.height && measuredSize.height > 0 ? measuredSize.height : estimatedHeight,
-    Math.max(1, viewport.height - FEEDBACK_CARD_VIEWPORT_MARGIN_PX * 2)
-  )
-  const spaceRight = viewportRight - triggerRect.left
-  const spaceLeft = triggerRect.left + triggerRect.width - viewportLeft
-  const spaceBelow = viewportBottom - (triggerRect.top + triggerRect.height + FEEDBACK_CARD_GAP_PX)
-  const spaceAbove = triggerRect.top - FEEDBACK_CARD_GAP_PX - viewportTop
-  const opensRight = spaceRight >= cardWidth || spaceRight >= spaceLeft
-  const opensDown = spaceBelow >= cardHeight || spaceBelow >= spaceAbove
-  const rawLeft = opensRight ? triggerRect.left : triggerRect.left + triggerRect.width - cardWidth
+    measuredSize?.height && measuredSize.height > 0
+      ? measuredSize.height
+      : estimatedHeight,
+    Math.max(1, viewport.height - FEEDBACK_CARD_VIEWPORT_MARGIN_PX * 2),
+  );
+  const spaceRight = viewportRight - triggerRect.left;
+  const spaceLeft = triggerRect.left + triggerRect.width - viewportLeft;
+  const spaceBelow =
+    viewportBottom -
+    (triggerRect.top + triggerRect.height + FEEDBACK_CARD_GAP_PX);
+  const spaceAbove = triggerRect.top - FEEDBACK_CARD_GAP_PX - viewportTop;
+  const opensRight = spaceRight >= cardWidth || spaceRight >= spaceLeft;
+  const opensDown = spaceBelow >= cardHeight || spaceBelow >= spaceAbove;
+  const rawLeft = opensRight
+    ? triggerRect.left
+    : triggerRect.left + triggerRect.width - cardWidth;
   const rawTop = opensDown
     ? triggerRect.top + triggerRect.height + FEEDBACK_CARD_GAP_PX
-    : triggerRect.top - cardHeight - FEEDBACK_CARD_GAP_PX
-  const maxLeft = Math.max(viewportLeft, viewportRight - cardWidth)
-  const maxTop = Math.max(viewportTop, viewportBottom - cardHeight)
-  const left = clamp(rawLeft, viewportLeft, maxLeft)
-  const top = clamp(rawTop, viewportTop, maxTop)
+    : triggerRect.top - cardHeight - FEEDBACK_CARD_GAP_PX;
+  const maxLeft = Math.max(viewportLeft, viewportRight - cardWidth);
+  const maxTop = Math.max(viewportTop, viewportBottom - cardHeight);
+  const left = clamp(rawLeft, viewportLeft, maxLeft);
+  const top = clamp(rawTop, viewportTop, maxTop);
   const direction =
-    `${opensDown ? 'down' : 'up'}-${opensRight ? 'right' : 'left'}` as FeedbackCardPlacement['direction']
+    `${opensDown ? "down" : "up"}-${opensRight ? "right" : "left"}` as FeedbackCardPlacement["direction"];
 
   return {
     direction,
     style: `left: ${Math.round(left)}px; top: ${Math.round(top)}px; right: auto; bottom: auto;`,
-  }
+  };
 }
 
 function createTriggerPositionStyle(position: FeedbackTriggerPosition): string {
-  const point = positionToViewportPoint(position)
-  return `left: ${Math.round(point.left)}px; top: ${Math.round(point.top)}px; right: auto; bottom: auto;`
+  const point = positionToViewportPoint(position);
+  return `left: ${Math.round(point.left)}px; top: ${Math.round(point.top)}px; right: auto; bottom: auto;`;
 }
 
 function createIcon(
   name:
-    | 'arrow'
-    | 'check'
-    | 'close'
-    | 'compose'
-    | 'element'
-    | 'paperclip'
-    | 'pen'
-    | 'plus'
-    | 'point'
-    | 'rectangle'
-    | 'ruler'
-    | 'status'
-    | 'trash'
-    | 'undo'
+    | "arrow"
+    | "check"
+    | "close"
+    | "compose"
+    | "dial"
+    | "element"
+    | "paperclip"
+    | "pen"
+    | "plus"
+    | "point"
+    | "rectangle"
+    | "ruler"
+    | "status"
+    | "trash"
+    | "undo",
 ): string {
   const paths: Record<typeof name, string> = {
     arrow: '<path d="M5 12h14" /><path d="m13 6 6 6-6 6" />',
     check: '<path d="m5 12 4 4L19 6" />',
     close: '<path d="M6 6l12 12" /><path d="M18 6 6 18" />',
-    compose: '<path d="M12 20h9" /><path d="m16.5 3.5 4 4L8 20l-5 1 1-5L16.5 3.5Z" />',
+    compose:
+      '<path d="M12 20h9" /><path d="m16.5 3.5 4 4L8 20l-5 1 1-5L16.5 3.5Z" />',
+    dial: '<circle cx="12" cy="12" r="8" /><path d="M12 4v4" /><path d="m14.5 10.5 2.5-2.5" />',
     element:
       '<path d="M12 3v4" /><path d="M12 17v4" /><path d="M3 12h4" /><path d="M17 12h4" /><rect x="7" y="7" width="10" height="10" rx="2" />',
     paperclip:
       '<path d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l8.9-8.9a4 4 0 0 1 5.7 5.7l-8.9 8.9a2 2 0 1 1-2.8-2.8l8.5-8.5" />',
     pen: '<path d="m4 20 5.5-1.5L20 8l-4-4L5.5 14.5 4 20Z" /><path d="m14 6 4 4" />',
     plus: '<path d="M12 5v14" /><path d="M5 12h14" />',
-    point: '<path d="M5 19 19 5" /><path d="M9 5h10v10" /><circle cx="7" cy="17" r="2" />',
+    point:
+      '<path d="M5 19 19 5" /><path d="M9 5h10v10" /><circle cx="7" cy="17" r="2" />',
     rectangle: '<rect x="5" y="6" width="14" height="12" rx="2" />',
     ruler:
       '<rect x="3" y="8" width="18" height="8" rx="1" /><path d="M6 8v3" /><path d="M9 8v5" /><path d="M12 8v3" /><path d="M15 8v5" /><path d="M18 8v3" />',
@@ -935,8 +1195,8 @@ function createIcon(
     trash:
       '<path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 14h10l1-14" /><path d="M9 7V4h6v3" />',
     undo: '<path d="M9 7H4v5" /><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6" />',
-  }
-  return `<svg class="obv-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name]}</svg>`
+  };
+  return `<svg class="obv-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name]}</svg>`;
 }
 
 function createStyles(): string {
@@ -1135,6 +1395,81 @@ function createStyles(): string {
     }
     .obv-element-grab-chip-name .obv-icon { flex-shrink: 0; }
     .obv-element-grab-remove { width: 22px; height: 22px; min-height: 22px; padding: 0; }
+    .obv-visual-suggest-flag-dot { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 999px; background: #3b82f6; }
+    .obv-vs-palette { --obv-vs-accent: #3b82f6; --obv-vs-slider-track: color-mix(in srgb, var(--obv-feedback-border-strong) 58%, transparent); margin-top: 10px; padding: 10px 10px 6px; border-radius: 10px; background: var(--obv-feedback-bg-subtle); border: 1px solid color-mix(in srgb, var(--obv-feedback-border) 78%, #3b82f6 22%); display: flex; flex-direction: column; gap: 2px; }
+    .obv-vs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--obv-feedback-border); }
+    .obv-vs-target { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--obv-feedback-text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .obv-vs-palette .obv-vs-close {
+      width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 0;
+      flex-shrink: 0; border-radius: 8px; box-shadow: none;
+    }
+    .obv-vs-palette .obv-vs-close .obv-icon { width: 15px; height: 15px; }
+    .obv-vs-scope {
+      display: flex; align-items: center; gap: 4px; margin: 0 0 5px; padding: 2px;
+      border: 1px solid var(--obv-feedback-border); border-radius: 8px;
+      background: color-mix(in srgb, var(--obv-feedback-bg) 58%, transparent);
+    }
+    .obv-vs-scope { margin-bottom: 6px; }
+    .obv-vs-scope .obv-vs-scope-button {
+      flex: 1 1 0; min-height: 24px; padding: 3px 8px; border: 0; border-radius: 6px;
+      background: transparent; color: var(--obv-feedback-muted); box-shadow: none;
+      font-size: 11px; font-weight: 650;
+    }
+    .obv-vs-scope .obv-vs-scope-button:hover:not(:disabled) { transform: none; background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-text); }
+    .obv-vs-scope .obv-vs-scope-button[aria-pressed="true"] {
+      background: color-mix(in srgb, var(--obv-vs-accent) 22%, var(--obv-feedback-bg));
+      color: var(--obv-feedback-text);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--obv-vs-accent) 64%, transparent), var(--obv-feedback-shadow-sm);
+    }
+    .obv-vs-row { display: flex; align-items: center; gap: 6px; padding: 4px 4px; border-radius: 5px; }
+    .obv-vs-row:hover { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 82%, var(--obv-feedback-text) 8%); }
+    .obv-vs-row-label { font-size: 11px; color: var(--obv-feedback-muted); width: 82px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .obv-vs-scrub { font-family: ui-monospace, monospace; font-size: 12px; color: var(--obv-feedback-text); cursor: ew-resize; user-select: none; -webkit-user-select: none; text-align: right; padding: 1px 4px; border-radius: 4px; background: transparent; min-width: 48px; white-space: nowrap; }
+    .obv-vs-scrub[data-has-override="true"] { color: #3b82f6; font-weight: 600; background: transparent; }
+    .obv-vs-scrub-input { font: inherit; font-family: ui-monospace, monospace; font-size: 12px; width: 72px; text-align: right; padding: 2px 5px; border: 1px solid #3b82f6; border-radius: 4px; background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-text); outline: none; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15); }
+    .obv-vs-slider {
+      appearance: none; -webkit-appearance: none;
+      width: 100%; height: 18px; margin: -1px 0 0; padding: 0;
+      cursor: pointer; border-radius: 999px; outline: none;
+      background: linear-gradient(to right, var(--obv-vs-accent) 0%, var(--obv-vs-accent) var(--obv-vs-slider-percent, 0%), var(--obv-vs-slider-track) var(--obv-vs-slider-percent, 0%), var(--obv-vs-slider-track) 100%);
+      background-size: 100% 3px; background-repeat: no-repeat; background-position: center;
+    }
+    .obv-vs-slider::-webkit-slider-runnable-track { height: 3px; border-radius: 999px; background: transparent; }
+    .obv-vs-slider::-webkit-slider-thumb {
+      appearance: none; -webkit-appearance: none;
+      width: 13px; height: 13px; margin-top: -5px; border-radius: 999px;
+      border: 2px solid var(--obv-feedback-bg-subtle); background: var(--obv-vs-accent);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 0 0 1px color-mix(in srgb, var(--obv-vs-accent) 42%, transparent);
+    }
+    .obv-vs-slider::-moz-range-track { height: 3px; border-radius: 999px; background: transparent; }
+    .obv-vs-slider::-moz-range-progress { height: 3px; border-radius: 999px; background: var(--obv-vs-accent); }
+    .obv-vs-slider::-moz-range-thumb {
+      width: 9px; height: 9px; border-radius: 999px;
+      border: 2px solid var(--obv-feedback-bg-subtle); background: var(--obv-vs-accent);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 0 0 1px color-mix(in srgb, var(--obv-vs-accent) 42%, transparent);
+    }
+    .obv-vs-slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--obv-feedback-focus), 0 1px 2px rgba(0, 0, 0, 0.22); }
+    .obv-vs-slider:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--obv-feedback-focus), 0 1px 2px rgba(0, 0, 0, 0.22); }
+    .obv-vs-numeric-group { display: flex; flex-direction: column; flex: 1 1 auto; gap: 1px; min-width: 0; }
+    .obv-vs-numeric-top { display: flex; align-items: center; gap: 6px; }
+    .obv-vs-swatch { width: 22px; height: 22px; padding: 0; border: 1.5px solid var(--obv-feedback-border-strong); border-radius: 5px; cursor: pointer; flex-shrink: 0; appearance: none; -webkit-appearance: none; background: transparent; }
+    .obv-vs-swatch::-webkit-color-swatch-wrapper { padding: 1px; }
+    .obv-vs-swatch::-webkit-color-swatch { border: none; border-radius: 3px; }
+    .obv-vs-swatch::-moz-color-swatch { border: none; border-radius: 3px; }
+    .obv-vs-palette .obv-vs-revert {
+      width: 28px; min-width: 28px; height: 28px; min-height: 28px; padding: 0;
+      font-size: 13px; flex-shrink: 0; visibility: hidden; box-shadow: none; opacity: 0.5; border-radius: 8px;
+    }
+    .obv-vs-revert:hover { opacity: 1; }
+    .obv-vs-row[data-has-override="true"] .obv-vs-revert { visibility: visible; }
+    .obv-vs-chips { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+    .obv-vs-chip { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 6px; background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 72%, #3b82f6 28%); border: 1px solid color-mix(in srgb, var(--obv-feedback-border) 58%, #3b82f6 42%); cursor: pointer; }
+    .obv-vs-chip:hover { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 58%, #3b82f6 42%); }
+    .obv-vs-chip-name { font-size: 12px; font-weight: 600; color: var(--obv-feedback-text); display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .obv-vs-chip-diffs { flex: 1 1 auto; font-size: 11px; color: var(--obv-feedback-muted); font-family: ui-monospace, monospace; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .obv-vs-chip-remove { width: 18px; height: 18px; min-height: 18px; padding: 0; flex-shrink: 0; border: none; box-shadow: none; }
+    .obv-row-pill-vs { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 72%, #3b82f6 28%); color: var(--obv-feedback-text); }
+    .obv-row-pill-vs .obv-row-pill-label { color: var(--obv-feedback-text); }
     .obv-annotation-summary { margin-top: 6px; color: var(--obv-feedback-muted); font-size: 12px; }
     .obv-unified-panel { display: flex; flex-direction: column; gap: 0; }
     .obv-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -1142,9 +1477,9 @@ function createStyles(): string {
     .obv-shortcut-hint { color: var(--obv-feedback-muted); font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.7; margin-left: 6px; }
     .obv-card-close { width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 999px; }
     .obv-list-body { padding: 2px 0; min-height: 40px; }
-    .obv-list-row { display: flex; align-items: baseline; gap: 0; padding: 3px 2px; }
+    .obv-list-row { display: flex; align-items: baseline; gap: 0; padding: 3px 0; }
     .obv-row-number {
-      width: 22px; flex-shrink: 0; text-align: right; padding-right: 8px;
+      width: 22px; flex-shrink: 0; text-align: left; padding-right: 8px;
       color: var(--obv-feedback-muted); font-size: 12px; font-weight: 600;
       font-variant-numeric: tabular-nums; user-select: none;
       transition: color 120ms ease;
@@ -1168,6 +1503,8 @@ function createStyles(): string {
       background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-muted);
       font-size: 11px; line-height: 1.3; white-space: nowrap; max-width: 140px;
     }
+    .obv-row-pill-action { cursor: pointer; }
+    .obv-row-pill-action:hover { background: var(--obv-feedback-border); }
     .obv-row-pill .obv-icon { width: 10px; height: 10px; flex-basis: 10px; flex-shrink: 0; }
     .obv-row-pill-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .obv-row-pill-x {
@@ -1262,208 +1599,265 @@ function createStyles(): string {
       --obv-feedback-shadow: 0 18px 46px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.26);
     }
     :host([data-theme="dark"]) .obv-form-error { background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.28); color: #fecaca; }
-  `
+    :host([data-theme="dark"]) .obv-vs-palette { --obv-vs-accent: #60a5fa; --obv-vs-slider-track: rgba(255, 255, 255, 0.26); background: #242424; border-color: rgba(255, 255, 255, 0.16); }
+    :host([data-theme="dark"]) .obv-vs-row:hover { background: rgba(255, 255, 255, 0.05); }
+    :host([data-theme="dark"]) .obv-vs-scrub[data-has-override="true"] { color: #93c5fd; }
+    :host([data-theme="dark"]) .obv-visual-suggest-flag-dot { background: #60a5fa; }
+  `;
 }
 
 function historyStatusLabel(status: FeedbackIssueHistoryStatus): string {
-  return status === 'unavailable' ? 'Status unavailable' : statusLabel(status)
+  return status === "unavailable" ? "Status unavailable" : statusLabel(status);
 }
 
 function statusLabel(status: FeedbackClientStatus): string {
   switch (status) {
-    case 'received':
-      return 'Received'
-    case 'under_review':
-      return 'Under review'
-    case 'in_progress':
-      return 'In progress'
-    case 'resolved':
-      return 'Resolved'
-    case 'no_action':
-      return 'No action'
-    case 'duplicate':
-      return 'Duplicate'
+    case "received":
+      return "Received";
+    case "under_review":
+      return "Under review";
+    case "in_progress":
+      return "In progress";
+    case "resolved":
+      return "Resolved";
+    case "no_action":
+      return "No action";
+    case "duplicate":
+      return "Duplicate";
   }
 }
 
 function formatRelativeTime(rawTimestamp?: string): string {
   if (!rawTimestamp) {
-    return ''
+    return "";
   }
-  const timestamp = new Date(rawTimestamp).getTime()
+  const timestamp = new Date(rawTimestamp).getTime();
   if (!Number.isFinite(timestamp)) {
-    return ''
+    return "";
   }
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000))
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor((Date.now() - timestamp) / 1000),
+  );
   if (elapsedSeconds < 60) {
-    return 'just now'
+    return "just now";
   }
-  const elapsedMinutes = Math.floor(elapsedSeconds / 60)
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
   if (elapsedMinutes < 60) {
-    return `${elapsedMinutes}m ago`
+    return `${elapsedMinutes}m ago`;
   }
-  const elapsedHours = Math.floor(elapsedMinutes / 60)
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
   if (elapsedHours < 48) {
-    return `${elapsedHours}h ago`
+    return `${elapsedHours}h ago`;
   }
-  const elapsedDays = Math.floor(elapsedHours / 24)
-  return `${elapsedDays}d ago`
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return `${elapsedDays}d ago`;
 }
 
 function getSafeExternalUrl(rawUrl?: string): string | undefined {
   if (!rawUrl) {
-    return undefined
+    return undefined;
   }
   try {
-    const url = new URL(rawUrl)
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : undefined
+    const url = new URL(rawUrl);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.toString()
+      : undefined;
   } catch {
-    return undefined
+    return undefined;
   }
 }
 
-function normalizeWorkerThreadLink(workerThread?: FeedbackWorkerThreadLink): FeedbackWorkerThreadLink | undefined {
-  const safeUrl = getSafeExternalUrl(workerThread?.url)
-  return workerThread?.id && safeUrl ? { id: workerThread.id, url: safeUrl } : undefined
+function normalizeWorkerThreadLink(
+  workerThread?: FeedbackWorkerThreadLink,
+): FeedbackWorkerThreadLink | undefined {
+  const safeUrl = getSafeExternalUrl(workerThread?.url);
+  return workerThread?.id && safeUrl
+    ? { id: workerThread.id, url: safeUrl }
+    : undefined;
 }
 
 function normalizeFeedbackAiSummary(value: unknown): FeedbackAiSummary | null {
-  if (!value || typeof value !== 'object') {
-    return null
+  if (!value || typeof value !== "object") {
+    return null;
   }
-  const summary = value as Record<string, unknown>
+  const summary = value as Record<string, unknown>;
   return {
-    headline: typeof summary.headline === 'string' ? summary.headline : null,
-    progress: typeof summary.progress === 'string' ? summary.progress : null,
-    updatedAt: typeof summary.updatedAt === 'string' ? summary.updatedAt : null,
-  }
+    headline: typeof summary.headline === "string" ? summary.headline : null,
+    progress: typeof summary.progress === "string" ? summary.progress : null,
+    updatedAt: typeof summary.updatedAt === "string" ? summary.updatedAt : null,
+  };
 }
 
-function normalizePullRequestLink(value: unknown): FeedbackPullRequestLink | undefined {
-  if (!value || typeof value !== 'object') {
-    return undefined
+function normalizePullRequestLink(
+  value: unknown,
+): FeedbackPullRequestLink | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
   }
-  const pullRequest = value as Record<string, unknown>
-  const safeUrl = getSafeExternalUrl(typeof pullRequest.url === 'string' ? pullRequest.url : undefined)
-  return typeof pullRequest.id === 'string' && typeof pullRequest.number === 'number' && safeUrl
+  const pullRequest = value as Record<string, unknown>;
+  const safeUrl = getSafeExternalUrl(
+    typeof pullRequest.url === "string" ? pullRequest.url : undefined,
+  );
+  return typeof pullRequest.id === "string" &&
+    typeof pullRequest.number === "number" &&
+    safeUrl
     ? {
         id: pullRequest.id,
         number: pullRequest.number,
-        title: typeof pullRequest.title === 'string' ? pullRequest.title : `PR #${pullRequest.number}`,
+        title:
+          typeof pullRequest.title === "string"
+            ? pullRequest.title
+            : `PR #${pullRequest.number}`,
         url: safeUrl,
-        status: typeof pullRequest.status === 'string' ? pullRequest.status : 'unknown',
-        ciStatus: typeof pullRequest.ciStatus === 'string' ? pullRequest.ciStatus : 'unknown',
-        reviewStatus: typeof pullRequest.reviewStatus === 'string' ? pullRequest.reviewStatus : 'unknown',
+        status:
+          typeof pullRequest.status === "string"
+            ? pullRequest.status
+            : "unknown",
+        ciStatus:
+          typeof pullRequest.ciStatus === "string"
+            ? pullRequest.ciStatus
+            : "unknown",
+        reviewStatus:
+          typeof pullRequest.reviewStatus === "string"
+            ? pullRequest.reviewStatus
+            : "unknown",
         isDraft: pullRequest.isDraft === true,
       }
-    : undefined
+    : undefined;
 }
 
-function normalizeFeedbackIssueLinks(value: unknown): FeedbackIssueLinks | null {
-  if (!value || typeof value !== 'object') {
-    return null
+function normalizeFeedbackIssueLinks(
+  value: unknown,
+): FeedbackIssueLinks | null {
+  if (!value || typeof value !== "object") {
+    return null;
   }
-  const links = value as Record<string, unknown>
-  const workerThread = normalizeWorkerThreadLink(links.workerThread as FeedbackWorkerThreadLink | undefined)
-  const pullRequest = normalizePullRequestLink(links.pullRequest)
-  return workerThread || pullRequest ? { workerThread, pullRequest } : null
+  const links = value as Record<string, unknown>;
+  const workerThread = normalizeWorkerThreadLink(
+    links.workerThread as FeedbackWorkerThreadLink | undefined,
+  );
+  const pullRequest = normalizePullRequestLink(links.pullRequest);
+  return workerThread || pullRequest ? { workerThread, pullRequest } : null;
 }
 
-function getFeedbackIssueLinks(response: FeedbackStatusResponse): FeedbackIssueLinks | null {
+function getFeedbackIssueLinks(
+  response: FeedbackStatusResponse,
+): FeedbackIssueLinks | null {
   return (
-    normalizeFeedbackIssueLinks(response.links) ?? normalizeFeedbackIssueLinks({ workerThread: response.workerThread })
-  )
+    normalizeFeedbackIssueLinks(response.links) ??
+    normalizeFeedbackIssueLinks({ workerThread: response.workerThread })
+  );
 }
 
 function isTerminalIssueStatus(status: FeedbackIssueHistoryStatus): boolean {
-  return status === 'resolved' || status === 'no_action' || status === 'duplicate'
+  return (
+    status === "resolved" || status === "no_action" || status === "duplicate"
+  );
 }
 
 function createMarkupId(): string {
-  return `markup_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  return `markup_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function createElementGrabId(): string {
-  return `element_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  return `element_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function getDevicePixelRatio(): number {
-  return typeof window.devicePixelRatio === 'number' && Number.isFinite(window.devicePixelRatio)
+  return typeof window.devicePixelRatio === "number" &&
+    Number.isFinite(window.devicePixelRatio)
     ? window.devicePixelRatio
-    : 1
+    : 1;
 }
 
 function getMarkupPoint(event: PointerEvent): FeedbackMarkupPoint {
   return {
     x: Math.round(event.clientX),
     y: Math.round(event.clientY),
-  }
+  };
 }
 
-function distanceBetweenPoints(first: FeedbackMarkupPoint, second: FeedbackMarkupPoint): number {
-  return Math.hypot(second.x - first.x, second.y - first.y)
+function distanceBetweenPoints(
+  first: FeedbackMarkupPoint,
+  second: FeedbackMarkupPoint,
+): number {
+  return Math.hypot(second.x - first.x, second.y - first.y);
 }
 
-function normalizeMarkupItem(draft: FeedbackMarkupDraft): FeedbackMarkupItem | null {
-  if (draft.tool === 'pen') {
-    const cappedPoints = draft.points.slice(0, MAX_MARKUP_POINTS_PER_ITEM)
+function normalizeMarkupItem(
+  draft: FeedbackMarkupDraft,
+): FeedbackMarkupItem | null {
+  if (draft.tool === "pen") {
+    const cappedPoints = draft.points.slice(0, MAX_MARKUP_POINTS_PER_ITEM);
     const hasMovement = cappedPoints.some(
-      (point) => distanceBetweenPoints(draft.start, point) >= MARKUP_POINTER_MOVE_THRESHOLD_PX
-    )
-    return cappedPoints.length > 1 && hasMovement ? { id: draft.id, tool: draft.tool, points: cappedPoints } : null
+      (point) =>
+        distanceBetweenPoints(draft.start, point) >=
+        MARKUP_POINTER_MOVE_THRESHOLD_PX,
+    );
+    return cappedPoints.length > 1 && hasMovement
+      ? { id: draft.id, tool: draft.tool, points: cappedPoints }
+      : null;
   }
-  const end = draft.points[draft.points.length - 1] ?? draft.start
-  if (Math.hypot(end.x - draft.start.x, end.y - draft.start.y) < MARKUP_POINTER_MOVE_THRESHOLD_PX) {
-    return draft.tool === 'point' ? { id: draft.id, tool: draft.tool, points: [draft.start] } : null
+  const end = draft.points[draft.points.length - 1] ?? draft.start;
+  if (
+    Math.hypot(end.x - draft.start.x, end.y - draft.start.y) <
+    MARKUP_POINTER_MOVE_THRESHOLD_PX
+  ) {
+    return draft.tool === "point"
+      ? { id: draft.id, tool: draft.tool, points: [draft.start] }
+      : null;
   }
-  return { id: draft.id, tool: draft.tool, points: [draft.start, end] }
+  return { id: draft.id, tool: draft.tool, points: [draft.start, end] };
 }
 
 function resolveMarkupTool(value: string | null): FeedbackMarkupTool | null {
-  if (value === 'rectangle' || value === 'point' || value === 'pen') {
-    return value
+  if (value === "rectangle" || value === "point" || value === "pen") {
+    return value;
   }
-  return null
+  return null;
 }
 
 function buildCssSelector(element: Element): string {
-  const segments: string[] = []
-  let current: Element | null = element
-  let depth = 0
+  const segments: string[] = [];
+  let current: Element | null = element;
+  let depth = 0;
   while (current && depth < 5) {
-    const tagName = current.tagName.toLowerCase()
-    const elementId = current.getAttribute('id')
+    const tagName = current.tagName.toLowerCase();
+    const elementId = current.getAttribute("id");
     if (elementId) {
-      segments.unshift(`#${escapeCssIdentifier(elementId)}`)
-      break
+      segments.unshift(`#${escapeCssIdentifier(elementId)}`);
+      break;
     }
-    const className = current.getAttribute('class')
+    const className = current.getAttribute("class");
     const normalizedClass = className
       ?.trim()
       .split(/\s+/)
       .filter(Boolean)
       .slice(0, 2)
       .map((name) => `.${escapeCssIdentifier(name)}`)
-      .join('')
-    const parent: Element | null = current.parentElement
-    const elementIndex = parent ? Array.from(parent.children).indexOf(current) + 1 : 0
-    const nthChild = elementIndex > 0 ? `:nth-child(${elementIndex})` : ''
-    segments.unshift(`${tagName}${normalizedClass ?? ''}${nthChild}`)
-    current = parent
-    depth += 1
+      .join("");
+    const parent: Element | null = current.parentElement;
+    const elementIndex = parent
+      ? Array.from(parent.children).indexOf(current) + 1
+      : 0;
+    const nthChild = elementIndex > 0 ? `:nth-child(${elementIndex})` : "";
+    segments.unshift(`${tagName}${normalizedClass ?? ""}${nthChild}`);
+    current = parent;
+    depth += 1;
   }
-  return segments.join(' > ')
+  return segments.join(" > ");
 }
 
 function escapeCssIdentifier(value: string): string {
-  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
-    return CSS.escape(value)
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
   }
-  return value.replace(/[^a-zA-Z0-9_-]/g, '_')
+  return value.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
 function truncateOuterHtml(element: Element, maxLength = 500): string {
-  return truncateText(element.outerHTML.replace(/\s+/g, ' ').trim(), maxLength)
+  return truncateText(element.outerHTML.replace(/\s+/g, " ").trim(), maxLength);
 }
 
 function createElementGrabRect(rect: DOMRect): ElementGrabRect {
@@ -1472,134 +1866,486 @@ function createElementGrabRect(rect: DOMRect): ElementGrabRect {
     y: Math.round(rect.top),
     width: Math.round(rect.width),
     height: Math.round(rect.height),
-  }
+  };
 }
 
-function getElementGrabDisplayName(info: ElementGrabHoverInfo | ElementGrabItem): string {
-  if (info.componentName) {
-    return info.componentName
+function normalizeVisualSuggestionTarget(target: HTMLElement): HTMLElement {
+  const interactiveParent = target.closest(
+    'button, a, [role="button"], [role="tab"], [role="menuitem"]',
+  );
+  if (
+    interactiveParent instanceof HTMLElement &&
+    getVisualSuggestionTargetLabel(interactiveParent) === "Card" &&
+    getVisualSuggestionTargetKind(target) === "text"
+  ) {
+    return target;
   }
-  return `<${info.tagName.toLowerCase()}>`
+  if (
+    target.matches(
+      'button, a, [role="button"], [role="tab"], [role="menuitem"]',
+    )
+  ) {
+    return target;
+  }
+  return interactiveParent instanceof HTMLElement ? interactiveParent : target;
+}
+
+function getVisualSuggestionTargetKind(
+  element: HTMLElement,
+): VisualSuggestionTargetKind {
+  const tagName = element.tagName.toLowerCase();
+  const role = element.getAttribute("role");
+  if (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    element.isContentEditable ||
+    role === "textbox"
+  ) {
+    return "field";
+  }
+  if (
+    tagName === "button" ||
+    tagName === "a" ||
+    role === "button" ||
+    role === "tab" ||
+    role === "menuitem"
+  ) {
+    return "control";
+  }
+  if (/^h[1-6]$/.test(tagName) || tagName === "p" || tagName === "span") {
+    return "text";
+  }
+  const text = getVisualSuggestionElementLabel(element);
+  const rect = element.getBoundingClientRect();
+  const hasTextOnlyShape =
+    text.length > 0 && rect.height <= 72 && element.children.length <= 2;
+  return hasTextOnlyShape ? "text" : "container";
+}
+
+function getVisualSuggestionTargetLabel(element: HTMLElement): string {
+  const kind = getVisualSuggestionTargetKind(element);
+  const rect = element.getBoundingClientRect();
+  if (kind === "control") {
+    if (rect.width >= 180 && rect.height >= 90) return "Card";
+    if (rect.height <= 48 && rect.width <= 260) return "Pill";
+    return element.tagName.toLowerCase() === "a" ? "Link" : "Button";
+  }
+  if (kind === "field") return "Field";
+  if (kind === "text") {
+    return /^h[1-6]$/i.test(element.tagName) ? "Heading" : "Text";
+  }
+  return "Container";
+}
+
+function getVisualSuggestionRefLabel(
+  ref: FeedbackVisualSuggestionElementRef,
+  suggestions?: readonly FeedbackVisualSuggestion[],
+): string {
+  const siblingScope = suggestions?.find(
+    (suggestion) => suggestion.scope?.kind === "similar-siblings",
+  )?.scope;
+  if (siblingScope) {
+    return `${siblingScope.label.replace(" in this row/group", "")} (${
+      siblingScope.matchedCount
+    })`;
+  }
+
+  const tagName = ref.tagName.toLowerCase();
+  const rect = ref.boundingRect;
+  if (tagName === "button" || tagName === "a") {
+    if (rect.width >= 180 && rect.height >= 90) return "Card";
+    if (rect.height <= 48 && rect.width <= 260) return "Pill";
+    return tagName === "a" ? "Link" : "Button";
+  }
+  if (tagName === "input" || tagName === "textarea") return "Field";
+  if (/^h[1-6]$/.test(tagName)) return "Heading";
+  if (tagName === "p" || tagName === "span") return "Text";
+  return ref.componentName ?? tagName;
+}
+
+function pluralizeVisualSuggestionTargetLabel(label: string): string {
+  const lower = label.toLowerCase();
+  if (lower.endsWith("s")) return lower;
+  if (lower.endsWith("y")) return `${lower.slice(0, -1)}ies`;
+  return `${lower}s`;
+}
+
+function supportsVisualSuggestionSiblingScope(label: string): boolean {
+  return ["Pill", "Card", "Button", "Link"].includes(label);
+}
+
+function isTransparentCssColor(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === "transparent") return true;
+  const rgbaMatch = normalized.match(
+    /^rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+(?:\s*,\s*([\d.]+%?))?\s*\)$/,
+  );
+  if (!rgbaMatch) return false;
+  const alpha = rgbaMatch[1];
+  if (!alpha) return false;
+  return alpha.endsWith("%")
+    ? Number.parseFloat(alpha) === 0
+    : Number.parseFloat(alpha) === 0;
+}
+
+function hasVisibleBorderSide(
+  style: CSSStyleDeclaration,
+  side: "Top" | "Right" | "Bottom" | "Left",
+): boolean {
+  const borderStyle = style.getPropertyValue(
+    `border-${side.toLowerCase()}-style`,
+  );
+  if (borderStyle === "none" || borderStyle === "hidden") return false;
+
+  const borderWidth = Number.parseFloat(
+    style.getPropertyValue(`border-${side.toLowerCase()}-width`),
+  );
+  if (!Number.isFinite(borderWidth) || borderWidth <= 0) return false;
+
+  return !isTransparentCssColor(
+    style.getPropertyValue(`border-${side.toLowerCase()}-color`),
+  );
+}
+
+function hasVisibleRoundedSurface(element: HTMLElement): boolean {
+  const style = window.getComputedStyle(element);
+  const hasBackground =
+    !isTransparentCssColor(style.backgroundColor) ||
+    style.backgroundImage !== "none";
+  const hasBorder =
+    hasVisibleBorderSide(style, "Top") ||
+    hasVisibleBorderSide(style, "Right") ||
+    hasVisibleBorderSide(style, "Bottom") ||
+    hasVisibleBorderSide(style, "Left");
+  const hasShadow = style.boxShadow !== "none";
+  const clipsContent = [style.overflow, style.overflowX, style.overflowY].some(
+    (value) => ["hidden", "clip", "scroll", "auto"].includes(value),
+  );
+
+  return hasBackground || hasBorder || hasShadow || clipsContent;
+}
+
+function getVisualSuggestionTargetProperties(
+  element: HTMLElement,
+  kind: VisualSuggestionTargetKind,
+): FeedbackVisualSuggestionProperty[] {
+  const style = window.getComputedStyle(element);
+  const isLayoutContainer = style.display === "flex" || style.display === "grid";
+  const shapeProperties: FeedbackVisualSuggestionProperty[] =
+    hasVisibleRoundedSurface(element) ? ["border-radius"] : [];
+
+  if (kind === "text") {
+    return ["font-size", "color"];
+  }
+
+  if (
+    kind === "container" ||
+    getVisualSuggestionTargetLabel(element) === "Card"
+  ) {
+    return [
+      ...shapeProperties,
+      "padding",
+      ...(isLayoutContainer ? (["gap"] as const) : []),
+      "background-color",
+    ];
+  }
+
+  return [
+    "font-size",
+    ...shapeProperties,
+    "padding",
+    ...(isLayoutContainer ? (["gap"] as const) : []),
+    "color",
+    "background-color",
+  ];
+}
+
+function isElementVisibleForScope(element: HTMLElement): boolean {
+  const rect = element.getBoundingClientRect();
+  if (rect.width < 4 || rect.height < 4) {
+    return false;
+  }
+  const style = window.getComputedStyle(element);
+  return (
+    style.display !== "none" &&
+    style.visibility !== "hidden" &&
+    style.opacity !== "0"
+  );
+}
+
+function getClassTokens(element: HTMLElement): Set<string> {
+  return new Set(
+    (element.getAttribute("class") ?? "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean),
+  );
+}
+
+function getVisualSuggestionElementLabel(element: HTMLElement): string {
+  return truncateText(
+    (element.getAttribute("aria-label") ?? element.textContent ?? "")
+      .trim()
+      .replace(/\s+/g, " "),
+    80,
+  );
+}
+
+function hasSimilarDimensions(a: DOMRect, b: DOMRect): boolean {
+  const widthRatio = b.width / Math.max(a.width, 1);
+  const heightRatio = b.height / Math.max(a.height, 1);
+  return (
+    widthRatio >= 0.45 &&
+    widthRatio <= 2.4 &&
+    heightRatio >= 0.45 &&
+    heightRatio <= 2.4
+  );
+}
+
+function isSimilarVisualSuggestionElement(
+  selected: HTMLElement,
+  candidate: HTMLElement,
+): boolean {
+  if (candidate === selected) {
+    return true;
+  }
+  if (candidate.tagName !== selected.tagName) {
+    return false;
+  }
+  const selectedRole = selected.getAttribute("role") ?? "";
+  const candidateRole = candidate.getAttribute("role") ?? "";
+  if (selectedRole && candidateRole && selectedRole !== candidateRole) {
+    return false;
+  }
+  if (
+    !hasSimilarDimensions(
+      selected.getBoundingClientRect(),
+      candidate.getBoundingClientRect(),
+    )
+  ) {
+    return false;
+  }
+  const selectedClasses = getClassTokens(selected);
+  const candidateClasses = getClassTokens(candidate);
+  if (selectedClasses.size === 0 || candidateClasses.size === 0) {
+    return true;
+  }
+  let shared = 0;
+  for (const token of selectedClasses) {
+    if (candidateClasses.has(token)) {
+      shared += 1;
+    }
+  }
+  const overlap = shared / Math.max(selectedClasses.size, candidateClasses.size);
+  return overlap >= 0.35;
+}
+
+function findSimilarSiblingScope(
+  selected: HTMLElement,
+): { parent: HTMLElement; elements: HTMLElement[] } | null {
+  let ancestor = selected.parentElement;
+  let depth = 0;
+  while (ancestor && depth < MAX_VISUAL_SUGGESTION_SCOPE_DEPTH) {
+    const candidates = Array.from(
+      ancestor.querySelectorAll(selected.tagName.toLowerCase()),
+    )
+      .filter((candidate): candidate is HTMLElement => {
+        return (
+          candidate instanceof HTMLElement &&
+          isElementVisibleForScope(candidate) &&
+          isSimilarVisualSuggestionElement(selected, candidate)
+        );
+      })
+      .sort((a, b) => {
+        if (a === b) return 0;
+        return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING
+          ? -1
+          : 1;
+      });
+
+    if (
+      candidates.includes(selected) &&
+      candidates.length >= 2 &&
+      candidates.length <= MAX_VISUAL_SUGGESTION_SCOPE_TARGETS
+    ) {
+      return { parent: ancestor, elements: candidates };
+    }
+
+    ancestor = ancestor.parentElement;
+    depth += 1;
+  }
+  return null;
+}
+
+function getElementGrabDisplayName(
+  info: ElementGrabHoverInfo | ElementGrabItem,
+): string {
+  if (info.componentName) {
+    return info.componentName;
+  }
+  return `<${info.tagName.toLowerCase()}>`;
 }
 
 function getElementGrabHoverLabel(info: ElementGrabHoverInfo): string {
   if (info.componentName) {
-    const location = info.sourceFile ? getShortFileName(info.sourceFile) : null
-    const lineSuffix = info.lineNumber ? `:${info.lineNumber}` : ''
-    return location ? `${info.componentName} at ${location}${lineSuffix}` : info.componentName
+    const location = info.sourceFile ? getShortFileName(info.sourceFile) : null;
+    const lineSuffix = info.lineNumber ? `:${info.lineNumber}` : "";
+    return location
+      ? `${info.componentName} at ${location}${lineSuffix}`
+      : info.componentName;
   }
-  return `<${info.tagName.toLowerCase()}>`
+  return `<${info.tagName.toLowerCase()}>`;
 }
 
 function getShortFileName(filePath: string): string {
-  const segments = filePath.split('/')
-  return segments[segments.length - 1] ?? filePath
+  const segments = filePath.split("/");
+  return segments[segments.length - 1] ?? filePath;
 }
 
 function createFeedbackAttachmentId(): string {
-  const randomId = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).slice(2)
-  return `attachment_${randomId}`
+  const randomId =
+    typeof crypto?.randomUUID === "function"
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `attachment_${randomId}`;
 }
 
 function createFeedbackAttachmentSessionId(): string {
-  const randomId = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).slice(2)
-  return `${FEEDBACK_ATTACHMENT_SESSION_PREFIX}_${randomId}`
+  const randomId =
+    typeof crypto?.randomUUID === "function"
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `${FEEDBACK_ATTACHMENT_SESSION_PREFIX}_${randomId}`;
 }
 
 function createRoundItemId(): string {
-  return `ri_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  return `ri_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function createMeasurementId(): string {
-  return `fbm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  return `fbm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 interface RulerLine {
-  id: string
-  orientation: 'horizontal' | 'vertical'
-  position: number
-  snappedTo: string | null
-  snappedElement: HTMLElement | null
-  snappedEdge: 'top' | 'bottom' | 'left' | 'right' | null
+  id: string;
+  orientation: "horizontal" | "vertical";
+  position: number;
+  snappedTo: string | null;
+  snappedElement: HTMLElement | null;
+  snappedEdge: "top" | "bottom" | "left" | "right" | null;
 }
 
-const RULER_SNAP_THRESHOLD_PX = 8
-const RULER_COLOR = '#3b82f6'
-const RULER_PREVIEW_COLOR = '#93c5fd'
-const RULER_SELECTED_COLOR = '#1d4ed8'
-const RULER_HIT_ZONE_PX = 6
+const RULER_SNAP_THRESHOLD_PX = 8;
+const RULER_COLOR = "#3b82f6";
+const RULER_PREVIEW_COLOR = "#93c5fd";
+const RULER_SELECTED_COLOR = "#1d4ed8";
+const RULER_HIT_ZONE_PX = 6;
 
 interface ElementEdge {
-  pos: number
-  selector: string
-  element: HTMLElement
-  edge: 'top' | 'bottom' | 'left' | 'right'
-  rect: DOMRect
+  pos: number;
+  selector: string;
+  element: HTMLElement;
+  edge: "top" | "bottom" | "left" | "right";
+  rect: DOMRect;
 }
 
 interface SnapResult {
-  position: number
-  selector: string
-  element: HTMLElement
-  edge: 'top' | 'bottom' | 'left' | 'right'
-  rect: DOMRect
+  position: number;
+  selector: string;
+  element: HTMLElement;
+  edge: "top" | "bottom" | "left" | "right";
+  rect: DOMRect;
 }
 
-let cachedEdges: { horizontal: ElementEdge[]; vertical: ElementEdge[] } | null = null
-let cachedEdgesFrame = -1
+let cachedEdges: { horizontal: ElementEdge[]; vertical: ElementEdge[] } | null =
+  null;
+let cachedEdgesFrame = -1;
 
-function collectElementEdges(): { horizontal: ElementEdge[]; vertical: ElementEdge[] } {
-  const frame = typeof requestAnimationFrame !== 'undefined' ? performance.now() : 0
+function collectElementEdges(): {
+  horizontal: ElementEdge[];
+  vertical: ElementEdge[];
+} {
+  const frame =
+    typeof requestAnimationFrame !== "undefined" ? performance.now() : 0;
   if (cachedEdges && Math.abs(frame - cachedEdgesFrame) < 16) {
-    return cachedEdges
+    return cachedEdges;
   }
-  const horizontal: ElementEdge[] = []
-  const vertical: ElementEdge[] = []
-  const elements = document.body.querySelectorAll('*')
+  const horizontal: ElementEdge[] = [];
+  const vertical: ElementEdge[] = [];
+  const elements = document.body.querySelectorAll("*");
   for (let i = 0; i < elements.length; i++) {
-    const el = elements[i]
-    if (!(el instanceof HTMLElement) || el.offsetWidth === 0 || el.offsetHeight === 0) {
-      continue
+    const el = elements[i];
+    if (
+      !(el instanceof HTMLElement) ||
+      el.offsetWidth === 0 ||
+      el.offsetHeight === 0
+    ) {
+      continue;
     }
-    const rect = el.getBoundingClientRect()
+    const rect = el.getBoundingClientRect();
     if (rect.width < 4 || rect.height < 4) {
-      continue
+      continue;
     }
-    const selector = buildCssSelector(el)
-    horizontal.push({ pos: Math.round(rect.top), selector, element: el, edge: 'top', rect })
-    horizontal.push({ pos: Math.round(rect.bottom), selector, element: el, edge: 'bottom', rect })
-    vertical.push({ pos: Math.round(rect.left), selector, element: el, edge: 'left', rect })
-    vertical.push({ pos: Math.round(rect.right), selector, element: el, edge: 'right', rect })
+    const selector = buildCssSelector(el);
+    horizontal.push({
+      pos: Math.round(rect.top),
+      selector,
+      element: el,
+      edge: "top",
+      rect,
+    });
+    horizontal.push({
+      pos: Math.round(rect.bottom),
+      selector,
+      element: el,
+      edge: "bottom",
+      rect,
+    });
+    vertical.push({
+      pos: Math.round(rect.left),
+      selector,
+      element: el,
+      edge: "left",
+      rect,
+    });
+    vertical.push({
+      pos: Math.round(rect.right),
+      selector,
+      element: el,
+      edge: "right",
+      rect,
+    });
   }
-  cachedEdges = { horizontal, vertical }
-  cachedEdgesFrame = frame
-  return cachedEdges
+  cachedEdges = { horizontal, vertical };
+  cachedEdgesFrame = frame;
+  return cachedEdges;
 }
 
 function findSnapPosition(
   position: number,
-  orientation: 'horizontal' | 'vertical',
+  orientation: "horizontal" | "vertical",
   cursorX: number,
-  cursorY: number
+  cursorY: number,
 ): SnapResult | null {
-  const edges = collectElementEdges()
-  const edgeList = orientation === 'horizontal' ? edges.horizontal : edges.vertical
-  let bestDist = RULER_SNAP_THRESHOLD_PX + 1
-  let bestEdge: ElementEdge | null = null
+  const edges = collectElementEdges();
+  const edgeList =
+    orientation === "horizontal" ? edges.horizontal : edges.vertical;
+  let bestDist = RULER_SNAP_THRESHOLD_PX + 1;
+  let bestEdge: ElementEdge | null = null;
   for (const edge of edgeList) {
-    if (orientation === 'horizontal') {
+    if (orientation === "horizontal") {
       if (cursorX < edge.rect.left - 40 || cursorX > edge.rect.right + 40) {
-        continue
+        continue;
       }
     } else {
       if (cursorY < edge.rect.top - 40 || cursorY > edge.rect.bottom + 40) {
-        continue
+        continue;
       }
     }
-    const dist = Math.abs(edge.pos - position)
+    const dist = Math.abs(edge.pos - position);
     if (dist < bestDist) {
-      bestDist = dist
-      bestEdge = edge
+      bestDist = dist;
+      bestEdge = edge;
     }
   }
   return bestEdge
@@ -1610,195 +2356,219 @@ function findSnapPosition(
         edge: bestEdge.edge,
         rect: bestEdge.rect,
       }
-    : null
+    : null;
 }
 
 function createRulerId(): string {
-  return `rl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+  return `rl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
 function computeRulerDistances(rulers: RulerLine[]): Array<{
-  rulerAId: string
-  rulerBId: string
-  distance: number
-  orientation: 'horizontal' | 'vertical'
-  midpoint: number
+  rulerAId: string;
+  rulerBId: string;
+  distance: number;
+  orientation: "horizontal" | "vertical";
+  midpoint: number;
 }> {
   const result: Array<{
-    rulerAId: string
-    rulerBId: string
-    distance: number
-    orientation: 'horizontal' | 'vertical'
-    midpoint: number
-  }> = []
-  const horizontal = rulers.filter((r) => r.orientation === 'horizontal').sort((a, b) => a.position - b.position)
-  const vertical = rulers.filter((r) => r.orientation === 'vertical').sort((a, b) => a.position - b.position)
+    rulerAId: string;
+    rulerBId: string;
+    distance: number;
+    orientation: "horizontal" | "vertical";
+    midpoint: number;
+  }> = [];
+  const horizontal = rulers
+    .filter((r) => r.orientation === "horizontal")
+    .sort((a, b) => a.position - b.position);
+  const vertical = rulers
+    .filter((r) => r.orientation === "vertical")
+    .sort((a, b) => a.position - b.position);
 
   for (let i = 0; i < horizontal.length - 1; i++) {
-    const a = horizontal[i]
-    const b = horizontal[i + 1]
+    const a = horizontal[i];
+    const b = horizontal[i + 1];
     result.push({
       rulerAId: a.id,
       rulerBId: b.id,
       distance: Math.abs(b.position - a.position),
-      orientation: 'horizontal',
+      orientation: "horizontal",
       midpoint: (a.position + b.position) / 2,
-    })
+    });
   }
   for (let i = 0; i < vertical.length - 1; i++) {
-    const a = vertical[i]
-    const b = vertical[i + 1]
+    const a = vertical[i];
+    const b = vertical[i + 1];
     result.push({
       rulerAId: a.id,
       rulerBId: b.id,
       distance: Math.abs(b.position - a.position),
-      orientation: 'vertical',
+      orientation: "vertical",
       midpoint: (a.position + b.position) / 2,
-    })
+    });
   }
-  return result
+  return result;
 }
 
 function renderRulerSvg(
   rulers: RulerLine[],
-  preview: { orientation: 'horizontal' | 'vertical'; position: number } | null,
+  preview: { orientation: "horizontal" | "vertical"; position: number } | null,
   selectedId: string | null,
   vw: number,
-  vh: number
+  vh: number,
 ): string {
-  const parts: string[] = []
+  const parts: string[] = [];
 
   if (preview) {
-    if (preview.orientation === 'horizontal') {
+    if (preview.orientation === "horizontal") {
       parts.push(
-        `<line x1="0" y1="${preview.position}" x2="${vw}" y2="${preview.position}" stroke="${RULER_PREVIEW_COLOR}" stroke-width="1" stroke-dasharray="6 4" />`
-      )
+        `<line x1="0" y1="${preview.position}" x2="${vw}" y2="${preview.position}" stroke="${RULER_PREVIEW_COLOR}" stroke-width="1" stroke-dasharray="6 4" />`,
+      );
     } else {
       parts.push(
-        `<line x1="${preview.position}" y1="0" x2="${preview.position}" y2="${vh}" stroke="${RULER_PREVIEW_COLOR}" stroke-width="1" stroke-dasharray="6 4" />`
-      )
+        `<line x1="${preview.position}" y1="0" x2="${preview.position}" y2="${vh}" stroke="${RULER_PREVIEW_COLOR}" stroke-width="1" stroke-dasharray="6 4" />`,
+      );
     }
   }
 
   for (const ruler of rulers) {
-    const color = ruler.id === selectedId ? RULER_SELECTED_COLOR : RULER_COLOR
-    const width = ruler.id === selectedId ? 2 : 1.5
-    if (ruler.orientation === 'horizontal') {
+    const color = ruler.id === selectedId ? RULER_SELECTED_COLOR : RULER_COLOR;
+    const width = ruler.id === selectedId ? 2 : 1.5;
+    if (ruler.orientation === "horizontal") {
       parts.push(
-        `<line x1="0" y1="${ruler.position}" x2="${vw}" y2="${ruler.position}" stroke="${color}" stroke-width="${width}" stroke-dasharray="6 3" />`
-      )
+        `<line x1="0" y1="${ruler.position}" x2="${vw}" y2="${ruler.position}" stroke="${color}" stroke-width="${width}" stroke-dasharray="6 3" />`,
+      );
       parts.push(
-        `<circle cx="${vw / 2}" cy="${ruler.position}" r="4" fill="${color}" style="cursor:grab" data-ruler-handle="${ruler.id}" />`
-      )
+        `<circle cx="${vw / 2}" cy="${ruler.position}" r="4" fill="${color}" style="cursor:grab" data-ruler-handle="${ruler.id}" />`,
+      );
     } else {
       parts.push(
-        `<line x1="${ruler.position}" y1="0" x2="${ruler.position}" y2="${vh}" stroke="${color}" stroke-width="${width}" stroke-dasharray="6 3" />`
-      )
+        `<line x1="${ruler.position}" y1="0" x2="${ruler.position}" y2="${vh}" stroke="${color}" stroke-width="${width}" stroke-dasharray="6 3" />`,
+      );
       parts.push(
-        `<circle cx="${ruler.position}" cy="${vh / 2}" r="4" fill="${color}" style="cursor:grab" data-ruler-handle="${ruler.id}" />`
-      )
+        `<circle cx="${ruler.position}" cy="${vh / 2}" r="4" fill="${color}" style="cursor:grab" data-ruler-handle="${ruler.id}" />`,
+      );
     }
   }
 
-  const distances = computeRulerDistances(rulers)
+  const distances = computeRulerDistances(rulers);
   for (const d of distances) {
-    if (d.orientation === 'horizontal') {
-      const x = vw / 2
-      const posA = d.midpoint - d.distance / 2
-      const posB = d.midpoint + d.distance / 2
-      parts.push(`<line x1="${x}" y1="${posA}" x2="${x}" y2="${posB}" stroke="${RULER_COLOR}" stroke-width="1" />`)
+    if (d.orientation === "horizontal") {
+      const x = vw / 2;
+      const posA = d.midpoint - d.distance / 2;
+      const posB = d.midpoint + d.distance / 2;
       parts.push(
-        `<line x1="${x - 4}" y1="${posA}" x2="${x + 4}" y2="${posA}" stroke="${RULER_COLOR}" stroke-width="1" />`
-      )
+        `<line x1="${x}" y1="${posA}" x2="${x}" y2="${posB}" stroke="${RULER_COLOR}" stroke-width="1" />`,
+      );
       parts.push(
-        `<line x1="${x - 4}" y1="${posB}" x2="${x + 4}" y2="${posB}" stroke="${RULER_COLOR}" stroke-width="1" />`
-      )
+        `<line x1="${x - 4}" y1="${posA}" x2="${x + 4}" y2="${posA}" stroke="${RULER_COLOR}" stroke-width="1" />`,
+      );
       parts.push(
-        `<text x="${x + 10}" y="${d.midpoint + 4}" fill="${RULER_COLOR}" font-size="11" font-weight="700" font-family="Inter,ui-sans-serif,system-ui,sans-serif">${d.distance}px</text>`
-      )
+        `<line x1="${x - 4}" y1="${posB}" x2="${x + 4}" y2="${posB}" stroke="${RULER_COLOR}" stroke-width="1" />`,
+      );
+      parts.push(
+        `<text x="${x + 10}" y="${d.midpoint + 4}" fill="${RULER_COLOR}" font-size="11" font-weight="700" font-family="Inter,ui-sans-serif,system-ui,sans-serif">${d.distance}px</text>`,
+      );
     } else {
-      const y = vh / 2
-      const posA = d.midpoint - d.distance / 2
-      const posB = d.midpoint + d.distance / 2
-      parts.push(`<line x1="${posA}" y1="${y}" x2="${posB}" y2="${y}" stroke="${RULER_COLOR}" stroke-width="1" />`)
+      const y = vh / 2;
+      const posA = d.midpoint - d.distance / 2;
+      const posB = d.midpoint + d.distance / 2;
       parts.push(
-        `<line x1="${posA}" y1="${y - 4}" x2="${posA}" y2="${y + 4}" stroke="${RULER_COLOR}" stroke-width="1" />`
-      )
+        `<line x1="${posA}" y1="${y}" x2="${posB}" y2="${y}" stroke="${RULER_COLOR}" stroke-width="1" />`,
+      );
       parts.push(
-        `<line x1="${posB}" y1="${y - 4}" x2="${posB}" y2="${y + 4}" stroke="${RULER_COLOR}" stroke-width="1" />`
-      )
+        `<line x1="${posA}" y1="${y - 4}" x2="${posA}" y2="${y + 4}" stroke="${RULER_COLOR}" stroke-width="1" />`,
+      );
       parts.push(
-        `<text x="${d.midpoint}" y="${y - 8}" fill="${RULER_COLOR}" font-size="11" font-weight="700" font-family="Inter,ui-sans-serif,system-ui,sans-serif" text-anchor="middle">${d.distance}px</text>`
-      )
+        `<line x1="${posB}" y1="${y - 4}" x2="${posB}" y2="${y + 4}" stroke="${RULER_COLOR}" stroke-width="1" />`,
+      );
+      parts.push(
+        `<text x="${d.midpoint}" y="${y - 8}" fill="${RULER_COLOR}" font-size="11" font-weight="700" font-family="Inter,ui-sans-serif,system-ui,sans-serif" text-anchor="middle">${d.distance}px</text>`,
+      );
     }
   }
 
-  return parts.join('')
+  return parts.join("");
 }
 
-function getDraftRoundStorageKey(publicKey: string, env: string): string | null {
+function getDraftRoundStorageKey(
+  publicKey: string,
+  env: string,
+): string | null {
   if (!publicKey) {
-    return null
+    return null;
   }
-  const sourceOrigin = typeof window !== 'undefined' ? window.location.origin : 'unknown-origin'
-  return [DRAFT_ROUND_STORAGE_PREFIX, publicKey, env, sourceOrigin].map((part) => encodeURIComponent(part)).join(':')
+  const sourceOrigin =
+    typeof window !== "undefined" ? window.location.origin : "unknown-origin";
+  return [DRAFT_ROUND_STORAGE_PREFIX, publicKey, env, sourceOrigin]
+    .map((part) => encodeURIComponent(part))
+    .join(":");
 }
 
 function parseStoredDraftRound(storageKey: string | null): FeedbackRoundItem[] {
   if (!storageKey) {
-    return []
+    return [];
   }
   try {
-    const rawValue = window.localStorage?.getItem(storageKey)
-    const parsed = rawValue ? JSON.parse(rawValue) : []
+    const rawValue = window.localStorage?.getItem(storageKey);
+    const parsed = rawValue ? JSON.parse(rawValue) : [];
     if (!Array.isArray(parsed)) {
-      return []
+      return [];
     }
-    const items: FeedbackRoundItem[] = []
+    const items: FeedbackRoundItem[] = [];
     for (const item of parsed) {
       if (
         !item ||
-        typeof item !== 'object' ||
-        typeof item.id !== 'string' ||
-        typeof item.description !== 'string' ||
+        typeof item !== "object" ||
+        typeof item.id !== "string" ||
+        typeof item.description !== "string" ||
         !item.description.trim()
       ) {
-        continue
+        continue;
       }
       items.push({
         id: item.id,
         description: item.description,
         markupPayload: item.markupPayload ?? undefined,
-        elementGrabs: Array.isArray(item.elementGrabs) ? item.elementGrabs : undefined,
-        attachmentTokens: Array.isArray(item.attachmentTokens) ? item.attachmentTokens : undefined,
-      })
+        elementGrabs: Array.isArray(item.elementGrabs)
+          ? item.elementGrabs
+          : undefined,
+        visualSuggestions: Array.isArray(item.visualSuggestions)
+          ? item.visualSuggestions
+          : undefined,
+        attachmentTokens: Array.isArray(item.attachmentTokens)
+          ? item.attachmentTokens
+          : undefined,
+      });
     }
-    return items.slice(0, MAX_ROUND_ITEMS)
+    return items.slice(0, MAX_ROUND_ITEMS);
   } catch {
-    return []
+    return [];
   }
 }
 
-function persistDraftRound(storageKey: string | null, items: FeedbackRoundItem[]): void {
+function persistDraftRound(
+  storageKey: string | null,
+  items: FeedbackRoundItem[],
+): void {
   if (!storageKey) {
-    return
+    return;
   }
   try {
     if (items.length === 0) {
-      window.localStorage?.removeItem(storageKey)
-      return
+      window.localStorage?.removeItem(storageKey);
+      return;
     }
-    let serializedItems = items.slice(0, MAX_ROUND_ITEMS)
-    let json = JSON.stringify(serializedItems)
+    let serializedItems = items.slice(0, MAX_ROUND_ITEMS);
+    let json = JSON.stringify(serializedItems);
     if (json.length > MAX_DRAFT_ROUND_STORAGE_BYTES) {
       serializedItems = serializedItems.map((item) => ({
         ...item,
         markupPayload: undefined,
-      }))
-      json = JSON.stringify(serializedItems)
+      }));
+      json = JSON.stringify(serializedItems);
     }
     if (json.length <= MAX_DRAFT_ROUND_STORAGE_BYTES) {
-      window.localStorage?.setItem(storageKey, json)
+      window.localStorage?.setItem(storageKey, json);
     }
   } catch {
     // localStorage may be unavailable
@@ -1806,222 +2576,281 @@ function persistDraftRound(storageKey: string | null, items: FeedbackRoundItem[]
 }
 
 function normalizeAttachmentMimeType(file: File): string {
-  const normalized = file.type.split(';')[0]?.trim().toLowerCase() ?? ''
-  return normalized.includes('/') ? normalized : DEFAULT_ATTACHMENT_MIME_TYPE
+  const normalized = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
+  return normalized.includes("/") ? normalized : DEFAULT_ATTACHMENT_MIME_TYPE;
 }
 
 function formatAttachmentSize(sizeBytes: number): string {
   if (sizeBytes < 1024) {
-    return `${sizeBytes} B`
+    return `${sizeBytes} B`;
   }
   if (sizeBytes < 1024 * 1024) {
-    return `${Math.round(sizeBytes / 1024)} KB`
+    return `${Math.round(sizeBytes / 1024)} KB`;
   }
-  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function createFeedbackSubmissionInput(formData: FormData): FeedbackSubmissionInput {
-  const description = String(formData.get('description') ?? '').trim()
+function createFeedbackSubmissionInput(
+  formData: FormData,
+): FeedbackSubmissionInput {
+  const description = String(formData.get("description") ?? "").trim();
   if (!description) {
-    throw new Error('Feedback description is required')
+    throw new Error("Feedback description is required");
   }
   return {
     type: DEFAULT_FEEDBACK_ISSUE_TYPE,
     severity: DEFAULT_FEEDBACK_ISSUE_SEVERITY,
     description,
-  }
+  };
 }
 
 class ObviousFeedbackWidget {
   private readonly config: Required<
     Pick<
       FeedbackSdkConfig,
-      | 'publicKey'
-      | 'apiBaseUrl'
-      | 'env'
-      | 'redactSelectors'
-      | 'triggerLabel'
-      | 'assistantPosition'
-      | 'capturePageContext'
-      | 'captureConsole'
-      | 'captureNetwork'
-      | 'previewOnlyReason'
-      | 'previewOnly'
+      | "publicKey"
+      | "apiBaseUrl"
+      | "env"
+      | "redactSelectors"
+      | "triggerLabel"
+      | "assistantPosition"
+      | "capturePageContext"
+      | "captureConsole"
+      | "captureNetwork"
+      | "previewOnlyReason"
+      | "previewOnly"
     >
   > &
-    Pick<FeedbackSdkConfig, 'identityToken' | 'prNumber' | 'elementSourceResolver' | 'sessionReplayUrlResolver'>
-  private readonly host: HTMLDivElement
-  private readonly shadowRoot: ShadowRoot
-  private readonly consoleBuffer: { read: () => ConsoleLogEntry[]; restore: () => void }
-  private readonly networkBuffer: { read: () => NetworkLogEntry[]; restore: () => void }
-  private readonly issueHistoryStorageKey: string | null
-  private readonly draftRoundStorageKey: string | null
-  private readonly elementSourceCache = new WeakMap<Element, Promise<ElementSourceInfo | null>>()
-  private issueHistory: FeedbackIssueHistoryEntry[] = []
-  private roundItems: FeedbackRoundItem[] = []
-  private focusedItemId: string | null = null
-  private issueId: string | null = null
-  private statusCardIssueId: string | null = null
-  private statusCardStatus: FeedbackClientStatus | null = null
-  private statusCardUpdatedAt: string | null = null
-  private statusCardReportedAt: string | null = null
-  private statusTimer: number | null = null
-  private statusPollIndex = 0
-  private selectedIssueId: string | null = null
-  private triggerPosition: FeedbackTriggerPosition
-  private triggerDragState: FeedbackTriggerDragState | null = null
-  private suppressNextTriggerClick = false
-  private markupTool: FeedbackMarkupTool = 'rectangle'
-  private markupItems: FeedbackMarkupItem[] = []
-  private elementGrabItems: ElementGrabItem[] = []
-  private activePanel: FeedbackPanel | null = null
-  private historyRefreshInFlight = false
-  private openIssueCountListeners = new Set<(count: number) => void>()
-  private lastEmittedOpenIssueCount = -1
-  private markupDraft: FeedbackMarkupDraft | null = null
-  private markupContext: FeedbackMarkupContext | null = null
-  private elementGrabHoverTarget: Element | null = null
-  private elementGrabHoverInfo: ElementGrabHoverInfo | null = null
-  private elementGrabResolveTimer: number | null = null
-  private activeSillyFeedbackMessage: string | null = null
+    Pick<
+      FeedbackSdkConfig,
+      | "identityToken"
+      | "prNumber"
+      | "elementSourceResolver"
+      | "sessionReplayUrlResolver"
+      | "visualSuggestions"
+    >;
+  private readonly host: HTMLDivElement;
+  private readonly shadowRoot: ShadowRoot;
+  private readonly consoleBuffer: {
+    read: () => ConsoleLogEntry[];
+    restore: () => void;
+  };
+  private readonly networkBuffer: {
+    read: () => NetworkLogEntry[];
+    restore: () => void;
+  };
+  private readonly issueHistoryStorageKey: string | null;
+  private readonly draftRoundStorageKey: string | null;
+  private readonly elementSourceCache = new WeakMap<
+    Element,
+    Promise<ElementSourceInfo | null>
+  >();
+  private issueHistory: FeedbackIssueHistoryEntry[] = [];
+  private roundItems: FeedbackRoundItem[] = [];
+  private focusedItemId: string | null = null;
+  private issueId: string | null = null;
+  private statusCardIssueId: string | null = null;
+  private statusCardStatus: FeedbackClientStatus | null = null;
+  private statusCardUpdatedAt: string | null = null;
+  private statusCardReportedAt: string | null = null;
+  private statusTimer: number | null = null;
+  private statusPollIndex = 0;
+  private selectedIssueId: string | null = null;
+  private triggerPosition: FeedbackTriggerPosition;
+  private triggerDragState: FeedbackTriggerDragState | null = null;
+  private suppressNextTriggerClick = false;
+  private markupTool: FeedbackMarkupTool = "rectangle";
+  private markupItems: FeedbackMarkupItem[] = [];
+  private elementGrabItems: ElementGrabItem[] = [];
+  private activePanel: FeedbackPanel | null = null;
+  private historyRefreshInFlight = false;
+  private openIssueCountListeners = new Set<(count: number) => void>();
+  private lastEmittedOpenIssueCount = -1;
+  private markupDraft: FeedbackMarkupDraft | null = null;
+  private markupContext: FeedbackMarkupContext | null = null;
+  private elementGrabHoverTarget: Element | null = null;
+  private elementGrabHoverInfo: ElementGrabHoverInfo | null = null;
+  private elementGrabResolveTimer: number | null = null;
+  private activeSillyFeedbackMessage: string | null = null;
 
-  private markupSessionSnapshot: FeedbackMarkupSessionSnapshot | null = null
-  private markupRenderFrame: number | null = null
-  private markupOverlayOpen = false
-  private elementPickerOpen = false
-  private measureOverlayOpen = false
-  private measurementItems: FeedbackMeasurement[] = []
-  private newRowDraft = ''
-  private rulerLines: RulerLine[] = []
-  private selectedRulerId: string | null = null
-  private rulerPreview: { orientation: 'horizontal' | 'vertical'; position: number } | null = null
-  private draggingRulerId: string | null = null
-  private rulerShiftHeld = false
-  private readonly attachmentSessionId = createFeedbackAttachmentSessionId()
-  private feedbackAttachments: FeedbackAttachmentUpload[] = []
-  private feedbackFormError: string | null = null
-  private submittedIssueUrl: string | null = null
-  private cardResizeObserver: ResizeObserver | null = null
-  private placementFrame: number | null = null
-  private globalFileDropGuardsInstalled = false
-  private markupKeydownListenerInstalled = false
-  private suppressNextMarkupCanvasClick = false
-  private destroyed = false
-  private systemThemeCleanup: (() => void) | null = null
+  private markupSessionSnapshot: FeedbackMarkupSessionSnapshot | null = null;
+  private markupRenderFrame: number | null = null;
+  private markupOverlayOpen = false;
+  private elementPickerOpen = false;
+  private elementPickerOnPick: ((target: HTMLElement) => void) | null = null;
+  private readonly visualSuggestions: VisualSuggestionManager | null;
+  private activeVisualSuggestionItemId: string | null = null;
+  private visualSuggestionTargetOptions: VisualSuggestionTargetOption[] = [];
+  private visualSuggestionScopeOptions: VisualSuggestionScopeOption[] = [];
+  private measureOverlayOpen = false;
+  private measurementItems: FeedbackMeasurement[] = [];
+  private newRowDraft = "";
+  private rulerLines: RulerLine[] = [];
+  private selectedRulerId: string | null = null;
+  private rulerPreview: {
+    orientation: "horizontal" | "vertical";
+    position: number;
+  } | null = null;
+  private draggingRulerId: string | null = null;
+  private rulerShiftHeld = false;
+  private readonly attachmentSessionId = createFeedbackAttachmentSessionId();
+  private feedbackAttachments: FeedbackAttachmentUpload[] = [];
+  private feedbackFormError: string | null = null;
+  private submittedIssueUrl: string | null = null;
+  private cardResizeObserver: ResizeObserver | null = null;
+  private placementFrame: number | null = null;
+  private globalFileDropGuardsInstalled = false;
+  private markupKeydownListenerInstalled = false;
+  private suppressNextMarkupCanvasClick = false;
+  private destroyed = false;
+  private systemThemeCleanup: (() => void) | null = null;
 
   constructor(config: FeedbackSdkConfig) {
     this.config = {
-      publicKey: config.publicKey ?? '',
+      publicKey: config.publicKey ?? "",
       apiBaseUrl: config.apiBaseUrl ?? DEFAULT_API_BASE_URL,
       identityToken: config.identityToken,
       env: config.env ?? DEFAULT_ENV,
       prNumber: config.prNumber,
       redactSelectors: config.redactSelectors ?? [],
       triggerLabel: config.triggerLabel ?? DEFAULT_TRIGGER_LABEL,
-      assistantPosition: config.assistantPosition ?? 'bottom-right',
+      assistantPosition: config.assistantPosition ?? "bottom-right",
       capturePageContext: config.capturePageContext ?? false,
       captureConsole: config.captureConsole ?? false,
-      previewOnlyReason: config.previewOnlyReason ?? 'Preview only — submissions disabled.',
+      previewOnlyReason:
+        config.previewOnlyReason ?? "Preview only — submissions disabled.",
       captureNetwork: config.captureNetwork ?? false,
       previewOnly: config.previewOnly ?? false,
       elementSourceResolver: config.elementSourceResolver,
       sessionReplayUrlResolver: config.sessionReplayUrlResolver,
-    }
-    this.consoleBuffer = this.config.captureConsole ? createConsoleBuffer() : { read: () => [], restore: () => {} }
-    this.networkBuffer = this.config.captureNetwork ? createNetworkBuffer() : { read: () => [], restore: () => {} }
-    this.issueHistoryStorageKey = getFeedbackIssueHistoryStorageKey(this.config.publicKey, this.config.env)
-    this.draftRoundStorageKey = getDraftRoundStorageKey(this.config.publicKey, this.config.env)
-    this.issueHistory = parseStoredIssueHistory(this.issueHistoryStorageKey)
-    this.roundItems = parseStoredDraftRound(this.draftRoundStorageKey)
+      visualSuggestions: config.visualSuggestions,
+    };
+    this.visualSuggestions =
+      this.config.visualSuggestions?.enabled === true
+        ? new VisualSuggestionManager()
+        : null;
+    this.consoleBuffer = this.config.captureConsole
+      ? createConsoleBuffer()
+      : { read: () => [], restore: () => {} };
+    this.networkBuffer = this.config.captureNetwork
+      ? createNetworkBuffer()
+      : { read: () => [], restore: () => {} };
+    this.issueHistoryStorageKey = getFeedbackIssueHistoryStorageKey(
+      this.config.publicKey,
+      this.config.env,
+    );
+    this.draftRoundStorageKey = getDraftRoundStorageKey(
+      this.config.publicKey,
+      this.config.env,
+    );
+    this.issueHistory = parseStoredIssueHistory(this.issueHistoryStorageKey);
+    this.roundItems = parseStoredDraftRound(this.draftRoundStorageKey);
     this.triggerPosition = clampTriggerPosition(
-      parseStoredTriggerPosition() ?? getFallbackTriggerPosition(this.config.assistantPosition)
-    )
-    this.host = document.createElement('div')
-    this.shadowRoot = this.host.attachShadow({ mode: 'open' })
-    this.applyTheme(config.theme ?? 'light')
-    document.body.appendChild(this.host)
-    this.renderTrigger()
-    window.addEventListener('keydown', this.handleShortcut)
-    window.addEventListener('resize', this.handleViewportChange)
-    window.addEventListener('orientationchange', this.handleViewportChange)
-    window.visualViewport?.addEventListener('resize', this.handleViewportChange)
+      parseStoredTriggerPosition() ??
+        getFallbackTriggerPosition(this.config.assistantPosition),
+    );
+    this.host = document.createElement("div");
+    this.shadowRoot = this.host.attachShadow({ mode: "open" });
+    this.applyTheme(config.theme ?? "light");
+    document.body.appendChild(this.host);
+    this.renderTrigger();
+    window.addEventListener("keydown", this.handleShortcut);
+    window.addEventListener("resize", this.handleViewportChange);
+    window.addEventListener("orientationchange", this.handleViewportChange);
+    window.visualViewport?.addEventListener(
+      "resize",
+      this.handleViewportChange,
+    );
   }
 
   getOpenIssueCount(): number {
-    return this.roundItems.length + this.getOpenIssueHistoryEntries().length
+    return this.roundItems.length + this.getOpenIssueHistoryEntries().length;
   }
 
   subscribeToOpenIssueCount(listener: (count: number) => void): () => void {
-    this.openIssueCountListeners.add(listener)
-    listener(this.getOpenIssueCount())
+    this.openIssueCountListeners.add(listener);
+    listener(this.getOpenIssueCount());
     return () => {
-      this.openIssueCountListeners.delete(listener)
-    }
+      this.openIssueCountListeners.delete(listener);
+    };
   }
 
   open(): void {
     if (this.isCardOpen()) {
-      return
+      return;
     }
-    this.openCard()
+    this.openCard();
   }
 
   private emitOpenIssueCountChange(): void {
-    const count = this.getOpenIssueCount()
+    const count = this.getOpenIssueCount();
     if (count === this.lastEmittedOpenIssueCount) {
-      return
+      return;
     }
-    this.lastEmittedOpenIssueCount = count
+    this.lastEmittedOpenIssueCount = count;
     for (const listener of this.openIssueCountListeners) {
-      listener(count)
+      listener(count);
     }
   }
 
   private getOpenIssueHistoryEntries(): FeedbackIssueHistoryEntry[] {
-    return this.issueHistory.filter((entry) => !isTerminalIssueStatus(entry.status) && entry.status !== 'unavailable')
+    return this.issueHistory.filter(
+      (entry) =>
+        !isTerminalIssueStatus(entry.status) && entry.status !== "unavailable",
+    );
   }
 
   private getShortcutLabel(): string {
-    const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
-    return isMac ? '⌘⇧.' : 'Ctrl+Shift+.'
+    const isMac =
+      typeof navigator !== "undefined" &&
+      /Mac|iPhone|iPad/.test(navigator.userAgent);
+    return isMac ? "⌘⇧." : "Ctrl+Shift+.";
   }
 
   private getTriggerStatusLabel(): string {
-    const draftCount = this.roundItems.length
+    const draftCount = this.roundItems.length;
     if (draftCount > 0) {
-      return `${this.config.triggerLabel} — ${draftCount} draft item${draftCount === 1 ? '' : 's'}`
+      return `${this.config.triggerLabel} — ${draftCount} draft item${draftCount === 1 ? "" : "s"}`;
     }
-    return this.config.triggerLabel
+    return this.config.triggerLabel;
   }
 
   private renderTriggerButton(): string {
-    const draftCount = this.roundItems.length
+    const draftCount = this.roundItems.length;
     const badge =
       draftCount > 0
         ? `<span class="obv-trigger-ring" data-status="draft" aria-hidden="true"></span><span class="obv-trigger-badge" aria-hidden="true">${draftCount}</span>`
-        : ''
-    return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? 'draft' : 'idle'}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})" style="${createTriggerPositionStyle(this.triggerPosition)}"><span class="obv-trigger-icon" aria-hidden="true">${createIcon('compose')}</span>${badge}</button>`
+        : "";
+    return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? "draft" : "idle"}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})" style="${createTriggerPositionStyle(this.triggerPosition)}"><span class="obv-trigger-icon" aria-hidden="true">${createIcon("compose")}</span>${badge}</button>`;
   }
 
   private bindTrigger(onClick: () => void): void {
-    const trigger = this.shadowRoot.querySelector('.obv-trigger')
-    trigger?.addEventListener('pointerdown', (event) => this.handleTriggerPointerDown(event as PointerEvent))
-    trigger?.addEventListener('pointermove', (event) => this.handleTriggerPointerMove(event as PointerEvent))
-    trigger?.addEventListener('pointerup', (event) => this.handleTriggerPointerUp(event as PointerEvent))
-    trigger?.addEventListener('pointercancel', () => this.cancelTriggerDrag())
-    trigger?.addEventListener('click', (event) => {
+    const trigger = this.shadowRoot.querySelector(".obv-trigger");
+    trigger?.addEventListener("pointerdown", (event) =>
+      this.handleTriggerPointerDown(event as PointerEvent),
+    );
+    trigger?.addEventListener("pointermove", (event) =>
+      this.handleTriggerPointerMove(event as PointerEvent),
+    );
+    trigger?.addEventListener("pointerup", (event) =>
+      this.handleTriggerPointerUp(event as PointerEvent),
+    );
+    trigger?.addEventListener("pointercancel", () => this.cancelTriggerDrag());
+    trigger?.addEventListener("click", (event) => {
       if (this.suppressNextTriggerClick) {
-        this.suppressNextTriggerClick = false
-        event.preventDefault()
-        return
+        this.suppressNextTriggerClick = false;
+        event.preventDefault();
+        return;
       }
-      onClick()
-    })
+      onClick();
+    });
   }
 
   private handleTriggerPointerDown(event: PointerEvent): void {
-    const point = positionToViewportPoint(this.triggerPosition)
-    ;(event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId)
+    const point = positionToViewportPoint(this.triggerPosition);
+    (event.currentTarget as Element | null)?.setPointerCapture?.(
+      event.pointerId,
+    );
     this.triggerDragState = {
       pointerId: event.pointerId,
       startClientX: event.clientX,
@@ -2030,640 +2859,919 @@ class ObviousFeedbackWidget {
       startTop: point.top,
       initialPosition: this.triggerPosition,
       moved: false,
-    }
+    };
   }
 
   private handleTriggerPointerMove(event: PointerEvent): void {
-    if (!this.triggerDragState || event.pointerId !== this.triggerDragState.pointerId) {
-      return
+    if (
+      !this.triggerDragState ||
+      event.pointerId !== this.triggerDragState.pointerId
+    ) {
+      return;
     }
-    const deltaX = event.clientX - this.triggerDragState.startClientX
-    const deltaY = event.clientY - this.triggerDragState.startClientY
-    if (!this.triggerDragState.moved && Math.hypot(deltaX, deltaY) < TRIGGER_DRAG_THRESHOLD_PX) {
-      return
+    const deltaX = event.clientX - this.triggerDragState.startClientX;
+    const deltaY = event.clientY - this.triggerDragState.startClientY;
+    if (
+      !this.triggerDragState.moved &&
+      Math.hypot(deltaX, deltaY) < TRIGGER_DRAG_THRESHOLD_PX
+    ) {
+      return;
     }
-    this.triggerDragState.moved = true
+    this.triggerDragState.moved = true;
     this.triggerPosition = viewportPointToNearestCorner(
       this.triggerDragState.startLeft + deltaX,
-      this.triggerDragState.startTop + deltaY
-    )
-    const trigger = this.shadowRoot.querySelector('.obv-trigger') as HTMLElement | null
+      this.triggerDragState.startTop + deltaY,
+    );
+    const trigger = this.shadowRoot.querySelector(
+      ".obv-trigger",
+    ) as HTMLElement | null;
     if (trigger) {
-      trigger.setAttribute('data-trigger-corner', this.triggerPosition.corner)
-      trigger.setAttribute('style', createTriggerPositionStyle(this.triggerPosition))
+      trigger.setAttribute("data-trigger-corner", this.triggerPosition.corner);
+      trigger.setAttribute(
+        "style",
+        createTriggerPositionStyle(this.triggerPosition),
+      );
     }
-    this.updateAnchoredFeedbackCard()
-    event.preventDefault()
+    this.updateAnchoredFeedbackCard();
+    event.preventDefault();
   }
 
   private handleTriggerPointerUp(event: PointerEvent): void {
-    if (!this.triggerDragState || event.pointerId !== this.triggerDragState.pointerId) {
-      return
+    if (
+      !this.triggerDragState ||
+      event.pointerId !== this.triggerDragState.pointerId
+    ) {
+      return;
     }
     if (this.triggerDragState.moved) {
-      this.suppressNextTriggerClick = true
-      persistTriggerPosition(this.triggerPosition)
-      event.preventDefault()
+      this.suppressNextTriggerClick = true;
+      persistTriggerPosition(this.triggerPosition);
+      event.preventDefault();
     }
-    this.triggerDragState = null
+    this.triggerDragState = null;
   }
 
   private cancelTriggerDrag(): void {
     if (this.triggerDragState?.moved) {
-      this.triggerPosition = this.triggerDragState.initialPosition
-      const trigger = this.shadowRoot.querySelector('.obv-trigger') as HTMLElement | null
+      this.triggerPosition = this.triggerDragState.initialPosition;
+      const trigger = this.shadowRoot.querySelector(
+        ".obv-trigger",
+      ) as HTMLElement | null;
       if (trigger) {
-        trigger.setAttribute('data-trigger-corner', this.triggerPosition.corner)
-        trigger.setAttribute('style', createTriggerPositionStyle(this.triggerPosition))
+        trigger.setAttribute(
+          "data-trigger-corner",
+          this.triggerPosition.corner,
+        );
+        trigger.setAttribute(
+          "style",
+          createTriggerPositionStyle(this.triggerPosition),
+        );
       }
     }
-    this.triggerDragState = null
-  }
-
-  private applyTheme(theme: FeedbackSdkTheme): void {
-    this.systemThemeCleanup?.()
-    this.systemThemeCleanup = null
-
-    if (theme === 'system') {
-      const mq = window.matchMedia('(prefers-color-scheme: dark)')
-      const apply = (): void => {
-        this.host.setAttribute('data-theme', mq.matches ? 'dark' : 'light')
-      }
-      apply()
-      mq.addEventListener('change', apply)
-      this.systemThemeCleanup = () => mq.removeEventListener('change', apply)
-    } else {
-      this.host.setAttribute('data-theme', theme)
-    }
+    this.triggerDragState = null;
   }
 
   destroy(): void {
     if (this.destroyed) {
-      return
+      return;
     }
-    this.destroyed = true
-    this.issueId = null
-    this.systemThemeCleanup?.()
-    this.systemThemeCleanup = null
-    this.consoleBuffer.restore()
-    this.networkBuffer.restore()
-    window.removeEventListener('keydown', this.handleShortcut)
-    window.removeEventListener('resize', this.handleViewportChange)
-    window.removeEventListener('orientationchange', this.handleViewportChange)
-    this.uninstallMarkupKeydownListener()
-    window.removeEventListener('click', this.handleMarkupCanvasClick, true)
-    window.visualViewport?.removeEventListener('resize', this.handleViewportChange)
-    this.clearStatusTimer()
-    this.cancelMarkupSvgRender()
-    this.uninstallGlobalFileDropGuards()
-    this.disconnectCardPlacementObserver()
-    this.host.remove()
+    this.destroyed = true;
+    this.issueId = null;
+    this.visualSuggestions?.restoreAll();
+    this.consoleBuffer.restore();
+    this.networkBuffer.restore();
+    window.removeEventListener("keydown", this.handleShortcut);
+    window.removeEventListener("resize", this.handleViewportChange);
+    window.removeEventListener("orientationchange", this.handleViewportChange);
+    this.uninstallMarkupKeydownListener();
+    window.removeEventListener("click", this.handleMarkupCanvasClick, true);
+    window.visualViewport?.removeEventListener(
+      "resize",
+      this.handleViewportChange,
+    );
+    this.clearStatusTimer();
+    this.cancelMarkupSvgRender();
+    this.uninstallGlobalFileDropGuards();
+    this.disconnectCardPlacementObserver();
+    this.systemThemeCleanup?.();
+    this.systemThemeCleanup = null;
+    this.host.remove();
+  }
+
+  private applyTheme(theme: FeedbackSdkTheme): void {
+    this.systemThemeCleanup?.();
+    this.systemThemeCleanup = null;
+
+    if (theme === "system") {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      const apply = (): void => {
+        this.host.setAttribute("data-theme", mq.matches ? "dark" : "light");
+      };
+      apply();
+      mq.addEventListener("change", apply);
+      this.systemThemeCleanup = () => mq.removeEventListener("change", apply);
+    } else {
+      this.host.setAttribute("data-theme", theme);
+    }
   }
 
   private readonly handleShortcut = (event: KeyboardEvent): void => {
-    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === '.') {
-      event.preventDefault()
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      event.shiftKey &&
+      event.key === "."
+    ) {
+      event.preventDefault();
       if (this.isCardOpen()) {
-        this.renderTrigger()
+        this.renderTrigger();
       } else {
-        this.openCard()
+        this.openCard();
       }
     }
-  }
+  };
 
   private readonly handleViewportChange = (): void => {
-    this.triggerPosition = clampTriggerPosition(this.triggerPosition)
-    const trigger = this.shadowRoot.querySelector('.obv-trigger') as HTMLElement | null
+    this.triggerPosition = clampTriggerPosition(this.triggerPosition);
+    const trigger = this.shadowRoot.querySelector(
+      ".obv-trigger",
+    ) as HTMLElement | null;
     if (trigger) {
-      trigger.setAttribute('data-trigger-corner', this.triggerPosition.corner)
-      trigger.setAttribute('style', createTriggerPositionStyle(this.triggerPosition))
+      trigger.setAttribute("data-trigger-corner", this.triggerPosition.corner);
+      trigger.setAttribute(
+        "style",
+        createTriggerPositionStyle(this.triggerPosition),
+      );
     }
-    this.updateAnchoredFeedbackCard()
-  }
+    this.updateAnchoredFeedbackCard();
+  };
 
   private renderTrigger(): void {
-    this.uninstallGlobalFileDropGuards()
-    this.disconnectCardPlacementObserver()
-    this.activePanel = null
-    this.focusedItemId = null
-    this.selectedIssueId = null
+    this.uninstallGlobalFileDropGuards();
+    this.disconnectCardPlacementObserver();
+    this.activePanel = null;
+    this.focusedItemId = null;
+    this.selectedIssueId = null;
 
-    this.markupOverlayOpen = false
-    this.shadowRoot.innerHTML = `<style>${createStyles()}</style>${this.renderTriggerButton()}`
-    this.bindTrigger(() => this.openCard())
+    this.markupOverlayOpen = false;
+    this.shadowRoot.innerHTML = `<style>${createStyles()}</style>${this.renderTriggerButton()}`;
+    this.bindTrigger(() => this.openCard());
   }
 
   private getFeedbackCardPlacement(
-    variant: 'form' | 'status',
-    measuredSize?: { width: number; height: number }
+    variant: "form" | "status",
+    measuredSize?: { width: number; height: number },
   ): FeedbackCardPlacement {
-    const trigger = this.shadowRoot.querySelector('.obv-trigger')
+    const trigger = this.shadowRoot.querySelector(".obv-trigger");
     const estimatedHeight =
-      variant === 'form' ? FEEDBACK_FORM_ESTIMATED_HEIGHT_PX : FEEDBACK_STATUS_CARD_ESTIMATED_HEIGHT_PX
-    return createFeedbackCardPlacement(trigger, this.triggerPosition, estimatedHeight, measuredSize)
+      variant === "form"
+        ? FEEDBACK_FORM_ESTIMATED_HEIGHT_PX
+        : FEEDBACK_STATUS_CARD_ESTIMATED_HEIGHT_PX;
+    return createFeedbackCardPlacement(
+      trigger,
+      this.triggerPosition,
+      estimatedHeight,
+      measuredSize,
+    );
   }
 
   private scheduleAnchoredFeedbackCardUpdate(): void {
     if (this.placementFrame !== null) {
-      return
+      return;
     }
     if (!window.requestAnimationFrame) {
-      this.updateAnchoredFeedbackCard()
-      return
+      this.updateAnchoredFeedbackCard();
+      return;
     }
     this.placementFrame = window.requestAnimationFrame(() => {
-      this.placementFrame = null
-      this.updateAnchoredFeedbackCard()
-    })
+      this.placementFrame = null;
+      this.updateAnchoredFeedbackCard();
+    });
   }
 
   private disconnectCardPlacementObserver(): void {
     if (this.placementFrame !== null) {
-      const cancelFrame = window.cancelAnimationFrame ?? window.clearTimeout
-      cancelFrame(this.placementFrame)
-      this.placementFrame = null
+      const cancelFrame = window.cancelAnimationFrame ?? window.clearTimeout;
+      cancelFrame(this.placementFrame);
+      this.placementFrame = null;
     }
-    this.cardResizeObserver?.disconnect()
-    this.cardResizeObserver = null
+    this.cardResizeObserver?.disconnect();
+    this.cardResizeObserver = null;
   }
 
   private observeAnchoredFeedbackCard(): void {
-    this.disconnectCardPlacementObserver()
-    const card = this.shadowRoot.querySelector('.obv-card') as HTMLElement | null
+    this.disconnectCardPlacementObserver();
+    const card = this.shadowRoot.querySelector(
+      ".obv-card",
+    ) as HTMLElement | null;
     if (!card) {
-      return
+      return;
     }
-    this.scheduleAnchoredFeedbackCardUpdate()
-    if (typeof ResizeObserver !== 'undefined') {
-      this.cardResizeObserver = new ResizeObserver(() => this.scheduleAnchoredFeedbackCardUpdate())
-      this.cardResizeObserver.observe(card)
+    this.scheduleAnchoredFeedbackCardUpdate();
+    if (typeof ResizeObserver !== "undefined") {
+      this.cardResizeObserver = new ResizeObserver(() =>
+        this.scheduleAnchoredFeedbackCardUpdate(),
+      );
+      this.cardResizeObserver.observe(card);
     }
   }
 
   private updateAnchoredFeedbackCard(): void {
-    const card = this.shadowRoot.querySelector('.obv-card') as HTMLElement | null
+    const card = this.shadowRoot.querySelector(
+      ".obv-card",
+    ) as HTMLElement | null;
     if (!card) {
-      return
+      return;
     }
-    const measuredSize = { width: card.offsetWidth, height: card.offsetHeight }
-    const placement = this.getFeedbackCardPlacement('form', measuredSize)
-    card.setAttribute('style', placement.style)
-    card.setAttribute('data-dialog-direction', placement.direction)
-    card.setAttribute('data-trigger-corner', this.triggerPosition.corner)
+    const measuredSize = { width: card.offsetWidth, height: card.offsetHeight };
+    const placement = this.getFeedbackCardPlacement("form", measuredSize);
+    card.setAttribute("style", placement.style);
+    card.setAttribute("data-dialog-direction", placement.direction);
+    card.setAttribute("data-trigger-corner", this.triggerPosition.corner);
   }
 
   private openCard(options: { error?: string | null } = {}): void {
-    if ('error' in options) {
-      this.feedbackFormError = options.error ?? null
+    if ("error" in options) {
+      this.feedbackFormError = options.error ?? null;
     }
-    const wasOpen = this.activePanel !== null
+    const wasOpen = this.activePanel !== null;
     if (!wasOpen) {
-      this.activeSillyFeedbackMessage = shouldShowSillyFeedbackMessageOnLoad() ? getRandomSillyFeedbackMessage() : null
+      this.activeSillyFeedbackMessage = shouldShowSillyFeedbackMessageOnLoad()
+        ? getRandomSillyFeedbackMessage()
+        : null;
     }
-    this.activePanel = 'unified'
-    this.markupOverlayOpen = false
-    this.elementPickerOpen = false
-    const feedbackCardPlacement = this.getFeedbackCardPlacement('form')
-    const panelContent = this.renderUnifiedPanel()
+    this.activePanel = "unified";
+    this.markupOverlayOpen = false;
+    this.elementPickerOpen = false;
+    const feedbackCardPlacement = this.getFeedbackCardPlacement("form");
+    const panelContent = this.renderUnifiedPanel();
     this.shadowRoot.innerHTML = `
       <style>${createStyles()}</style>
       ${this.renderTriggerButton()}
       <div class="obv-card" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-dialog-direction="${escapeHtml(feedbackCardPlacement.direction)}" style="${escapeHtml(feedbackCardPlacement.style)}">
         ${panelContent}
       </div>
-    `
+    `;
 
-    this.installGlobalFileDropGuards()
-    this.bindTrigger(() => this.renderTrigger())
-    this.bindUnifiedPanel()
+    this.installGlobalFileDropGuards();
+    this.bindTrigger(() => this.renderTrigger());
+    this.bindUnifiedPanel();
     if (!wasOpen) {
-      this.refreshIssueHistoryStatuses().catch(() => undefined)
+      this.refreshIssueHistoryStatuses().catch(() => undefined);
     }
-    this.observeAnchoredFeedbackCard()
+    this.observeAnchoredFeedbackCard();
   }
 
   private renderUnifiedPanel(): string {
-    const itemCount = this.roundItems.length
-    const submitLabel = this.config.previewOnly ? 'Preview only' : `${createIcon('arrow')}Fix with Autobuild`
+    const submitLabel = this.config.previewOnly
+      ? "Preview only"
+      : `${createIcon("arrow")}Fix with Autobuild`;
+    const isSubmitDisabled =
+      this.config.previewOnly || !this.hasRoundSubmitContent();
 
     if (this.submittedIssueUrl) {
-      const safeUrl = getSafeExternalUrl(this.submittedIssueUrl)
+      const safeUrl = getSafeExternalUrl(this.submittedIssueUrl);
       const linkHtml = safeUrl
         ? `<div class="obv-success-sub">You can track progress <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer">here</a>.</div>`
-        : ''
+        : "";
       return `
         <div class="obv-unified-panel">
           <div class="obv-card-header">
-            <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? 'Feedback')}</div>
+            <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
           </div>
           <div class="obv-success">
-            <div class="obv-success-message">${createIcon('check')} Sent to Autobuild</div>
+            <div class="obv-success-message">${createIcon("check")} Sent to Autobuild</div>
             ${linkHtml}
             <div class="obv-success-action">
-              <button class="obv-button obv-button-secondary" type="button" data-new-feedback="true">${createIcon('plus')}New feedback</button>
+              <button class="obv-button obv-button-secondary" type="button" data-new-feedback="true">${createIcon("plus")}New feedback</button>
             </div>
           </div>
         </div>
-      `
+      `;
     }
 
     return `
       <div class="obv-unified-panel">
         <div class="obv-card-header">
-          <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? 'Feedback')}</div>
+          <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
         </div>
-        ${this.config.previewOnly ? `<div class="obv-preview-note">${escapeHtml(this.config.previewOnlyReason)}</div>` : ''}
-        ${this.feedbackFormError ? `<div class="obv-form-error" role="alert">${escapeHtml(this.feedbackFormError)}</div>` : ''}
+        ${this.config.previewOnly ? `<div class="obv-preview-note">${escapeHtml(this.config.previewOnlyReason)}</div>` : ""}
+        ${this.feedbackFormError ? `<div class="obv-form-error" role="alert">${escapeHtml(this.feedbackFormError)}</div>` : ""}
         <div class="obv-list-body">
           ${this.renderRoundItemList()}
+          ${this.visualSuggestions ? this.renderVisualSuggestionPalette() : ""}
+          ${this.visualSuggestions ? this.renderVisualSuggestionChips() : ""}
         </div>
         <div class="obv-list-footer">
           <div class="obv-footer-tools">
-            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-screenshot-start="true" data-tooltip="Screenshot" aria-label="Annotate screenshot">${createIcon('pen')}</button>
-            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-element-select-start="true" data-tooltip="Select element" aria-label="Select element">${createIcon('element')}</button>
-            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-attach-trigger="true" data-tooltip="Attach file" aria-label="Attach file">${createIcon('paperclip')}</button>
-            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-measure-start="true" data-tooltip="Measure spacing" aria-label="Measure spacing">${createIcon('ruler')}</button>
+            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-screenshot-start="true" data-tooltip="Screenshot" aria-label="Annotate screenshot">${createIcon("pen")}</button>
+            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-element-select-start="true" data-tooltip="Select element" aria-label="Select element">${createIcon("element")}</button>
+            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-attach-trigger="true" data-tooltip="Attach file" aria-label="Attach file">${createIcon("paperclip")}</button>
+            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-measure-start="true" data-tooltip="Measure spacing" aria-label="Measure spacing">${createIcon("ruler")}</button>
+            ${this.visualSuggestions ? `<button class="obv-icon-button obv-footer-tool-btn" type="button" data-visual-suggest-start="true" data-tooltip="Suggest visual change" aria-label="Suggest visual change">${createIcon("dial")}<span class="obv-visual-suggest-flag-dot" aria-hidden="true"></span></button>` : ""}
             <input class="obv-attachment-input" data-attachment-input="true" type="file" multiple tabindex="-1" aria-hidden="true" style="display:none" />
           </div>
-          <button class="obv-button" type="button" data-submit-round="true" ${this.config.previewOnly || itemCount === 0 ? 'disabled aria-disabled="true"' : ''}>${submitLabel}</button>
+          <button class="obv-button" type="button" data-submit-round="true" ${isSubmitDisabled ? 'disabled aria-disabled="true"' : ""}>${submitLabel}</button>
         </div>
       </div>
-    `
+    `;
+  }
+
+  private hasRoundSubmitContent(): boolean {
+    return (
+      this.roundItems.some((item) => item.description.trim().length > 0) ||
+      this.newRowDraft.trim().length > 0
+    );
+  }
+
+  private updateRoundSubmitButtonState(): void {
+    const button = this.shadowRoot.querySelector(
+      '[data-submit-round="true"]',
+    ) as HTMLButtonElement | null;
+    if (!button) {
+      return;
+    }
+    const isDisabled = this.config.previewOnly || !this.hasRoundSubmitContent();
+    button.disabled = isDisabled;
+    if (isDisabled) {
+      button.setAttribute("disabled", "");
+      button.setAttribute("aria-disabled", "true");
+    } else {
+      button.removeAttribute("disabled");
+      button.removeAttribute("aria-disabled");
+    }
   }
 
   private bindUnifiedPanel(): void {
-    this.shadowRoot.querySelector('.obv-card-header')?.addEventListener('dblclick', (event) => {
-      if ((event.target as Element | null)?.closest('.obv-kicker')) {
-        this.showSillyFeedbackMessage()
-      }
-    })
+    this.shadowRoot
+      .querySelector(".obv-card-header")
+      ?.addEventListener("dblclick", (event) => {
+        if ((event.target as Element | null)?.closest(".obv-kicker")) {
+          this.showSillyFeedbackMessage();
+        }
+      });
 
-    this.shadowRoot.querySelector('[data-new-feedback="true"]')?.addEventListener('click', () => {
-      this.submittedIssueUrl = null
-      this.openCard()
-    })
+    this.shadowRoot
+      .querySelector('[data-new-feedback="true"]')
+      ?.addEventListener("click", () => {
+        this.submittedIssueUrl = null;
+        this.openCard();
+      });
 
     if (this.submittedIssueUrl) {
-      return
+      return;
     }
 
-    this.bindListRows()
-    this.bindFooterTools()
+    this.bindListRows();
+    this.bindFooterTools();
+    this.bindVisualSuggestions();
 
-    this.shadowRoot.querySelector('[data-submit-round="true"]')?.addEventListener('click', () => {
-      if (this.config.previewOnly) {
-        this.feedbackFormError = this.config.previewOnlyReason
-        this.openCard()
-        return
-      }
-      this.syncAllInputsToRoundItems()
-      const newText = this.newRowDraft.trim()
-      if (newText && this.roundItems.length < MAX_ROUND_ITEMS) {
-        this.roundItems = [
-          ...this.roundItems,
-          {
-            id: createRoundItemId(),
-            description: newText,
-            markupPayload: this.createAnnotationPayload(),
-            elementGrabs: this.elementGrabItems.length > 0 ? [...this.elementGrabItems] : undefined,
-            measurements: this.measurementItems.length > 0 ? [...this.measurementItems] : undefined,
-            attachmentTokens: this.getReadyAttachmentTokens().length > 0 ? this.getReadyAttachmentTokens() : undefined,
-          },
-        ]
-        this.clearSubmissionDraftState()
-      }
-      this.roundItems = this.roundItems.filter((item) => item.description.trim().length > 0)
-      this.feedbackFormError = null
-      this.handleSubmitRound()
-    })
+    this.shadowRoot
+      .querySelector('[data-submit-round="true"]')
+      ?.addEventListener("click", () => {
+        if (this.config.previewOnly) {
+          this.feedbackFormError = this.config.previewOnlyReason;
+          this.openCard();
+          return;
+        }
+        this.syncAllInputsToRoundItems();
+        const newText = this.newRowDraft.trim();
+        if (newText && this.roundItems.length < MAX_ROUND_ITEMS) {
+          const visualSuggestions =
+            this.activeVisualSuggestionItemId === null
+              ? (this.visualSuggestions?.commitCurrentLine() ?? [])
+              : [];
+          this.roundItems = [
+            ...this.roundItems,
+            {
+              id: createRoundItemId(),
+              description: newText,
+              markupPayload: this.createAnnotationPayload(),
+              elementGrabs:
+                this.elementGrabItems.length > 0
+                  ? [...this.elementGrabItems]
+                  : undefined,
+              measurements:
+                this.measurementItems.length > 0
+                  ? [...this.measurementItems]
+                  : undefined,
+              visualSuggestions:
+                visualSuggestions.length > 0 ? visualSuggestions : undefined,
+              attachmentTokens:
+                this.getReadyAttachmentTokens().length > 0
+                  ? this.getReadyAttachmentTokens()
+                  : undefined,
+            },
+          ];
+          this.clearSubmissionDraftState();
+        }
+        this.roundItems = this.roundItems.filter(
+          (item) => item.description.trim().length > 0,
+        );
+        this.feedbackFormError = null;
+        this.handleSubmitRound();
+      });
 
-    const targetId = this.focusedItemId ?? '__new'
+    const targetId = this.focusedItemId ?? "__new";
     const targetInput = this.shadowRoot.querySelector(
-      `[data-item-input="${CSS.escape(targetId)}"]`
-    ) as HTMLInputElement | null
+      `[data-item-input="${CSS.escape(targetId)}"]`,
+    ) as HTMLInputElement | null;
     if (targetInput) {
-      targetInput.focus()
-      targetInput.setSelectionRange(targetInput.value.length, targetInput.value.length)
+      targetInput.focus();
+      const targetValue =
+        typeof targetInput.value === "string" ? targetInput.value : "";
+      if (typeof targetInput.setSelectionRange === "function") {
+        targetInput.setSelectionRange(targetValue.length, targetValue.length);
+      }
     }
   }
 
   private syncAllInputsToRoundItems(): void {
     for (const item of this.roundItems) {
       const input = this.shadowRoot.querySelector(
-        `[data-item-input="${CSS.escape(item.id)}"]`
-      ) as HTMLInputElement | null
-      if (input) {
-        item.description = input.value
+        `[data-item-input="${CSS.escape(item.id)}"]`,
+      ) as HTMLInputElement | null;
+      if (input && typeof input.value === "string") {
+        item.description = input.value;
       }
     }
-    const newInput = this.shadowRoot.querySelector('[data-item-input="__new"]') as HTMLInputElement | null
-    if (newInput) {
-      this.newRowDraft = newInput.value
+    const newInput = this.shadowRoot.querySelector(
+      '[data-item-input="__new"]',
+    ) as HTMLInputElement | null;
+    if (newInput && typeof newInput.value === "string") {
+      this.newRowDraft = newInput.value;
     }
   }
 
   private bindListRows(): void {
-    this.shadowRoot.querySelectorAll('[data-item-input]').forEach((element) => {
-      const input = element as HTMLInputElement
-      const itemId = input.getAttribute('data-item-input') ?? ''
+    this.shadowRoot.querySelectorAll("[data-item-input]").forEach((element) => {
+      const input = element as HTMLInputElement;
+      const itemId = input.getAttribute("data-item-input") ?? "";
 
-      input.addEventListener('focus', () => {
-        this.focusedItemId = itemId === '__new' ? '__new' : itemId
-      })
+      input.addEventListener("focus", () => {
+        this.focusedItemId = itemId === "__new" ? "__new" : itemId;
+      });
 
-      input.addEventListener('input', () => {
-        if (itemId === '__new') {
-          this.newRowDraft = input.value
-          return
+      input.addEventListener("input", () => {
+        if (itemId === "__new") {
+          this.newRowDraft = input.value;
+          this.updateRoundSubmitButtonState();
+          return;
         }
-        const item = this.roundItems.find((candidate) => candidate.id === itemId)
+        const item = this.roundItems.find(
+          (candidate) => candidate.id === itemId,
+        );
         if (item) {
-          item.description = input.value
+          item.description = input.value;
         }
-      })
+        this.updateRoundSubmitButtonState();
+      });
 
-      input.addEventListener('keydown', (event) => {
-        const keyEvent = event as KeyboardEvent
+      input.addEventListener("keydown", (event) => {
+        const keyEvent = event as KeyboardEvent;
 
-        if (keyEvent.key === 'Enter') {
-          keyEvent.preventDefault()
-          if (itemId === '__new') {
-            const text = input.value.trim()
+        if (keyEvent.key === "Enter") {
+          keyEvent.preventDefault();
+          if (itemId === "__new") {
+            const text = input.value.trim();
             if (!text) {
-              return
+              return;
             }
             if (this.roundItems.length >= MAX_ROUND_ITEMS) {
-              this.feedbackFormError = `Round is full (max ${MAX_ROUND_ITEMS} items).`
-              this.openCard()
-              return
+              this.feedbackFormError = `Round is full (max ${MAX_ROUND_ITEMS} items).`;
+              this.openCard();
+              return;
             }
+            const visualSuggestions =
+              this.activeVisualSuggestionItemId === null
+                ? (this.visualSuggestions?.commitCurrentLine() ?? [])
+                : [];
             const newItem: FeedbackRoundItem = {
               id: createRoundItemId(),
               description: text,
               markupPayload: this.createAnnotationPayload(),
-              elementGrabs: this.elementGrabItems.length > 0 ? [...this.elementGrabItems] : undefined,
-              measurements: this.measurementItems.length > 0 ? [...this.measurementItems] : undefined,
+              elementGrabs:
+                this.elementGrabItems.length > 0
+                  ? [...this.elementGrabItems]
+                  : undefined,
+              measurements:
+                this.measurementItems.length > 0
+                  ? [...this.measurementItems]
+                  : undefined,
+              visualSuggestions:
+                visualSuggestions.length > 0 ? visualSuggestions : undefined,
               attachmentTokens:
-                this.getReadyAttachmentTokens().length > 0 ? this.getReadyAttachmentTokens() : undefined,
-            }
-            this.roundItems = [...this.roundItems, newItem]
-            this.clearSubmissionDraftState()
-            this.newRowDraft = ''
-            this.persistDraftRound()
-            this.emitOpenIssueCountChange()
-            this.openCard()
+                this.getReadyAttachmentTokens().length > 0
+                  ? this.getReadyAttachmentTokens()
+                  : undefined,
+            };
+            this.roundItems = [...this.roundItems, newItem];
+            this.clearSubmissionDraftState();
+            this.newRowDraft = "";
+            this.persistDraftRound();
+            this.emitOpenIssueCountChange();
+            this.openCard();
           } else {
-            this.syncAllInputsToRoundItems()
-            this.persistDraftRound()
+            this.syncAllInputsToRoundItems();
+            this.persistDraftRound();
             if (this.roundItems.length >= MAX_ROUND_ITEMS) {
-              return
+              return;
             }
-            const currentIndex = this.roundItems.findIndex((candidate) => candidate.id === itemId)
-            const newItem: FeedbackRoundItem = { id: createRoundItemId(), description: '' }
+            const currentIndex = this.roundItems.findIndex(
+              (candidate) => candidate.id === itemId,
+            );
+            const newItem: FeedbackRoundItem = {
+              id: createRoundItemId(),
+              description: "",
+            };
             this.roundItems = [
               ...this.roundItems.slice(0, currentIndex + 1),
               newItem,
               ...this.roundItems.slice(currentIndex + 1),
-            ]
-            this.focusedItemId = newItem.id
-            this.persistDraftRound()
-            this.emitOpenIssueCountChange()
-            this.openCard()
+            ];
+            this.focusedItemId = newItem.id;
+            this.persistDraftRound();
+            this.emitOpenIssueCountChange();
+            this.openCard();
           }
-          return
+          return;
         }
 
-        if (keyEvent.key === 'Backspace' && input.value === '') {
-          keyEvent.preventDefault()
-          if (itemId === '__new') {
+        if (keyEvent.key === "Backspace" && input.value === "") {
+          keyEvent.preventDefault();
+          if (itemId === "__new") {
             if (this.roundItems.length > 0) {
-              const lastItem = this.roundItems[this.roundItems.length - 1]
-              this.focusedItemId = lastItem.id
-              this.openCard()
+              const lastItem = this.roundItems[this.roundItems.length - 1];
+              this.focusedItemId = lastItem.id;
+              this.openCard();
             }
-            return
+            return;
           }
-          const currentIndex = this.roundItems.findIndex((candidate) => candidate.id === itemId)
-          this.roundItems = this.roundItems.filter((candidate) => candidate.id !== itemId)
-          this.persistDraftRound()
-          this.emitOpenIssueCountChange()
-          const prevItem = this.roundItems[Math.max(0, currentIndex - 1)]
-          this.focusedItemId = prevItem?.id ?? '__new'
-          this.openCard()
-          return
+          const currentIndex = this.roundItems.findIndex(
+            (candidate) => candidate.id === itemId,
+          );
+          this.roundItems = this.roundItems.filter(
+            (candidate) => candidate.id !== itemId,
+          );
+          this.persistDraftRound();
+          this.emitOpenIssueCountChange();
+          const prevItem = this.roundItems[Math.max(0, currentIndex - 1)];
+          this.focusedItemId = prevItem?.id ?? "__new";
+          this.openCard();
+          return;
         }
 
-        if (keyEvent.key === 'ArrowDown') {
-          keyEvent.preventDefault()
-          const allInputs = Array.from(this.shadowRoot.querySelectorAll('[data-item-input]')) as HTMLInputElement[]
-          const currentIdx = allInputs.indexOf(input)
-          const next = allInputs[currentIdx + 1]
+        if (keyEvent.key === "ArrowDown") {
+          keyEvent.preventDefault();
+          const allInputs = Array.from(
+            this.shadowRoot.querySelectorAll("[data-item-input]"),
+          ) as HTMLInputElement[];
+          const currentIdx = allInputs.indexOf(input);
+          const next = allInputs[currentIdx + 1];
           if (next) {
-            next.focus()
-            next.setSelectionRange(next.value.length, next.value.length)
+            next.focus();
+            next.setSelectionRange(next.value.length, next.value.length);
           }
-          return
+          return;
         }
 
-        if (keyEvent.key === 'ArrowUp') {
-          keyEvent.preventDefault()
-          const allInputs = Array.from(this.shadowRoot.querySelectorAll('[data-item-input]')) as HTMLInputElement[]
-          const currentIdx = allInputs.indexOf(input)
-          const prev = allInputs[currentIdx - 1]
+        if (keyEvent.key === "ArrowUp") {
+          keyEvent.preventDefault();
+          const allInputs = Array.from(
+            this.shadowRoot.querySelectorAll("[data-item-input]"),
+          ) as HTMLInputElement[];
+          const currentIdx = allInputs.indexOf(input);
+          const prev = allInputs[currentIdx - 1];
           if (prev) {
-            prev.focus()
-            prev.setSelectionRange(prev.value.length, prev.value.length)
+            prev.focus();
+            prev.setSelectionRange(prev.value.length, prev.value.length);
           }
-          return
+          return;
         }
 
-        if (keyEvent.key === 'Escape') {
-          input.blur()
-          this.focusedItemId = null
+        if (keyEvent.key === "Escape") {
+          input.blur();
+          this.focusedItemId = null;
         }
-      })
-    })
+      });
+    });
   }
 
   private bindFooterTools(): void {
-    const screenshotStartButton = this.shadowRoot.querySelector('[data-screenshot-start="true"]')
+    const screenshotStartButton = this.shadowRoot.querySelector(
+      '[data-screenshot-start="true"]',
+    );
     const preservePageStateForScreenshotStart = (event: Event): void => {
-      event.stopPropagation?.()
-    }
-    screenshotStartButton?.addEventListener('pointerdown', preservePageStateForScreenshotStart)
-    screenshotStartButton?.addEventListener('mousedown', preservePageStateForScreenshotStart)
-    screenshotStartButton?.addEventListener('click', (event) => {
-      preservePageStateForScreenshotStart(event)
-      this.syncAllInputsToRoundItems()
-      this.beginMarkupEditSession()
-    })
-    this.shadowRoot.querySelector('[data-element-select-start="true"]')?.addEventListener('click', () => {
-      this.syncAllInputsToRoundItems()
-      this.renderElementPickerOverlay()
-    })
-    this.shadowRoot.querySelector('[data-attach-trigger="true"]')?.addEventListener('click', () => {
-      const fileInput = this.shadowRoot.querySelector('[data-attachment-input="true"]') as HTMLInputElement | null
-      fileInput?.click()
-    })
-    this.shadowRoot.querySelector('[data-measure-start="true"]')?.addEventListener('click', () => {
-      this.syncAllInputsToRoundItems()
-      this.renderRulerOverlay()
-    })
-    const fileInput = this.shadowRoot.querySelector('[data-attachment-input="true"]') as HTMLInputElement | null
-    fileInput?.addEventListener('click', (event) => {
-      event.stopPropagation()
-    })
-    fileInput?.addEventListener('change', () => {
+      event.stopPropagation?.();
+    };
+    screenshotStartButton?.addEventListener(
+      "pointerdown",
+      preservePageStateForScreenshotStart,
+    );
+    screenshotStartButton?.addEventListener(
+      "mousedown",
+      preservePageStateForScreenshotStart,
+    );
+    screenshotStartButton?.addEventListener("click", (event) => {
+      preservePageStateForScreenshotStart(event);
+      this.syncAllInputsToRoundItems();
+      this.beginMarkupEditSession();
+    });
+    this.shadowRoot
+      .querySelector('[data-element-select-start="true"]')
+      ?.addEventListener("click", () => {
+        this.syncAllInputsToRoundItems();
+        this.renderElementPickerOverlay();
+      });
+    this.shadowRoot
+      .querySelector('[data-attach-trigger="true"]')
+      ?.addEventListener("click", () => {
+        const fileInput = this.shadowRoot.querySelector(
+          '[data-attachment-input="true"]',
+        ) as HTMLInputElement | null;
+        fileInput?.click();
+      });
+    this.shadowRoot
+      .querySelector('[data-measure-start="true"]')
+      ?.addEventListener("click", () => {
+        this.syncAllInputsToRoundItems();
+        this.renderRulerOverlay();
+      });
+    const fileInput = this.shadowRoot.querySelector(
+      '[data-attachment-input="true"]',
+    ) as HTMLInputElement | null;
+    fileInput?.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    fileInput?.addEventListener("change", () => {
       if (fileInput) {
-        this.addAttachmentFiles(Array.from(fileInput.files ?? []))
-        fileInput.value = ''
+        this.addAttachmentFiles(Array.from(fileInput.files ?? []));
+        fileInput.value = "";
       }
-    })
-    this.shadowRoot.querySelector('.obv-list-body')?.addEventListener('paste', (event) => {
-      const clipboardEvent = event as ClipboardEvent
-      const files = Array.from(clipboardEvent.clipboardData?.files ?? [])
-      const itemFiles = Array.from(clipboardEvent.clipboardData?.items ?? [])
-        .filter((item) => item.kind === 'file')
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null)
-      this.addAttachmentFiles(files.length > 0 ? files : itemFiles)
-    })
-    this.bindElementGrabChips()
-    this.shadowRoot.querySelectorAll('[data-attachment-remove]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const id = (button as HTMLElement).getAttribute('data-attachment-remove')
-        if (id) {
-          this.removeAttachment(id)
-        }
-      })
-    })
-    this.shadowRoot.querySelector('[data-remove-markup="true"]')?.addEventListener('click', () => {
-      this.syncAllInputsToRoundItems()
-      this.clearMarkupState()
-      this.openCard()
-    })
-    this.shadowRoot.querySelectorAll('[data-remove-grab]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const id = (button as HTMLElement).getAttribute('data-remove-grab')
-        if (id) {
-          this.syncAllInputsToRoundItems()
-          this.elementGrabItems = this.elementGrabItems.filter((grab) => grab.id !== id)
-          this.openCard()
-        }
-      })
-    })
-    this.shadowRoot.querySelectorAll('[data-remove-attachment]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const id = (button as HTMLElement).getAttribute('data-remove-attachment')
-        if (id) {
-          this.syncAllInputsToRoundItems()
-          this.feedbackAttachments = this.feedbackAttachments.filter((a) => a.id !== id)
-          this.openCard()
-        }
-      })
-    })
-    this.shadowRoot.querySelectorAll('[data-remove-measurement]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const id = (button as HTMLElement).getAttribute('data-remove-measurement')
-        if (id) {
-          this.syncAllInputsToRoundItems()
-          this.measurementItems = this.measurementItems.filter((m) => m.id !== id)
-          this.openCard()
-        }
-      })
-    })
-    this.shadowRoot.querySelectorAll('[data-item-remove-markup]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const itemId = (button as HTMLElement).getAttribute('data-item-remove-markup')
-        if (itemId) {
-          this.syncAllInputsToRoundItems()
-          const item = this.roundItems.find((r) => r.id === itemId)
-          if (item) {
-            item.markupPayload = undefined
+    });
+    this.shadowRoot
+      .querySelector(".obv-list-body")
+      ?.addEventListener("paste", (event) => {
+        const clipboardEvent = event as ClipboardEvent;
+        const files = Array.from(clipboardEvent.clipboardData?.files ?? []);
+        const itemFiles = Array.from(clipboardEvent.clipboardData?.items ?? [])
+          .filter((item) => item.kind === "file")
+          .map((item) => item.getAsFile())
+          .filter((file): file is File => file !== null);
+        this.addAttachmentFiles(files.length > 0 ? files : itemFiles);
+      });
+    this.bindElementGrabChips();
+    this.shadowRoot
+      .querySelectorAll("[data-attachment-remove]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const id = (button as HTMLElement).getAttribute(
+            "data-attachment-remove",
+          );
+          if (id) {
+            this.removeAttachment(id);
           }
-          this.persistDraftRound()
-          this.openCard()
+        });
+      });
+    this.shadowRoot
+      .querySelector('[data-remove-markup="true"]')
+      ?.addEventListener("click", () => {
+        this.syncAllInputsToRoundItems();
+        this.clearMarkupState();
+        this.openCard();
+      });
+    this.shadowRoot.querySelectorAll("[data-remove-grab]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = (button as HTMLElement).getAttribute("data-remove-grab");
+        if (id) {
+          this.syncAllInputsToRoundItems();
+          this.elementGrabItems = this.elementGrabItems.filter(
+            (grab) => grab.id !== id,
+          );
+          this.openCard();
         }
-      })
-    })
-    this.shadowRoot.querySelectorAll('[data-item-remove-grab]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const value = (button as HTMLElement).getAttribute('data-item-remove-grab')
-        if (value) {
-          const [itemId, grabId] = value.split(':')
-          this.syncAllInputsToRoundItems()
-          const item = this.roundItems.find((r) => r.id === itemId)
-          if (item && item.elementGrabs) {
-            item.elementGrabs = item.elementGrabs.filter((g) => g.id !== grabId)
-            if (item.elementGrabs.length === 0) {
-              item.elementGrabs = undefined
+      });
+    });
+    this.shadowRoot
+      .querySelectorAll("[data-remove-attachment]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const id = (button as HTMLElement).getAttribute(
+            "data-remove-attachment",
+          );
+          if (id) {
+            this.syncAllInputsToRoundItems();
+            this.feedbackAttachments = this.feedbackAttachments.filter(
+              (a) => a.id !== id,
+            );
+            this.openCard();
+          }
+        });
+      });
+    this.shadowRoot
+      .querySelectorAll("[data-remove-measurement]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const id = (button as HTMLElement).getAttribute(
+            "data-remove-measurement",
+          );
+          if (id) {
+            this.syncAllInputsToRoundItems();
+            this.measurementItems = this.measurementItems.filter(
+              (m) => m.id !== id,
+            );
+            this.openCard();
+          }
+        });
+      });
+    this.shadowRoot
+      .querySelectorAll("[data-remove-vs-element]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const id = (button as HTMLElement).getAttribute(
+            "data-remove-vs-element",
+          );
+          if (id && this.visualSuggestions) {
+            this.visualSuggestions.removeElement(id);
+            this.openCard();
+          }
+        });
+      });
+    this.shadowRoot
+      .querySelectorAll("[data-item-remove-markup]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const itemId = (button as HTMLElement).getAttribute(
+            "data-item-remove-markup",
+          );
+          if (itemId) {
+            this.syncAllInputsToRoundItems();
+            const item = this.roundItems.find((r) => r.id === itemId);
+            if (item) {
+              item.markupPayload = undefined;
             }
+            this.persistDraftRound();
+            this.openCard();
           }
-          this.persistDraftRound()
-          this.openCard()
-        }
-      })
-    })
-    this.shadowRoot.querySelectorAll('[data-item-remove-file]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const value = (button as HTMLElement).getAttribute('data-item-remove-file')
-        if (value) {
-          const [itemId, indexStr] = value.split(':')
-          const index = Number(indexStr)
-          this.syncAllInputsToRoundItems()
-          const item = this.roundItems.find((r) => r.id === itemId)
-          if (item && item.attachmentTokens) {
-            item.attachmentTokens = item.attachmentTokens.filter((_, i) => i !== index)
-            if (item.attachmentTokens.length === 0) {
-              item.attachmentTokens = undefined
+        });
+      });
+    this.shadowRoot
+      .querySelectorAll("[data-item-remove-grab]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const value = (button as HTMLElement).getAttribute(
+            "data-item-remove-grab",
+          );
+          if (value) {
+            const [itemId, grabId] = value.split(":");
+            this.syncAllInputsToRoundItems();
+            const item = this.roundItems.find((r) => r.id === itemId);
+            if (item && item.elementGrabs) {
+              item.elementGrabs = item.elementGrabs.filter(
+                (g) => g.id !== grabId,
+              );
+              if (item.elementGrabs.length === 0) {
+                item.elementGrabs = undefined;
+              }
             }
+            this.persistDraftRound();
+            this.openCard();
           }
-          this.persistDraftRound()
-          this.openCard()
-        }
-      })
-    })
-    this.shadowRoot.querySelectorAll('[data-item-remove-measurement]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const value = (button as HTMLElement).getAttribute('data-item-remove-measurement')
-        if (value) {
-          const [itemId, measurementId] = value.split(':')
-          this.syncAllInputsToRoundItems()
-          const item = this.roundItems.find((r) => r.id === itemId)
-          if (item && item.measurements) {
-            item.measurements = item.measurements.filter((m) => m.id !== measurementId)
-            if (item.measurements.length === 0) {
-              item.measurements = undefined
+        });
+      });
+    this.shadowRoot
+      .querySelectorAll("[data-item-remove-file]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const value = (button as HTMLElement).getAttribute(
+            "data-item-remove-file",
+          );
+          if (value) {
+            const [itemId, indexStr] = value.split(":");
+            const index = Number(indexStr);
+            this.syncAllInputsToRoundItems();
+            const item = this.roundItems.find((r) => r.id === itemId);
+            if (item && item.attachmentTokens) {
+              item.attachmentTokens = item.attachmentTokens.filter(
+                (_, i) => i !== index,
+              );
+              if (item.attachmentTokens.length === 0) {
+                item.attachmentTokens = undefined;
+              }
             }
+            this.persistDraftRound();
+            this.openCard();
           }
-          this.persistDraftRound()
-          this.openCard()
-        }
-      })
-    })
+        });
+      });
+    this.shadowRoot
+      .querySelectorAll("[data-item-remove-measurement]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const value = (button as HTMLElement).getAttribute(
+            "data-item-remove-measurement",
+          );
+          if (value) {
+            const [itemId, measurementId] = value.split(":");
+            this.syncAllInputsToRoundItems();
+            const item = this.roundItems.find((r) => r.id === itemId);
+            if (item && item.measurements) {
+              item.measurements = item.measurements.filter(
+                (m) => m.id !== measurementId,
+              );
+              if (item.measurements.length === 0) {
+                item.measurements = undefined;
+              }
+            }
+            this.persistDraftRound();
+            this.openCard();
+          }
+        });
+      });
+    this.shadowRoot
+      .querySelectorAll("[data-item-remove-vs]")
+      .forEach((button) => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const value = (button as HTMLElement).getAttribute(
+            "data-item-remove-vs",
+          );
+          if (value) {
+            const [itemId, idsValue] = value.split(":");
+            const ids =
+              idsValue?.split(",").filter((id) => id.length > 0) ?? [];
+            this.syncAllInputsToRoundItems();
+            const item = this.roundItems.find((r) => r.id === itemId);
+            if (item && item.visualSuggestions) {
+              item.visualSuggestions = item.visualSuggestions.filter(
+                (suggestion) => !ids.includes(suggestion.id),
+              );
+              if (item.visualSuggestions.length === 0) {
+                item.visualSuggestions = undefined;
+              }
+            }
+            if (ids.length > 0) {
+              this.visualSuggestions?.removeSuggestions(ids);
+            }
+            if (
+              itemId === this.activeVisualSuggestionItemId &&
+              !(item?.visualSuggestions && item.visualSuggestions.length > 0)
+            ) {
+              this.activeVisualSuggestionItemId = null;
+            }
+            this.persistDraftRound();
+            this.openCard();
+          }
+        });
+      });
+    this.shadowRoot
+      .querySelectorAll("[data-item-vs-activate]")
+      .forEach((pill) => {
+        pill.addEventListener("click", () => {
+          const value = (pill as HTMLElement).getAttribute(
+            "data-item-vs-activate",
+          );
+          if (!value) return;
+          const [itemId, elementId] = value.split(":");
+          const item = this.roundItems.find(
+            (candidate) => candidate.id === itemId,
+          );
+          if (!item?.visualSuggestions) return;
+          const group = this.groupVisualSuggestionsByElement(
+            item.visualSuggestions,
+          ).find((candidate) => candidate.element.id === elementId);
+          if (!group) return;
+          this.activateVisualSuggestionElement(
+            group.element,
+            group.items,
+            itemId,
+          );
+        });
+      });
   }
 
   private showSillyFeedbackMessage(): void {
-    this.syncAllInputsToRoundItems()
-    this.activeSillyFeedbackMessage = getRandomSillyFeedbackMessage()
-    this.openCard()
+    this.syncAllInputsToRoundItems();
+    this.activeSillyFeedbackMessage = getRandomSillyFeedbackMessage();
+    this.openCard();
   }
 
   private handleSubmitRound(): void {
-    const itemsToSubmit = [...this.roundItems]
+    const itemsToSubmit = [...this.roundItems];
     if (itemsToSubmit.length === 0) {
-      this.openCard({ error: 'Add at least one feedback item before submitting.' })
-      return
+      this.openCard({
+        error: "Add at least one feedback item before submitting.",
+      });
+      return;
     }
     if (itemsToSubmit.length === 1) {
-      const singleItem = itemsToSubmit[0]
+      const singleItem = itemsToSubmit[0];
       const input: FeedbackSubmissionInput = {
         type: DEFAULT_FEEDBACK_ISSUE_TYPE,
         severity: DEFAULT_FEEDBACK_ISSUE_SEVERITY,
         description: singleItem.description,
         attachmentTokens: singleItem.attachmentTokens,
-      }
-      this.markupItems = singleItem.markupPayload?.items ?? this.markupItems
+      };
+      this.markupItems = singleItem.markupPayload?.items ?? this.markupItems;
       this.markupContext = singleItem.markupPayload
         ? {
             viewport: singleItem.markupPayload.viewport,
@@ -2672,438 +3780,675 @@ class ObviousFeedbackWidget {
             domSnapshot: singleItem.markupPayload.domSnapshot,
             capturedAt: singleItem.markupPayload.capturedAt,
           }
-        : this.markupContext
-      this.elementGrabItems = singleItem.elementGrabs ?? this.elementGrabItems
-      this.measurementItems = singleItem.measurements ?? this.measurementItems
+        : this.markupContext;
+      this.elementGrabItems = singleItem.elementGrabs ?? this.elementGrabItems;
+      this.measurementItems = singleItem.measurements ?? this.measurementItems;
       this.submitFeedback(input).catch((err: unknown) => {
-        this.syncAllInputsToRoundItems()
-        this.openCard({ error: err instanceof Error ? err.message : 'Failed to submit feedback' })
-      })
-      return
+        this.syncAllInputsToRoundItems();
+        this.openCard({
+          error:
+            err instanceof Error ? err.message : "Failed to submit feedback",
+        });
+      });
+      return;
     }
     this.submitFeedbackRound(itemsToSubmit).catch((err: unknown) => {
-      this.syncAllInputsToRoundItems()
-      this.openCard({ error: err instanceof Error ? err.message : 'Failed to submit feedback' })
-    })
+      this.syncAllInputsToRoundItems();
+      this.openCard({
+        error: err instanceof Error ? err.message : "Failed to submit feedback",
+      });
+    });
   }
 
   private async submitFeedbackRound(items: FeedbackRoundItem[]): Promise<void> {
     const sessionReplayUrl = await this.resolveSessionReplayUrl({
-      type: 'improvement',
-      description: items.map((item) => item.description).join('\n\n---\n\n'),
-    })
+      type: "improvement",
+      description: items.map((item) => item.description).join("\n\n---\n\n"),
+    });
     const roundPayloadItems = items.map((item) => ({
       description: item.description,
       annotationPayload: item.markupPayload ?? undefined,
       elementGrabs: item.elementGrabs ?? undefined,
       measurements: item.measurements ?? undefined,
       attachmentTokens: item.attachmentTokens ?? undefined,
-    }))
-    const response = await fetch(createFeedbackApiUrl(this.config.apiBaseUrl, '/v1/feedback/submit-round'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        publicKey: this.config.publicKey,
-        identityToken: this.config.identityToken,
-        sessionReplayUrl,
-        env: this.config.env,
-        prNumber: this.config.prNumber,
-        sourceUrl: redactUrl(window.location.href),
-        sdkVersion: '0.0.1',
-        items: roundPayloadItems,
-        domSnapshot: this.config.capturePageContext
-          ? serializeDomSnapshot(document.body, this.config.redactSelectors)
-          : undefined,
-        consoleLogs: this.consoleBuffer.read(),
-        networkLog: this.networkBuffer.read(),
-        context: this.config.capturePageContext
-          ? {
-              url: redactUrl(window.location.href),
-              userAgent: navigator.userAgent,
-              viewport: { width: window.innerWidth, height: window.innerHeight },
-              scroll: { x: window.scrollX, y: window.scrollY },
-            }
-          : undefined,
-      }),
-    })
+    }));
+    const response = await fetch(
+      createFeedbackApiUrl(this.config.apiBaseUrl, "/v1/feedback/submit-round"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          publicKey: this.config.publicKey,
+          identityToken: this.config.identityToken,
+          sessionReplayUrl,
+          env: this.config.env,
+          prNumber: this.config.prNumber,
+          sourceUrl: redactUrl(window.location.href),
+          sdkVersion: "0.0.1",
+          items: roundPayloadItems,
+          domSnapshot: this.config.capturePageContext
+            ? serializeDomSnapshot(document.body, this.config.redactSelectors)
+            : undefined,
+          consoleLogs: this.consoleBuffer.read(),
+          networkLog: this.networkBuffer.read(),
+          context: this.buildSubmissionContext(),
+        }),
+      },
+    );
 
     if (!response.ok) {
-      throw new Error(`Feedback submission failed (${response.status})`)
+      throw new Error(`Feedback submission failed (${response.status})`);
     }
 
     const payload = (await response.json()) as {
       data?: {
-        issueId?: string
-        status?: FeedbackClientStatus
-        title?: string
-        reportedAt?: string
-        issueUrl?: string
-        workerThread?: FeedbackWorkerThreadLink
-      }
-    }
+        issueId?: string;
+        status?: FeedbackClientStatus;
+        title?: string;
+        reportedAt?: string;
+        issueUrl?: string;
+        workerThread?: FeedbackWorkerThreadLink;
+      };
+    };
     if (this.destroyed) {
-      return
+      return;
     }
-    this.issueId = payload.data?.issueId ?? null
-    this.statusPollIndex = 0
-    this.clearStatusTimer()
+    this.issueId = payload.data?.issueId ?? null;
+    this.statusPollIndex = 0;
+    this.clearStatusTimer();
     if (this.issueId) {
       this.rememberIssueHistoryEntry({
         issueId: this.issueId,
-        status: payload.data?.status ?? 'received',
+        status: payload.data?.status ?? "received",
         title: payload.data?.title,
         reportedAt: payload.data?.reportedAt,
         workerThread: normalizeWorkerThreadLink(payload.data?.workerThread),
-      })
+      });
     }
-    this.roundItems = []
-    this.focusedItemId = null
-    this.clearSubmissionDraftState()
-    this.feedbackFormError = null
-    this.submittedIssueUrl = payload.data?.issueUrl ?? null
-    this.persistDraftRound()
-    this.emitOpenIssueCountChange()
-    this.openCard()
-    this.scheduleStatusPoll(this.issueId)
+    this.roundItems = [];
+    this.focusedItemId = null;
+    this.clearSubmissionDraftState();
+    this.visualSuggestions?.restoreAll();
+    this.feedbackFormError = null;
+    this.submittedIssueUrl = payload.data?.issueUrl ?? null;
+    this.persistDraftRound();
+    this.emitOpenIssueCountChange();
+    this.openCard();
+    this.scheduleStatusPoll(this.issueId);
   }
 
   private persistDraftRound(): void {
-    persistDraftRound(this.draftRoundStorageKey, this.roundItems)
+    persistDraftRound(this.draftRoundStorageKey, this.roundItems);
   }
 
   private bindElementGrabChips(): void {
-    this.shadowRoot.querySelectorAll('[data-element-grab-remove]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const id = button.getAttribute('data-element-grab-remove')
-        if (id) {
-          this.syncAllInputsToRoundItems()
-          this.elementGrabItems = this.elementGrabItems.filter((item) => item.id !== id)
-          this.openCard()
-        }
-      })
-    })
+    this.shadowRoot
+      .querySelectorAll("[data-element-grab-remove]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const id = button.getAttribute("data-element-grab-remove");
+          if (id) {
+            this.syncAllInputsToRoundItems();
+            this.elementGrabItems = this.elementGrabItems.filter(
+              (item) => item.id !== id,
+            );
+            this.openCard();
+          }
+        });
+      });
   }
 
   private renderElementGrabChipList(): string {
     if (this.elementGrabItems.length === 0) {
-      return ''
+      return "";
     }
     const chips = this.elementGrabItems
       .map((item) => {
-        const displayName = getElementGrabDisplayName(item)
-        return `<div class="obv-element-grab-chip"><span class="obv-element-grab-chip-name">${createIcon('element')}<span>${escapeHtml(displayName)}</span></span><button class="obv-icon-button obv-element-grab-remove" type="button" aria-label="Remove ${escapeHtml(displayName)}" data-element-grab-remove="${escapeHtml(item.id)}">${createIcon('close')}</button></div>`
+        const displayName = getElementGrabDisplayName(item);
+        return `<div class="obv-element-grab-chip"><span class="obv-element-grab-chip-name">${createIcon("element")}<span>${escapeHtml(displayName)}</span></span><button class="obv-icon-button obv-element-grab-remove" type="button" aria-label="Remove ${escapeHtml(displayName)}" data-element-grab-remove="${escapeHtml(item.id)}">${createIcon("close")}</button></div>`;
       })
-      .join('')
-    return `<div class="obv-element-grab-list">${chips}</div>`
+      .join("");
+    return `<div class="obv-element-grab-list">${chips}</div>`;
   }
 
   private renderAnnotationSummary(): string {
     if (this.markupItems.length === 0) {
-      return ''
+      return "";
     }
-    return `<div class="obv-annotation-summary">${this.markupItems.length} annotation${this.markupItems.length === 1 ? '' : 's'} attached</div>`
+    return `<div class="obv-annotation-summary">${this.markupItems.length} annotation${this.markupItems.length === 1 ? "" : "s"} attached</div>`;
   }
 
   private renderAttachmentsDropzone(): string {
     const list =
       this.feedbackAttachments.length > 0
-        ? `<div class="obv-attachment-list">${this.feedbackAttachments.map((attachment) => this.renderAttachmentChip(attachment)).join('')}</div>`
-        : ''
-    return `<div class="obv-attachment-dropzone" data-attachment-dropzone="true" role="button" tabindex="0" aria-label="Add feedback attachments"><span class="obv-attachment-prompt">${createIcon('paperclip')}<span>Drop files here or paste screenshots/files. ${this.feedbackAttachments.length}/${MAX_FEEDBACK_ATTACHMENTS} attached.</span></span><input class="obv-attachment-input" data-attachment-input="true" type="file" multiple tabindex="-1" aria-hidden="true" />${list}</div>`
+        ? `<div class="obv-attachment-list">${this.feedbackAttachments.map((attachment) => this.renderAttachmentChip(attachment)).join("")}</div>`
+        : "";
+    return `<div class="obv-attachment-dropzone" data-attachment-dropzone="true" role="button" tabindex="0" aria-label="Add feedback attachments"><span class="obv-attachment-prompt">${createIcon("paperclip")}<span>Drop files here or paste screenshots/files. ${this.feedbackAttachments.length}/${MAX_FEEDBACK_ATTACHMENTS} attached.</span></span><input class="obv-attachment-input" data-attachment-input="true" type="file" multiple tabindex="-1" aria-hidden="true" />${list}</div>`;
   }
 
   private renderAttachmentChip(attachment: FeedbackAttachmentUpload): string {
     const status =
-      attachment.status === 'ready' ? 'Ready' : attachment.status === 'uploading' ? 'Uploading…' : 'Upload failed'
-    const statusDetail = attachment.status === 'error' && attachment.error ? attachment.error : status
-    return `<div class="obv-attachment-chip" data-status="${escapeHtml(attachment.status)}"><div><span class="obv-attachment-name">${createIcon('paperclip')}<span class="obv-attachment-name-text">${escapeHtml(attachment.name)}</span></span><span class="obv-attachment-meta">${escapeHtml(statusDetail)} • ${escapeHtml(attachment.mimeType)} • ${formatAttachmentSize(attachment.sizeBytes)}</span></div><button class="obv-icon-button obv-attachment-remove" type="button" aria-label="Remove ${escapeHtml(attachment.name)}" data-attachment-remove="${escapeHtml(attachment.id)}">${createIcon('close')}</button></div>`
+      attachment.status === "ready"
+        ? "Ready"
+        : attachment.status === "uploading"
+          ? "Uploading…"
+          : "Upload failed";
+    const statusDetail =
+      attachment.status === "error" && attachment.error
+        ? attachment.error
+        : status;
+    return `<div class="obv-attachment-chip" data-status="${escapeHtml(attachment.status)}"><div><span class="obv-attachment-name">${createIcon("paperclip")}<span class="obv-attachment-name-text">${escapeHtml(attachment.name)}</span></span><span class="obv-attachment-meta">${escapeHtml(statusDetail)} • ${escapeHtml(attachment.mimeType)} • ${formatAttachmentSize(attachment.sizeBytes)}</span></div><button class="obv-icon-button obv-attachment-remove" type="button" aria-label="Remove ${escapeHtml(attachment.name)}" data-attachment-remove="${escapeHtml(attachment.id)}">${createIcon("close")}</button></div>`;
   }
 
   private isFileDragEvent(event: DragEvent): boolean {
-    const types = Array.from(event.dataTransfer?.types ?? [])
-    return types.includes('Files') || (event.dataTransfer?.files?.length ?? 0) > 0
+    const types = Array.from(event.dataTransfer?.types ?? []);
+    return (
+      types.includes("Files") || (event.dataTransfer?.files?.length ?? 0) > 0
+    );
   }
 
   private eventTargetsFeedbackWidget(event: Event): boolean {
-    const path: readonly unknown[] = typeof event.composedPath === 'function' ? event.composedPath() : []
-    return path.includes(this.host)
+    const path: readonly unknown[] =
+      typeof event.composedPath === "function" ? event.composedPath() : [];
+    return path.includes(this.host);
   }
 
   private readonly guardGlobalFileDragEvent = (event: Event): void => {
-    const dragEvent = event as DragEvent
+    const dragEvent = event as DragEvent;
     if (!this.isFileDragEvent(dragEvent)) {
-      return
+      return;
     }
-    dragEvent.preventDefault()
+    dragEvent.preventDefault();
     if (!this.eventTargetsFeedbackWidget(dragEvent)) {
-      dragEvent.stopImmediatePropagation?.()
-      dragEvent.stopPropagation()
+      dragEvent.stopImmediatePropagation?.();
+      dragEvent.stopPropagation();
     }
-  }
+  };
 
   private readonly guardGlobalFileDragLeaveEvent = (event: Event): void => {
-    const dragEvent = event as DragEvent
-    if (!this.isFileDragEvent(dragEvent) || this.eventTargetsFeedbackWidget(dragEvent)) {
-      return
+    const dragEvent = event as DragEvent;
+    if (
+      !this.isFileDragEvent(dragEvent) ||
+      this.eventTargetsFeedbackWidget(dragEvent)
+    ) {
+      return;
     }
-    dragEvent.stopImmediatePropagation?.()
-    dragEvent.stopPropagation()
-  }
+    dragEvent.stopImmediatePropagation?.();
+    dragEvent.stopPropagation();
+  };
 
   private readonly guardGlobalFileDropEvent = (event: Event): void => {
-    const dragEvent = event as DragEvent
+    const dragEvent = event as DragEvent;
     if (!this.isFileDragEvent(dragEvent)) {
-      return
+      return;
     }
-    dragEvent.preventDefault()
+    dragEvent.preventDefault();
     if (!this.eventTargetsFeedbackWidget(dragEvent)) {
-      return
+      return;
     }
-    dragEvent.stopImmediatePropagation?.()
-    dragEvent.stopPropagation()
-    const files = Array.from(dragEvent.dataTransfer?.files ?? [])
+    dragEvent.stopImmediatePropagation?.();
+    dragEvent.stopPropagation();
+    const files = Array.from(dragEvent.dataTransfer?.files ?? []);
     if (files.length > 0) {
-      this.addAttachmentFiles(files)
+      this.addAttachmentFiles(files);
     }
-  }
+  };
   private installGlobalFileDropGuards(): void {
     if (this.globalFileDropGuardsInstalled) {
-      return
+      return;
     }
-    const options = { capture: true }
+    const options = { capture: true };
     for (const target of [window, document]) {
-      target.addEventListener('dragenter', this.guardGlobalFileDragEvent, options)
-      target.addEventListener('dragover', this.guardGlobalFileDragEvent, options)
-      target.addEventListener('dragleave', this.guardGlobalFileDragLeaveEvent, options)
-      target.addEventListener('drop', this.guardGlobalFileDropEvent, options)
+      target.addEventListener(
+        "dragenter",
+        this.guardGlobalFileDragEvent,
+        options,
+      );
+      target.addEventListener(
+        "dragover",
+        this.guardGlobalFileDragEvent,
+        options,
+      );
+      target.addEventListener(
+        "dragleave",
+        this.guardGlobalFileDragLeaveEvent,
+        options,
+      );
+      target.addEventListener("drop", this.guardGlobalFileDropEvent, options);
     }
-    this.globalFileDropGuardsInstalled = true
+    this.globalFileDropGuardsInstalled = true;
   }
 
   private uninstallGlobalFileDropGuards(): void {
     if (!this.globalFileDropGuardsInstalled) {
-      return
+      return;
     }
-    const options = { capture: true }
+    const options = { capture: true };
     for (const target of [window, document]) {
-      target.removeEventListener('dragenter', this.guardGlobalFileDragEvent, options)
-      target.removeEventListener('dragover', this.guardGlobalFileDragEvent, options)
-      target.removeEventListener('dragleave', this.guardGlobalFileDragLeaveEvent, options)
-      target.removeEventListener('drop', this.guardGlobalFileDropEvent, options)
+      target.removeEventListener(
+        "dragenter",
+        this.guardGlobalFileDragEvent,
+        options,
+      );
+      target.removeEventListener(
+        "dragover",
+        this.guardGlobalFileDragEvent,
+        options,
+      );
+      target.removeEventListener(
+        "dragleave",
+        this.guardGlobalFileDragLeaveEvent,
+        options,
+      );
+      target.removeEventListener(
+        "drop",
+        this.guardGlobalFileDropEvent,
+        options,
+      );
     }
-    this.globalFileDropGuardsInstalled = false
+    this.globalFileDropGuardsInstalled = false;
   }
 
   private bindAttachmentControls(): void {
-    const form = this.shadowRoot.querySelector('form')
-    const dropzone = this.shadowRoot.querySelector('[data-attachment-dropzone]') as HTMLElement | null
-    const fileInput = this.shadowRoot.querySelector('[data-attachment-input]') as HTMLInputElement | null
+    const form = this.shadowRoot.querySelector("form");
+    const dropzone = this.shadowRoot.querySelector(
+      "[data-attachment-dropzone]",
+    ) as HTMLElement | null;
+    const fileInput = this.shadowRoot.querySelector(
+      "[data-attachment-input]",
+    ) as HTMLInputElement | null;
     const stopAttachmentDropEvent = (event: Event): void => {
-      event.preventDefault()
-      event.stopPropagation()
-    }
+      event.preventDefault();
+      event.stopPropagation();
+    };
     const addDroppedFiles = (event: Event): void => {
-      const files = Array.from((event as DragEvent).dataTransfer?.files ?? [])
-      if (files.length === 0) return
-      stopAttachmentDropEvent(event)
-      this.addAttachmentFiles(files)
-    }
-    form?.addEventListener('dragover', (event) => {
-      if ((event as DragEvent).dataTransfer?.types.includes('Files')) {
-        stopAttachmentDropEvent(event)
+      const files = Array.from((event as DragEvent).dataTransfer?.files ?? []);
+      if (files.length === 0) return;
+      stopAttachmentDropEvent(event);
+      this.addAttachmentFiles(files);
+    };
+    form?.addEventListener("dragover", (event) => {
+      if ((event as DragEvent).dataTransfer?.types.includes("Files")) {
+        stopAttachmentDropEvent(event);
       }
-    })
-    form?.addEventListener('drop', addDroppedFiles)
-    dropzone?.addEventListener('dragenter', stopAttachmentDropEvent)
-    dropzone?.addEventListener('dragover', stopAttachmentDropEvent)
-    dropzone?.addEventListener('drop', addDroppedFiles)
-    dropzone?.addEventListener('click', (event) => {
-      if ((event.target as Element | null)?.closest('[data-attachment-remove]')) {
-        return
+    });
+    form?.addEventListener("drop", addDroppedFiles);
+    dropzone?.addEventListener("dragenter", stopAttachmentDropEvent);
+    dropzone?.addEventListener("dragover", stopAttachmentDropEvent);
+    dropzone?.addEventListener("drop", addDroppedFiles);
+    dropzone?.addEventListener("click", (event) => {
+      if (
+        (event.target as Element | null)?.closest("[data-attachment-remove]")
+      ) {
+        return;
       }
-      fileInput?.click()
-    })
-    dropzone?.addEventListener('keydown', (event) => {
-      const keyboardEvent = event as KeyboardEvent
-      if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') {
-        return
+      fileInput?.click();
+    });
+    dropzone?.addEventListener("keydown", (event) => {
+      const keyboardEvent = event as KeyboardEvent;
+      if (keyboardEvent.key !== "Enter" && keyboardEvent.key !== " ") {
+        return;
       }
-      event.preventDefault()
-      fileInput?.click()
-    })
-    fileInput?.addEventListener('click', (event) => {
-      event.stopPropagation()
-    })
-    fileInput?.addEventListener('change', () => {
-      this.addAttachmentFiles(Array.from(fileInput.files ?? []))
-      fileInput.value = ''
-    })
-    form?.addEventListener('paste', (event) => {
-      const clipboardEvent = event as ClipboardEvent
-      const files = Array.from(clipboardEvent.clipboardData?.files ?? [])
+      event.preventDefault();
+      fileInput?.click();
+    });
+    fileInput?.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    fileInput?.addEventListener("change", () => {
+      this.addAttachmentFiles(Array.from(fileInput.files ?? []));
+      fileInput.value = "";
+    });
+    form?.addEventListener("paste", (event) => {
+      const clipboardEvent = event as ClipboardEvent;
+      const files = Array.from(clipboardEvent.clipboardData?.files ?? []);
       const itemFiles = Array.from(clipboardEvent.clipboardData?.items ?? [])
-        .filter((item) => item.kind === 'file')
+        .filter((item) => item.kind === "file")
         .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null)
-      this.addAttachmentFiles(files.length > 0 ? files : itemFiles)
-    })
-    this.shadowRoot.querySelectorAll('[data-attachment-remove]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const id = (button as HTMLElement).getAttribute('data-attachment-remove')
-        if (id) {
-          this.removeAttachment(id)
-        }
-      })
-    })
+        .filter((file): file is File => file !== null);
+      this.addAttachmentFiles(files.length > 0 ? files : itemFiles);
+    });
+    this.shadowRoot
+      .querySelectorAll("[data-attachment-remove]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const id = (button as HTMLElement).getAttribute(
+            "data-attachment-remove",
+          );
+          if (id) {
+            this.removeAttachment(id);
+          }
+        });
+      });
   }
 
   private isCardOpen(): boolean {
-    return this.activePanel !== null
+    return this.activePanel !== null;
+  }
+
+  private getCommittedVisualSuggestionIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const item of this.roundItems) {
+      for (const suggestion of item.visualSuggestions ?? []) {
+        ids.add(suggestion.id);
+      }
+    }
+    return ids;
+  }
+
+  private getUncommittedVisualSuggestions(): FeedbackVisualSuggestion[] {
+    const all = this.visualSuggestions?.getItems() ?? [];
+    const committed = this.getCommittedVisualSuggestionIds();
+    return all.filter((suggestion) => !committed.has(suggestion.id));
+  }
+
+  private groupVisualSuggestionsByElement(
+    suggestions: readonly FeedbackVisualSuggestion[],
+  ): Array<{
+    element: FeedbackVisualSuggestionElementRef;
+    items: FeedbackVisualSuggestion[];
+  }> {
+    const groups = new Map<
+      string,
+      {
+        element: FeedbackVisualSuggestionElementRef;
+        items: FeedbackVisualSuggestion[];
+      }
+    >();
+    for (const suggestion of suggestions) {
+      const existing = groups.get(suggestion.element.id);
+      if (existing) {
+        existing.items.push(suggestion);
+      } else {
+        groups.set(suggestion.element.id, {
+          element: suggestion.element,
+          items: [suggestion],
+        });
+      }
+    }
+    return [...groups.values()];
+  }
+
+  private activateVisualSuggestionElement(
+    element: FeedbackVisualSuggestionElementRef,
+    suggestions: readonly FeedbackVisualSuggestion[],
+    itemId: string | null,
+  ): void {
+    const manager = this.visualSuggestions;
+    if (!manager) return;
+    const previewedElement = manager.getPreviewedElement(element.id);
+    if (!previewedElement) return;
+    manager.activateElementWithSuggestions(
+      previewedElement,
+      element,
+      suggestions,
+    );
+    this.visualSuggestionScopeOptions = [
+      {
+        kind: "element",
+        label: "This",
+        targets: [{ element: previewedElement, ref: element }],
+        scope: {
+          kind: "element",
+          label: "This element",
+          matchedCount: 1,
+        },
+      },
+    ];
+    this.visualSuggestionTargetOptions = [
+      {
+        id: element.id,
+        kind: getVisualSuggestionTargetKind(previewedElement),
+        label: getVisualSuggestionTargetLabel(previewedElement),
+        element: previewedElement,
+        ref: element,
+        scopeOptions: this.visualSuggestionScopeOptions,
+      },
+    ];
+    this.activeVisualSuggestionItemId = itemId;
+    this.openCard();
+  }
+
+  private syncActiveVisualSuggestionItem(): void {
+    const manager = this.visualSuggestions;
+    const itemId = this.activeVisualSuggestionItemId;
+    if (!manager || !itemId) return;
+    const active = manager.getActiveElement();
+    if (!active) return;
+    const item = this.roundItems.find((candidate) => candidate.id === itemId);
+    if (!item) {
+      this.activeVisualSuggestionItemId = null;
+      return;
+    }
+    const activeSuggestions = manager
+      .getItems()
+      .filter((suggestion) => suggestion.element.id === active.ref.id);
+    const remainingSuggestions = (item.visualSuggestions ?? []).filter(
+      (suggestion) => suggestion.element.id !== active.ref.id,
+    );
+    item.visualSuggestions =
+      remainingSuggestions.length > 0 || activeSuggestions.length > 0
+        ? [...remainingSuggestions, ...activeSuggestions]
+        : undefined;
+    this.persistDraftRound();
+  }
+
+  private closeVisualSuggestionPalette(): void {
+    const manager = this.visualSuggestions;
+    if (!manager) return;
+    if (this.activeVisualSuggestionItemId) {
+      this.syncActiveVisualSuggestionItem();
+      manager.commitCurrentLine();
+      this.activeVisualSuggestionItemId = null;
+    } else {
+      manager.closeActiveElement();
+    }
+    this.visualSuggestionTargetOptions = [];
+    this.visualSuggestionScopeOptions = [];
+    this.openCard();
   }
 
   private renderItemPills(item: FeedbackRoundItem): string {
-    const pills: string[] = []
+    const pills: string[] = [];
     if (item.markupPayload && item.markupPayload.items.length > 0) {
       pills.push(
-        `<span class="obv-row-pill">${createIcon('pen')}<span class="obv-row-pill-label">${item.markupPayload.items.length} annotation${item.markupPayload.items.length === 1 ? '' : 's'}</span><button class="obv-row-pill-x" type="button" data-item-remove-markup="${escapeHtml(item.id)}" aria-label="Remove annotations">${createIcon('close')}</button></span>`
-      )
+        `<span class="obv-row-pill">${createIcon("pen")}<span class="obv-row-pill-label">${item.markupPayload.items.length} annotation${item.markupPayload.items.length === 1 ? "" : "s"}</span><button class="obv-row-pill-x" type="button" data-item-remove-markup="${escapeHtml(item.id)}" aria-label="Remove annotations">${createIcon("close")}</button></span>`,
+      );
     }
     if (item.elementGrabs) {
       for (const grab of item.elementGrabs) {
         pills.push(
-          `<span class="obv-row-pill">${createIcon('element')}<span class="obv-row-pill-label">${escapeHtml(getElementGrabDisplayName(grab))}</span><button class="obv-row-pill-x" type="button" data-item-remove-grab="${escapeHtml(item.id)}:${escapeHtml(grab.id)}" aria-label="Remove ${escapeHtml(getElementGrabDisplayName(grab))}">${createIcon('close')}</button></span>`
-        )
+          `<span class="obv-row-pill">${createIcon("element")}<span class="obv-row-pill-label">${escapeHtml(getElementGrabDisplayName(grab))}</span><button class="obv-row-pill-x" type="button" data-item-remove-grab="${escapeHtml(item.id)}:${escapeHtml(grab.id)}" aria-label="Remove ${escapeHtml(getElementGrabDisplayName(grab))}">${createIcon("close")}</button></span>`,
+        );
       }
     }
     if (item.attachmentTokens && item.attachmentTokens.length > 0) {
       for (let i = 0; i < item.attachmentTokens.length; i++) {
         pills.push(
-          `<span class="obv-row-pill">${createIcon('paperclip')}<span class="obv-row-pill-label">file ${i + 1}</span><button class="obv-row-pill-x" type="button" data-item-remove-file="${escapeHtml(item.id)}:${i}" aria-label="Remove file">${createIcon('close')}</button></span>`
-        )
+          `<span class="obv-row-pill">${createIcon("paperclip")}<span class="obv-row-pill-label">file ${i + 1}</span><button class="obv-row-pill-x" type="button" data-item-remove-file="${escapeHtml(item.id)}:${i}" aria-label="Remove file">${createIcon("close")}</button></span>`,
+        );
       }
     }
     if (item.measurements) {
       for (const m of item.measurements) {
         pills.push(
-          `<span class="obv-row-pill">${createIcon('ruler')}<span class="obv-row-pill-label">${escapeHtml(m.description)}</span><button class="obv-row-pill-x" type="button" data-item-remove-measurement="${escapeHtml(item.id)}:${escapeHtml(m.id)}" aria-label="Remove measurement">${createIcon('close')}</button></span>`
-        )
+          `<span class="obv-row-pill">${createIcon("ruler")}<span class="obv-row-pill-label">${escapeHtml(m.description)}</span><button class="obv-row-pill-x" type="button" data-item-remove-measurement="${escapeHtml(item.id)}:${escapeHtml(m.id)}" aria-label="Remove measurement">${createIcon("close")}</button></span>`,
+        );
       }
     }
-    return pills.length > 0 ? `<div class="obv-row-meta">${pills.join('')}</div>` : ''
+    if (item.visualSuggestions) {
+      for (const group of this.groupVisualSuggestionsByElement(
+        item.visualSuggestions,
+      )) {
+        const name = getVisualSuggestionRefLabel(group.element, group.items);
+        const count = group.items.length;
+        const summary =
+          count === 1
+            ? `${VISUAL_SUGGESTION_PROPERTY_LABELS[group.items[0].property] ?? group.items[0].property}`
+            : `${count} changes`;
+        const ids = group.items.map((suggestion) => suggestion.id).join(",");
+        pills.push(
+          `<span class="obv-row-pill obv-row-pill-vs obv-row-pill-action" data-item-vs-activate="${escapeHtml(item.id)}:${escapeHtml(group.element.id)}"><span class="obv-row-pill-label">${escapeHtml(name)} · ${escapeHtml(summary)}</span><button class="obv-row-pill-x" type="button" data-item-remove-vs="${escapeHtml(item.id)}:${escapeHtml(ids)}" aria-label="Remove visual suggestions for ${escapeHtml(name)}">${createIcon("close")}</button></span>`,
+        );
+      }
+    }
+    return pills.length > 0
+      ? `<div class="obv-row-meta">${pills.join("")}</div>`
+      : "";
   }
 
   private renderComposePills(): string {
-    const pills: string[] = []
+    const pills: string[] = [];
     if (this.markupItems.length > 0) {
       pills.push(
-        `<span class="obv-row-pill">${createIcon('pen')}<span class="obv-row-pill-label">${this.markupItems.length} annotation${this.markupItems.length === 1 ? '' : 's'}</span><button class="obv-row-pill-x" type="button" data-remove-markup="true" aria-label="Remove annotations">${createIcon('close')}</button></span>`
-      )
+        `<span class="obv-row-pill">${createIcon("pen")}<span class="obv-row-pill-label">${this.markupItems.length} annotation${this.markupItems.length === 1 ? "" : "s"}</span><button class="obv-row-pill-x" type="button" data-remove-markup="true" aria-label="Remove annotations">${createIcon("close")}</button></span>`,
+      );
     }
     for (const grab of this.elementGrabItems) {
       pills.push(
-        `<span class="obv-row-pill">${createIcon('element')}<span class="obv-row-pill-label">${escapeHtml(getElementGrabDisplayName(grab))}</span><button class="obv-row-pill-x" type="button" data-remove-grab="${escapeHtml(grab.id)}" aria-label="Remove ${escapeHtml(getElementGrabDisplayName(grab))}">${createIcon('close')}</button></span>`
-      )
+        `<span class="obv-row-pill">${createIcon("element")}<span class="obv-row-pill-label">${escapeHtml(getElementGrabDisplayName(grab))}</span><button class="obv-row-pill-x" type="button" data-remove-grab="${escapeHtml(grab.id)}" aria-label="Remove ${escapeHtml(getElementGrabDisplayName(grab))}">${createIcon("close")}</button></span>`,
+      );
     }
     for (const attachment of this.feedbackAttachments) {
-      const statusSuffix = attachment.status === 'uploading' ? '…' : ''
+      const statusSuffix = attachment.status === "uploading" ? "…" : "";
       pills.push(
-        `<span class="obv-row-pill">${createIcon('paperclip')}<span class="obv-row-pill-label">${escapeHtml(attachment.name)}${statusSuffix}</span><button class="obv-row-pill-x" type="button" data-remove-attachment="${escapeHtml(attachment.id)}" aria-label="Remove ${escapeHtml(attachment.name)}">${createIcon('close')}</button></span>`
-      )
+        `<span class="obv-row-pill">${createIcon("paperclip")}<span class="obv-row-pill-label">${escapeHtml(attachment.name)}${statusSuffix}</span><button class="obv-row-pill-x" type="button" data-remove-attachment="${escapeHtml(attachment.id)}" aria-label="Remove ${escapeHtml(attachment.name)}">${createIcon("close")}</button></span>`,
+      );
     }
     for (const m of this.measurementItems) {
       pills.push(
-        `<span class="obv-row-pill">${createIcon('ruler')}<span class="obv-row-pill-label">${escapeHtml(m.description)}</span><button class="obv-row-pill-x" type="button" data-remove-measurement="${escapeHtml(m.id)}" aria-label="Remove measurement">${createIcon('close')}</button></span>`
-      )
+        `<span class="obv-row-pill">${createIcon("ruler")}<span class="obv-row-pill-label">${escapeHtml(m.description)}</span><button class="obv-row-pill-x" type="button" data-remove-measurement="${escapeHtml(m.id)}" aria-label="Remove measurement">${createIcon("close")}</button></span>`,
+      );
     }
-    return pills.length > 0 ? `<div class="obv-row-meta">${pills.join('')}</div>` : ''
+    if (this.visualSuggestions) {
+      const groups = this.groupVisualSuggestionsByElement(
+        this.getUncommittedVisualSuggestions(),
+      );
+      for (const group of groups) {
+        const name = getVisualSuggestionRefLabel(group.element, group.items);
+        const count = group.items.length;
+        const summary =
+          count === 1
+            ? `${VISUAL_SUGGESTION_PROPERTY_LABELS[group.items[0].property] ?? group.items[0].property}`
+            : `${count} changes`;
+        pills.push(
+          `<span class="obv-row-pill obv-row-pill-vs"><span class="obv-row-pill-label">${escapeHtml(name)} · ${escapeHtml(summary)}</span><button class="obv-row-pill-x" type="button" data-remove-vs-element="${escapeHtml(group.element.id)}" aria-label="Remove visual suggestions for ${escapeHtml(name)}">${createIcon("close")}</button></span>`,
+        );
+      }
+    }
+    return pills.length > 0
+      ? `<div class="obv-row-meta">${pills.join("")}</div>`
+      : "";
   }
 
   private renderRoundItemList(): string {
     const rows = this.roundItems.map((item, index) => {
-      const num = index + 1
-      const pillsRow = this.renderItemPills(item)
-      return `<div class="obv-list-row" data-item-id="${escapeHtml(item.id)}"><span class="obv-row-number">${num}</span><input class="obv-row-input" type="text" value="${escapeHtml(item.description)}" data-item-input="${escapeHtml(item.id)}" /></div>${pillsRow}`
-    })
+      const num = index + 1;
+      const pillsRow = this.renderItemPills(item);
+      return `<div class="obv-list-row" data-item-id="${escapeHtml(item.id)}"><span class="obv-row-number">${num}</span><input class="obv-row-input" type="text" value="${escapeHtml(item.description)}" data-item-input="${escapeHtml(item.id)}" /></div>${pillsRow}`;
+    });
 
-    const newNum = this.roundItems.length + 1
-    const newRow = `<div class="obv-list-row" data-item-id="__new"><span class="obv-row-number">${newNum}</span><input class="obv-row-input" type="text" value="${escapeHtml(this.newRowDraft)}" placeholder="What's wrong? (Enter for new line)" data-item-input="__new" /></div>`
-    const composePills = this.renderComposePills()
+    const newNum = this.roundItems.length + 1;
+    const newRow = `<div class="obv-list-row" data-item-id="__new"><span class="obv-row-number">${newNum}</span><input class="obv-row-input" type="text" value="${escapeHtml(this.newRowDraft)}" placeholder="What's wrong? (Enter for new line)" data-item-input="__new" /></div>`;
+    const composePills = this.renderComposePills();
 
-    return `${rows.join('')}${newRow}${composePills}`
+    return `${rows.join("")}${newRow}${composePills}`;
   }
 
   private removeRoundItem(id: string): void {
-    this.syncAllInputsToRoundItems()
-    this.roundItems = this.roundItems.filter((item) => item.id !== id)
-    this.persistDraftRound()
-    this.emitOpenIssueCountChange()
-    this.openCard()
+    this.syncAllInputsToRoundItems();
+    const item = this.roundItems.find((candidate) => candidate.id === id);
+    if (item?.visualSuggestions && item.visualSuggestions.length > 0) {
+      this.visualSuggestions?.removeSuggestions(
+        item.visualSuggestions.map((suggestion) => suggestion.id),
+      );
+    }
+    if (this.activeVisualSuggestionItemId === id) {
+      this.activeVisualSuggestionItemId = null;
+    }
+    this.roundItems = this.roundItems.filter((item) => item.id !== id);
+    this.persistDraftRound();
+    this.emitOpenIssueCountChange();
+    this.openCard();
   }
 
   private renderIssueHistorySection(): string {
     if (this.issueHistory.length === 0) {
-      return ''
+      return "";
     }
     const renderedEntries = this.issueHistory
       .map((entry, index) => ({ entry, index }))
       .sort(
         (left, right) =>
-          Number(isTerminalIssueStatus(left.entry.status)) - Number(isTerminalIssueStatus(right.entry.status))
-      )
+          Number(isTerminalIssueStatus(left.entry.status)) -
+          Number(isTerminalIssueStatus(right.entry.status)),
+      );
     return `
       <section class="obv-issue-section" aria-label="Recently reported feedback statuses">
         <div class="obv-issue-list">
-          ${renderedEntries.map(({ entry, index }) => this.renderIssueHistoryEntry(entry, index)).join('')}
+          ${renderedEntries.map(({ entry, index }) => this.renderIssueHistoryEntry(entry, index)).join("")}
         </div>
       </section>
-    `
+    `;
   }
-  private renderIssueHistoryEntry(entry: FeedbackIssueHistoryEntry, index: number): string {
-    const title = entry.title?.trim() || `Issue ${entry.issueId.slice(0, 8)}`
-    const titleMarkup = `<button class="obv-issue-title obv-button obv-button-secondary" type="button" data-history-detail-index="${index}" aria-label="Open status details for ${escapeHtml(title)}">${escapeHtml(title)}</button>`
-    const icon = entry.status === 'resolved' ? createIcon('check') : createIcon('status')
+  private renderIssueHistoryEntry(
+    entry: FeedbackIssueHistoryEntry,
+    index: number,
+  ): string {
+    const title = entry.title?.trim() || `Issue ${entry.issueId.slice(0, 8)}`;
+    const titleMarkup = `<button class="obv-issue-title obv-button obv-button-secondary" type="button" data-history-detail-index="${index}" aria-label="Open status details for ${escapeHtml(title)}">${escapeHtml(title)}</button>`;
+    const icon =
+      entry.status === "resolved" ? createIcon("check") : createIcon("status");
     const meta = [
-      formatRelativeTime(entry.reportedAt ?? entry.updatedAt ?? entry.checkedAt),
+      formatRelativeTime(
+        entry.reportedAt ?? entry.updatedAt ?? entry.checkedAt,
+      ),
       historyStatusLabel(entry.status),
     ]
       .filter(Boolean)
-      .join(' • ')
-    const isTerminal = isTerminalIssueStatus(entry.status)
+      .join(" • ");
+    const isTerminal = isTerminalIssueStatus(entry.status);
     return `
-      <div class="obv-issue-row" data-terminal="${isTerminal ? 'true' : 'false'}">
+      <div class="obv-issue-row" data-terminal="${isTerminal ? "true" : "false"}">
         <span class="obv-issue-status-icon" aria-hidden="true">${icon}</span>
         ${titleMarkup}
         <span class="obv-issue-meta">${escapeHtml(meta)}</span>
-        <button class="obv-icon-button obv-issue-dismiss" type="button" aria-label="Dismiss ${escapeHtml(title)}" data-history-dismiss-index="${index}">${createIcon('close')}</button>
+        <button class="obv-icon-button obv-issue-dismiss" type="button" aria-label="Dismiss ${escapeHtml(title)}" data-history-dismiss-index="${index}">${createIcon("close")}</button>
       </div>
-    `
+    `;
   }
 
   private renderSelectedIssueDetail(): string {
-    const entry = this.issueHistory.find((candidate) => candidate.issueId === this.selectedIssueId)
+    const entry = this.issueHistory.find(
+      (candidate) => candidate.issueId === this.selectedIssueId,
+    );
     if (!entry) {
-      return ''
+      return "";
     }
-    const title = entry.title?.trim() || `Issue ${entry.issueId.slice(0, 8)}`
+    const title = entry.title?.trim() || `Issue ${entry.issueId.slice(0, 8)}`;
     const timestamps = [
-      entry.reportedAt ? `Reported ${formatRelativeTime(entry.reportedAt)}` : null,
+      entry.reportedAt
+        ? `Reported ${formatRelativeTime(entry.reportedAt)}`
+        : null,
       entry.updatedAt ? `Updated ${formatRelativeTime(entry.updatedAt)}` : null,
     ]
       .filter(Boolean)
-      .join(' • ')
-    const aiHeadline = entry.aiSummary?.headline?.trim()
-    const aiProgress = entry.aiSummary?.progress?.trim()
-    const workerThreadUrl = getSafeExternalUrl(entry.links?.workerThread?.url ?? entry.workerThread?.url)
-    const pullRequest = entry.links?.pullRequest
-    const pullRequestUrl = getSafeExternalUrl(pullRequest?.url)
+      .join(" • ");
+    const aiHeadline = entry.aiSummary?.headline?.trim();
+    const aiProgress = entry.aiSummary?.progress?.trim();
+    const workerThreadUrl = getSafeExternalUrl(
+      entry.links?.workerThread?.url ?? entry.workerThread?.url,
+    );
+    const pullRequest = entry.links?.pullRequest;
+    const pullRequestUrl = getSafeExternalUrl(pullRequest?.url);
     const links = [
       workerThreadUrl
         ? `<a href="${escapeHtml(workerThreadUrl)}" target="_blank" rel="noreferrer">Worker thread</a>`
-        : '',
+        : "",
       pullRequest && pullRequestUrl
         ? `<a href="${escapeHtml(pullRequestUrl)}" target="_blank" rel="noreferrer">PR #${pullRequest.number}</a>`
-        : '',
-    ].filter(Boolean)
+        : "",
+    ].filter(Boolean);
     return `
       <section class="obv-issue-detail" aria-label="Issue status details" tabindex="-1" data-issue-detail="true">
         <div class="obv-issue-detail-header">
@@ -3111,59 +4456,82 @@ class ObviousFeedbackWidget {
             <div class="obv-kicker">Current status</div>
             <div class="obv-issue-detail-title">${escapeHtml(title)}</div>
           </div>
-          <button class="obv-icon-button" type="button" aria-label="Close issue status details" data-issue-detail-close="true">${createIcon('close')}</button>
+          <button class="obv-icon-button" type="button" aria-label="Close issue status details" data-issue-detail-close="true">${createIcon("close")}</button>
         </div>
-        <div class="obv-issue-detail-status">${entry.status === 'resolved' ? createIcon('check') : createIcon('status')}${escapeHtml(historyStatusLabel(entry.status))}</div>
-        ${aiHeadline ? `<div class="obv-issue-detail-body"><strong>${escapeHtml(aiHeadline)}</strong></div>` : ''}
-        ${aiProgress ? `<div class="obv-issue-detail-body">${escapeHtml(aiProgress)}</div>` : ''}
-        ${entry.resolvedNote ? `<div class="obv-issue-detail-body">${escapeHtml(entry.resolvedNote)}</div>` : ''}
-        ${timestamps ? `<div class="obv-issue-detail-meta">${escapeHtml(timestamps)}</div>` : ''}
-        ${links.length > 0 ? `<div class="obv-issue-detail-links">${links.join('')}</div>` : ''}
+        <div class="obv-issue-detail-status">${entry.status === "resolved" ? createIcon("check") : createIcon("status")}${escapeHtml(historyStatusLabel(entry.status))}</div>
+        ${aiHeadline ? `<div class="obv-issue-detail-body"><strong>${escapeHtml(aiHeadline)}</strong></div>` : ""}
+        ${aiProgress ? `<div class="obv-issue-detail-body">${escapeHtml(aiProgress)}</div>` : ""}
+        ${entry.resolvedNote ? `<div class="obv-issue-detail-body">${escapeHtml(entry.resolvedNote)}</div>` : ""}
+        ${timestamps ? `<div class="obv-issue-detail-meta">${escapeHtml(timestamps)}</div>` : ""}
+        ${links.length > 0 ? `<div class="obv-issue-detail-links">${links.join("")}</div>` : ""}
       </section>
-    `
+    `;
   }
 
   private openIssueDetail(issueId: string): void {
-    this.syncAllInputsToRoundItems()
-    this.selectedIssueId = issueId
+    this.syncAllInputsToRoundItems();
+    this.selectedIssueId = issueId;
     this.refreshIssueHistoryEntry(issueId)
       .catch(() => undefined)
       .finally(() => {
-        if (!this.destroyed && this.selectedIssueId === issueId && this.isCardOpen() && !this.markupOverlayOpen) {
-          const activeElement = document.activeElement
-          const detailElementBeforeRefresh = this.shadowRoot.querySelector('[data-issue-detail="true"]')
-          const hadDetailFocus = !!activeElement && detailElementBeforeRefresh?.contains(activeElement)
-          this.openCard()
-          const detailElement = this.shadowRoot.querySelector('[data-issue-detail="true"]') as HTMLElement | null
+        if (
+          !this.destroyed &&
+          this.selectedIssueId === issueId &&
+          this.isCardOpen() &&
+          !this.markupOverlayOpen
+        ) {
+          const activeElement = document.activeElement;
+          const detailElementBeforeRefresh = this.shadowRoot.querySelector(
+            '[data-issue-detail="true"]',
+          );
+          const hadDetailFocus =
+            !!activeElement &&
+            detailElementBeforeRefresh?.contains(activeElement);
+          this.openCard();
+          const detailElement = this.shadowRoot.querySelector(
+            '[data-issue-detail="true"]',
+          ) as HTMLElement | null;
           if (hadDetailFocus) {
-            detailElement?.focus()
+            detailElement?.focus();
           }
         }
-      })
-    this.openCard()
-    ;(this.shadowRoot.querySelector('[data-issue-detail="true"]') as HTMLElement | null)?.focus()
+      });
+    this.openCard();
+    (
+      this.shadowRoot.querySelector(
+        '[data-issue-detail="true"]',
+      ) as HTMLElement | null
+    )?.focus();
   }
 
   private bindIssueStatusTray(): void {
     this.issueHistory.forEach((entry, index) => {
-      this.shadowRoot.querySelector(`[data-history-detail-index="${index}"]`)?.addEventListener('click', () => {
-        this.openIssueDetail(entry.issueId)
-      })
-      this.shadowRoot.querySelector(`[data-history-dismiss-index="${index}"]`)?.addEventListener('click', () => {
-        this.syncAllInputsToRoundItems()
-        this.issueHistory = this.issueHistory.filter((candidate) => candidate.issueId !== entry.issueId)
-        if (this.selectedIssueId === entry.issueId) {
-          this.selectedIssueId = null
-        }
-        this.persistIssueHistory()
-        this.emitOpenIssueCountChange()
-        this.openCard()
-      })
-    })
-    this.shadowRoot.querySelector('[data-issue-detail-close="true"]')?.addEventListener('click', () => {
-      this.selectedIssueId = null
-      this.openCard()
-    })
+      this.shadowRoot
+        .querySelector(`[data-history-detail-index="${index}"]`)
+        ?.addEventListener("click", () => {
+          this.openIssueDetail(entry.issueId);
+        });
+      this.shadowRoot
+        .querySelector(`[data-history-dismiss-index="${index}"]`)
+        ?.addEventListener("click", () => {
+          this.syncAllInputsToRoundItems();
+          this.issueHistory = this.issueHistory.filter(
+            (candidate) => candidate.issueId !== entry.issueId,
+          );
+          if (this.selectedIssueId === entry.issueId) {
+            this.selectedIssueId = null;
+          }
+          this.persistIssueHistory();
+          this.emitOpenIssueCountChange();
+          this.openCard();
+        });
+    });
+    this.shadowRoot
+      .querySelector('[data-issue-detail-close="true"]')
+      ?.addEventListener("click", () => {
+        this.selectedIssueId = null;
+        this.openCard();
+      });
   }
 
   private captureMarkupContext(): FeedbackMarkupContext {
@@ -3175,27 +4543,27 @@ class ObviousFeedbackWidget {
         ? serializeDomSnapshot(document.body, this.config.redactSelectors)
         : undefined,
       capturedAt: new Date().toISOString(),
-    }
+    };
   }
 
   private createAnnotationPayload(): FeedbackMarkupPayload | undefined {
     if (this.markupItems.length === 0 || !this.markupContext) {
-      return undefined
+      return undefined;
     }
     return {
       ...this.markupContext,
       items: this.markupItems,
-    }
+    };
   }
 
   private renderMarkupOverlay(): void {
-    this.cancelMarkupSvgRender()
-    this.markupOverlayOpen = true
+    this.cancelMarkupSvgRender();
+    this.markupOverlayOpen = true;
     this.shadowRoot.innerHTML = `
       <style>${createStyles()}</style>
       ${this.renderMarkupOverlayContent()}
-    `
-    this.bindMarkupOverlay()
+    `;
+    this.bindMarkupOverlay();
   }
 
   private renderMarkupOverlayContent(): string {
@@ -3204,277 +4572,334 @@ class ObviousFeedbackWidget {
         <svg class="obv-markup-svg" aria-hidden="true">${this.renderMarkupSvg()}</svg>
       </div>
       <div class="obv-markup-toolbar" role="toolbar" aria-label="Feedback markup tools">
-        ${MARKUP_TOOLS.map((tool) => this.renderMarkupToolButton(tool)).join('')}
-        <button class="obv-icon-button obv-toolbar-button" type="button" aria-label="Undo last markup" data-markup-undo="true" ${this.markupItems.length === 0 ? 'disabled aria-disabled="true"' : ''}>${createIcon('undo')}</button>
-        <button class="obv-icon-button obv-toolbar-button" type="button" aria-label="Cancel markup" data-markup-cancel="true">${createIcon('close')}</button>
-        <button class="obv-button" type="button" data-markup-done="true">${createIcon('check')}Done</button>
+        ${MARKUP_TOOLS.map((tool) => this.renderMarkupToolButton(tool)).join("")}
+        <button class="obv-icon-button obv-toolbar-button" type="button" aria-label="Undo last markup" data-markup-undo="true" ${this.markupItems.length === 0 ? 'disabled aria-disabled="true"' : ""}>${createIcon("undo")}</button>
+        <button class="obv-icon-button obv-toolbar-button" type="button" aria-label="Cancel markup" data-markup-cancel="true">${createIcon("close")}</button>
+        <button class="obv-button" type="button" data-markup-done="true">${createIcon("check")}Done</button>
       </div>
-    `
+    `;
   }
 
   private renderMarkupSvg(): string {
-    return [...this.markupItems, ...(this.markupDraft ? [this.markupDraft] : [])]
+    return [
+      ...this.markupItems,
+      ...(this.markupDraft ? [this.markupDraft] : []),
+    ]
       .map((item) => this.renderMarkupItem(item))
-      .join('')
+      .join("");
   }
 
   private renderMarkupToolButton(tool: FeedbackMarkupTool): string {
-    const label = tool === 'point' ? 'Point marker' : tool === 'pen' ? 'Pen tool' : 'Rectangle tool'
-    const iconName = tool === 'point' ? 'point' : tool === 'pen' ? 'pen' : 'rectangle'
-    return `<button class="obv-icon-button obv-toolbar-button obv-markup-tool" type="button" data-markup-tool="${tool}" aria-label="${label}" aria-pressed="${String(this.markupTool === tool)}">${createIcon(iconName)}</button>`
+    const label =
+      tool === "point"
+        ? "Point marker"
+        : tool === "pen"
+          ? "Pen tool"
+          : "Rectangle tool";
+    const iconName =
+      tool === "point" ? "point" : tool === "pen" ? "pen" : "rectangle";
+    return `<button class="obv-icon-button obv-toolbar-button obv-markup-tool" type="button" data-markup-tool="${tool}" aria-label="${label}" aria-pressed="${String(this.markupTool === tool)}">${createIcon(iconName)}</button>`;
   }
 
-  private renderMarkupItem(item: FeedbackMarkupItem | FeedbackMarkupDraft): string {
-    const points = item.points
-    const tool = item.tool
-    const first = points[0] ?? ('start' in item ? item.start : { x: 0, y: 0 })
-    const last = points[points.length - 1] ?? first
-    if (tool === 'rectangle') {
-      const x = Math.min(first.x, last.x)
-      const y = Math.min(first.y, last.y)
-      const width = Math.abs(last.x - first.x)
-      const height = Math.abs(last.y - first.y)
-      return `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="rgba(196,181,253,0.16)" stroke="#7c3aed" stroke-width="3" rx="6" />`
+  private renderMarkupItem(
+    item: FeedbackMarkupItem | FeedbackMarkupDraft,
+  ): string {
+    const points = item.points;
+    const tool = item.tool;
+    const first = points[0] ?? ("start" in item ? item.start : { x: 0, y: 0 });
+    const last = points[points.length - 1] ?? first;
+    if (tool === "rectangle") {
+      const x = Math.min(first.x, last.x);
+      const y = Math.min(first.y, last.y);
+      const width = Math.abs(last.x - first.x);
+      const height = Math.abs(last.y - first.y);
+      return `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="rgba(196,181,253,0.16)" stroke="#7c3aed" stroke-width="3" rx="6" />`;
     }
-    if (tool === 'pen') {
-      return `<polyline points="${points.map((point) => `${point.x},${point.y}`).join(' ')}" fill="none" stroke="#7c3aed" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />`
+    if (tool === "pen") {
+      return `<polyline points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="none" stroke="#7c3aed" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />`;
     }
-    const angle = Math.atan2(last.y - first.y, last.x - first.x)
-    const arrowLength = 18
-    const arrowAngle = Math.PI / 6
+    const angle = Math.atan2(last.y - first.y, last.x - first.x);
+    const arrowLength = 18;
+    const arrowAngle = Math.PI / 6;
     const leftPoint = {
       x: Math.round(last.x - arrowLength * Math.cos(angle - arrowAngle)),
       y: Math.round(last.y - arrowLength * Math.sin(angle - arrowAngle)),
-    }
+    };
     const rightPoint = {
       x: Math.round(last.x - arrowLength * Math.cos(angle + arrowAngle)),
       y: Math.round(last.y - arrowLength * Math.sin(angle + arrowAngle)),
-    }
-    return `<line x1="${first.x}" y1="${first.y}" x2="${last.x}" y2="${last.y}" stroke="#7c3aed" stroke-width="3" stroke-linecap="round" /><polyline points="${leftPoint.x},${leftPoint.y} ${last.x},${last.y} ${rightPoint.x},${rightPoint.y}" fill="none" stroke="#7c3aed" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />`
+    };
+    return `<line x1="${first.x}" y1="${first.y}" x2="${last.x}" y2="${last.y}" stroke="#7c3aed" stroke-width="3" stroke-linecap="round" /><polyline points="${leftPoint.x},${leftPoint.y} ${last.x},${last.y} ${rightPoint.x},${rightPoint.y}" fill="none" stroke="#7c3aed" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />`;
   }
 
   private bindMarkupOverlay(): void {
-    const overlay = this.shadowRoot.querySelector('.obv-markup-overlay') as HTMLElement | null
-    this.installMarkupKeydownListener()
-    overlay?.addEventListener('pointerdown', (event) => this.handleMarkupPointerDown(event as PointerEvent))
-    overlay?.addEventListener('pointermove', (event) => this.handleMarkupPointerMove(event as PointerEvent))
-    overlay?.addEventListener('pointerup', (event) => this.handleMarkupPointerUp(event as PointerEvent))
-    overlay?.addEventListener('pointercancel', (event) => {
-      event.stopPropagation?.()
-      this.suppressNextMarkupCanvasClick = false
-      this.markupDraft = null
-      this.renderMarkupOverlay()
-    })
-    overlay?.addEventListener('click', (event) => {
-      event.preventDefault()
-      event.stopPropagation?.()
-    })
-    this.shadowRoot.querySelectorAll('[data-markup-tool]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const markupTool = resolveMarkupTool(button.getAttribute('data-markup-tool'))
+    const overlay = this.shadowRoot.querySelector(
+      ".obv-markup-overlay",
+    ) as HTMLElement | null;
+    this.installMarkupKeydownListener();
+    overlay?.addEventListener("pointerdown", (event) =>
+      this.handleMarkupPointerDown(event as PointerEvent),
+    );
+    overlay?.addEventListener("pointermove", (event) =>
+      this.handleMarkupPointerMove(event as PointerEvent),
+    );
+    overlay?.addEventListener("pointerup", (event) =>
+      this.handleMarkupPointerUp(event as PointerEvent),
+    );
+    overlay?.addEventListener("pointercancel", (event) => {
+      event.stopPropagation?.();
+      this.suppressNextMarkupCanvasClick = false;
+      this.markupDraft = null;
+      this.renderMarkupOverlay();
+    });
+    overlay?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation?.();
+    });
+    this.shadowRoot.querySelectorAll("[data-markup-tool]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const markupTool = resolveMarkupTool(
+          button.getAttribute("data-markup-tool"),
+        );
         if (markupTool) {
-          this.markupTool = markupTool
+          this.markupTool = markupTool;
         }
-        this.renderMarkupOverlay()
-      })
-    })
-    this.shadowRoot.querySelector('[data-markup-undo="true"]')?.addEventListener('click', () => {
-      this.markupItems = this.markupItems.slice(0, -1)
-      if (this.markupItems.length === 0) {
-        this.markupContext = null
-      }
-      this.renderMarkupOverlay()
-    })
-    this.shadowRoot.querySelector('[data-markup-cancel="true"]')?.addEventListener('click', () => {
-      this.cancelMarkupEditSession()
-      this.uninstallMarkupKeydownListener()
-      this.openCard()
-    })
-    this.shadowRoot.querySelector('[data-markup-done="true"]')?.addEventListener('click', () => {
-      this.markupDraft = null
-      this.markupSessionSnapshot = null
-      this.uninstallMarkupKeydownListener()
-      this.openCard()
-    })
+        this.renderMarkupOverlay();
+      });
+    });
+    this.shadowRoot
+      .querySelector('[data-markup-undo="true"]')
+      ?.addEventListener("click", () => {
+        this.markupItems = this.markupItems.slice(0, -1);
+        if (this.markupItems.length === 0) {
+          this.markupContext = null;
+        }
+        this.renderMarkupOverlay();
+      });
+    this.shadowRoot
+      .querySelector('[data-markup-cancel="true"]')
+      ?.addEventListener("click", () => {
+        this.cancelMarkupEditSession();
+        this.uninstallMarkupKeydownListener();
+        this.openCard();
+      });
+    this.shadowRoot
+      .querySelector('[data-markup-done="true"]')
+      ?.addEventListener("click", () => {
+        this.markupDraft = null;
+        this.markupSessionSnapshot = null;
+        this.uninstallMarkupKeydownListener();
+        this.openCard();
+      });
   }
 
   private readonly handleMarkupKeydown = (event: KeyboardEvent): void => {
-    if (event.key !== 'Escape' || !this.markupOverlayOpen) {
-      return
+    if (event.key !== "Escape" || !this.markupOverlayOpen) {
+      return;
     }
-    event.preventDefault()
-    this.cancelMarkupEditSession()
-    this.uninstallMarkupKeydownListener()
-    this.openCard()
-  }
+    event.preventDefault();
+    this.cancelMarkupEditSession();
+    this.uninstallMarkupKeydownListener();
+    this.openCard();
+  };
 
   private readonly handleMarkupCanvasClick = (event: MouseEvent): void => {
     if (!this.markupOverlayOpen || !this.suppressNextMarkupCanvasClick) {
-      return
+      return;
     }
-    this.suppressNextMarkupCanvasClick = false
-    const overlay = this.shadowRoot.querySelector('.obv-markup-overlay')
-    const path: readonly unknown[] = typeof event.composedPath === 'function' ? event.composedPath() : []
-    const targetsMarkupCanvas = overlay ? path.includes(overlay) || event.target === overlay : false
+    this.suppressNextMarkupCanvasClick = false;
+    const overlay = this.shadowRoot.querySelector(".obv-markup-overlay");
+    const path: readonly unknown[] =
+      typeof event.composedPath === "function" ? event.composedPath() : [];
+    const targetsMarkupCanvas = overlay
+      ? path.includes(overlay) || event.target === overlay
+      : false;
     if (!targetsMarkupCanvas) {
-      return
+      return;
     }
-    event.preventDefault()
-    event.stopPropagation()
-  }
+    event.preventDefault();
+    event.stopPropagation();
+  };
 
   private installMarkupKeydownListener(): void {
     if (this.markupKeydownListenerInstalled) {
-      return
+      return;
     }
-    window.addEventListener('keydown', this.handleMarkupKeydown)
-    window.addEventListener('click', this.handleMarkupCanvasClick, true)
-    this.markupKeydownListenerInstalled = true
+    window.addEventListener("keydown", this.handleMarkupKeydown);
+    window.addEventListener("click", this.handleMarkupCanvasClick, true);
+    this.markupKeydownListenerInstalled = true;
   }
 
   private uninstallMarkupKeydownListener(): void {
     if (!this.markupKeydownListenerInstalled) {
-      return
+      return;
     }
-    window.removeEventListener('keydown', this.handleMarkupKeydown)
-    window.removeEventListener('click', this.handleMarkupCanvasClick, true)
-    this.suppressNextMarkupCanvasClick = false
-    this.markupKeydownListenerInstalled = false
+    window.removeEventListener("keydown", this.handleMarkupKeydown);
+    window.removeEventListener("click", this.handleMarkupCanvasClick, true);
+    this.suppressNextMarkupCanvasClick = false;
+    this.markupKeydownListenerInstalled = false;
   }
 
   private beginMarkupEditSession(): void {
-    const sessionContext = this.markupContext ?? this.captureMarkupContext()
-    this.markupContext = sessionContext
+    const sessionContext = this.markupContext ?? this.captureMarkupContext();
+    this.markupContext = sessionContext;
     this.markupSessionSnapshot = {
-      items: this.markupItems.map((item) => ({ ...item, points: [...item.points] })),
+      items: this.markupItems.map((item) => ({
+        ...item,
+        points: [...item.points],
+      })),
       context: sessionContext,
-    }
-    this.renderMarkupOverlay()
+    };
+    this.renderMarkupOverlay();
   }
 
   private cancelMarkupEditSession(): void {
-    this.markupDraft = null
+    this.markupDraft = null;
     if (this.markupSessionSnapshot) {
-      this.markupItems = this.markupSessionSnapshot.items.map((item) => ({ ...item, points: [...item.points] }))
-      this.markupContext = this.markupSessionSnapshot.context
+      this.markupItems = this.markupSessionSnapshot.items.map((item) => ({
+        ...item,
+        points: [...item.points],
+      }));
+      this.markupContext = this.markupSessionSnapshot.context;
     } else {
-      this.markupItems = []
-      this.markupContext = null
+      this.markupItems = [];
+      this.markupContext = null;
     }
-    this.markupSessionSnapshot = null
+    this.markupSessionSnapshot = null;
   }
 
   private clearMarkupState(): void {
-    this.markupDraft = null
-    this.markupItems = []
-    this.markupContext = null
-    this.markupSessionSnapshot = null
+    this.markupDraft = null;
+    this.markupItems = [];
+    this.markupContext = null;
+    this.markupSessionSnapshot = null;
   }
 
   private clearSubmissionDraftState(): void {
-    this.clearMarkupState()
-    this.elementGrabItems = []
-    this.measurementItems = []
-    this.clearElementGrabHoverState()
-    this.feedbackAttachments = []
-    this.newRowDraft = ''
+    this.clearMarkupState();
+    this.elementGrabItems = [];
+    this.measurementItems = [];
+    this.clearElementGrabHoverState();
+    this.feedbackAttachments = [];
+    this.newRowDraft = "";
   }
 
   private clearElementGrabHoverState(): void {
-    this.elementGrabHoverTarget = null
-    this.elementGrabHoverInfo = null
+    this.elementGrabHoverTarget = null;
+    this.elementGrabHoverInfo = null;
     if (this.elementGrabResolveTimer !== null) {
-      window.clearTimeout(this.elementGrabResolveTimer)
-      this.elementGrabResolveTimer = null
+      window.clearTimeout(this.elementGrabResolveTimer);
+      this.elementGrabResolveTimer = null;
     }
   }
 
-  private getElementAtPoint(point: FeedbackMarkupPoint, overlaySelector: string): Element | null {
-    if (typeof document.elementFromPoint !== 'function') {
-      return null
+  private getElementAtPoint(
+    point: FeedbackMarkupPoint,
+    overlaySelector: string,
+  ): Element | null {
+    if (typeof document.elementFromPoint !== "function") {
+      return null;
     }
-    const overlay = this.shadowRoot.querySelector(overlaySelector)
+    const overlay = this.shadowRoot.querySelector(overlaySelector);
     if (!(overlay instanceof HTMLElement)) {
-      return null
+      return null;
     }
-    const previousPointerEvents = overlay.style.pointerEvents
-    overlay.style.pointerEvents = 'none'
-    const element = document.elementFromPoint(point.x, point.y)
-    overlay.style.pointerEvents = previousPointerEvents
+    const previousPointerEvents = overlay.style.pointerEvents;
+    overlay.style.pointerEvents = "none";
+    const element = document.elementFromPoint(point.x, point.y);
+    overlay.style.pointerEvents = previousPointerEvents;
     if (!element || element === this.host || this.host.contains(element)) {
-      return null
+      return null;
     }
-    return element
+    return element;
   }
 
-  private createHoverInfo(target: Element, sourceInfo: ElementSourceInfo | null): ElementGrabHoverInfo {
+  private createHoverInfo(
+    target: Element,
+    sourceInfo: ElementSourceInfo | null,
+  ): ElementGrabHoverInfo {
     return {
       tagName: target.tagName,
       componentName: sourceInfo?.componentName ?? null,
       sourceFile: sourceInfo?.source?.filePath ?? null,
       lineNumber: sourceInfo?.source?.lineNumber ?? null,
-    }
+    };
   }
 
-  private async resolveElementSourceInfo(target: Element): Promise<ElementSourceInfo | null> {
+  private async resolveElementSourceInfo(
+    target: Element,
+  ): Promise<ElementSourceInfo | null> {
     if (!this.config.elementSourceResolver) {
-      return null
+      return null;
     }
-    const cachedResult = this.elementSourceCache.get(target)
+    const cachedResult = this.elementSourceCache.get(target);
     if (cachedResult) {
-      return cachedResult
+      return cachedResult;
     }
-    const resolverResult = this.config.elementSourceResolver(target).catch(() => null)
-    this.elementSourceCache.set(target, resolverResult)
-    return resolverResult
+    const resolverResult = this.config
+      .elementSourceResolver(target)
+      .catch(() => null);
+    this.elementSourceCache.set(target, resolverResult);
+    return resolverResult;
   }
 
   private queueElementGrabHoverResolution(target: Element): void {
     if (!this.config.elementSourceResolver) {
-      return
+      return;
     }
     if (this.elementGrabResolveTimer !== null) {
-      window.clearTimeout(this.elementGrabResolveTimer)
+      window.clearTimeout(this.elementGrabResolveTimer);
     }
     this.elementGrabResolveTimer = window.setTimeout(() => {
-      this.elementGrabResolveTimer = null
+      this.elementGrabResolveTimer = null;
       this.resolveElementSourceInfo(target)
         .then((sourceInfo) => {
-          if (this.destroyed || !this.elementPickerOpen || this.elementGrabHoverTarget !== target) {
-            return
+          if (
+            this.destroyed ||
+            !this.elementPickerOpen ||
+            this.elementGrabHoverTarget !== target
+          ) {
+            return;
           }
-          this.elementGrabHoverInfo = this.createHoverInfo(target, sourceInfo)
-          this.updateElementPickerHoverOverlay()
+          this.elementGrabHoverInfo = this.createHoverInfo(target, sourceInfo);
+          this.updateElementPickerHoverOverlay();
         })
-        .catch(() => undefined)
-    }, 150)
+        .catch(() => undefined);
+    }, 150);
   }
 
   private updateElementGrabHover(point: FeedbackMarkupPoint): void {
-    const target = this.getElementAtPoint(point, '.obv-element-picker-overlay')
+    const target = this.getElementAtPoint(point, ".obv-element-picker-overlay");
     if (target === this.elementGrabHoverTarget) {
-      this.updateElementPickerHoverOverlay()
-      return
+      this.updateElementPickerHoverOverlay();
+      return;
     }
-    this.elementGrabHoverTarget = target
-    this.elementGrabHoverInfo = target ? this.createHoverInfo(target, null) : null
-    this.updateElementPickerHoverOverlay()
+    this.elementGrabHoverTarget = target;
+    this.elementGrabHoverInfo = target
+      ? this.createHoverInfo(target, null)
+      : null;
+    this.updateElementPickerHoverOverlay();
     if (target) {
-      this.queueElementGrabHoverResolution(target)
+      this.queueElementGrabHoverResolution(target);
     } else if (this.elementGrabResolveTimer !== null) {
-      window.clearTimeout(this.elementGrabResolveTimer)
-      this.elementGrabResolveTimer = null
+      window.clearTimeout(this.elementGrabResolveTimer);
+      this.elementGrabResolveTimer = null;
     }
   }
 
-  private async createElementGrabItem(target: Element): Promise<ElementGrabItem> {
-    const sourceInfo = await this.resolveElementSourceInfo(target)
+  private async createElementGrabItem(
+    target: Element,
+  ): Promise<ElementGrabItem> {
+    const sourceInfo = await this.resolveElementSourceInfo(target);
     return {
       id: createElementGrabId(),
       tagName: target.tagName,
       cssSelector: buildCssSelector(target),
       outerHtml: truncateOuterHtml(target),
-      textContent: truncateText((target.textContent ?? '').trim().replace(/\s+/g, ' '), MAX_TEXT_LENGTH),
+      textContent: truncateText(
+        (target.textContent ?? "").trim().replace(/\s+/g, " "),
+        MAX_TEXT_LENGTH,
+      ),
       boundingRect: createElementGrabRect(target.getBoundingClientRect()),
       componentName: sourceInfo?.componentName ?? null,
       sourceFile: sourceInfo?.source?.filePath ?? null,
@@ -3485,12 +4910,12 @@ class ObviousFeedbackWidget {
           lineNumber: frame.lineNumber,
           componentName: frame.componentName,
         })) ?? [],
-    }
+    };
   }
 
   private renderElementPickerOverlay(): void {
-    this.elementPickerOpen = true
-    this.markupOverlayOpen = false
+    this.elementPickerOpen = true;
+    this.markupOverlayOpen = false;
     this.shadowRoot.innerHTML = `
       <style>${createStyles()}</style>
       <div class="obv-element-picker-overlay" role="application" aria-label="Select an element on the page. Click to attach it, press Escape to cancel." tabindex="0">
@@ -3499,66 +4924,629 @@ class ObviousFeedbackWidget {
       </div>
       <div class="obv-element-picker-bar">
         <span>Click an element to attach it</span>
-        <button class="obv-button" type="button" data-element-picker-done="true">${createIcon('close')}Cancel</button>
+        <button class="obv-button" type="button" data-element-picker-done="true">${createIcon("close")}Cancel</button>
       </div>
-    `
-    this.bindElementPickerOverlay()
+    `;
+    this.bindElementPickerOverlay();
   }
 
   private bindElementPickerOverlay(): void {
-    const overlay = this.shadowRoot.querySelector('.obv-element-picker-overlay')
+    const overlay = this.shadowRoot.querySelector(
+      ".obv-element-picker-overlay",
+    );
     if (overlay instanceof HTMLElement) {
-      overlay.focus()
-      overlay.addEventListener('pointermove', (event) => {
-        this.updateElementGrabHover(getMarkupPoint(event))
-        event.preventDefault()
-      })
-      overlay.addEventListener('pointerup', (event) => {
-        void this.handleElementPickerClick(event)
-      })
-      overlay.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          this.clearElementGrabHoverState()
-          this.elementPickerOpen = false
-          this.openCard()
+      overlay.focus();
+      overlay.addEventListener("pointermove", (event) => {
+        this.updateElementGrabHover(getMarkupPoint(event));
+        event.preventDefault();
+      });
+      overlay.addEventListener("pointerup", (event) => {
+        void this.handleElementPickerClick(event);
+      });
+      overlay.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          this.clearElementGrabHoverState();
+          this.elementPickerOpen = false;
+          this.elementPickerOnPick = null;
+          this.openCard();
         }
-      })
+      });
     }
-    this.shadowRoot.querySelector('[data-element-picker-done="true"]')?.addEventListener('click', () => {
-      this.clearElementGrabHoverState()
-      this.elementPickerOpen = false
-      this.openCard()
-    })
+    this.shadowRoot
+      .querySelector('[data-element-picker-done="true"]')
+      ?.addEventListener("click", () => {
+        this.clearElementGrabHoverState();
+        this.elementPickerOpen = false;
+        this.elementPickerOnPick = null;
+        this.openCard();
+      });
   }
 
   private async handleElementPickerClick(event: PointerEvent): Promise<void> {
-    const point = getMarkupPoint(event)
-    this.updateElementGrabHover(point)
-    const target = this.elementGrabHoverTarget ?? this.getElementAtPoint(point, '.obv-element-picker-overlay')
-    if (!target || this.elementGrabItems.length >= MAX_ELEMENT_GRABS) {
-      event.preventDefault()
-      return
+    const point = getMarkupPoint(event);
+    this.updateElementGrabHover(point);
+    const target =
+      this.elementGrabHoverTarget ??
+      this.getElementAtPoint(point, ".obv-element-picker-overlay");
+    if (!target) {
+      event.preventDefault();
+      return;
     }
-    const nextItem = await this.createElementGrabItem(target)
+    if (this.elementPickerOnPick) {
+      event.preventDefault();
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const onPick = this.elementPickerOnPick;
+      this.elementPickerOnPick = null;
+      void onPick(target);
+      return;
+    }
+    if (this.elementGrabItems.length >= MAX_ELEMENT_GRABS) {
+      event.preventDefault();
+      return;
+    }
+    const nextItem = await this.createElementGrabItem(target);
     if (this.destroyed || !this.elementPickerOpen) {
-      return
+      return;
     }
-    this.elementGrabItems = [...this.elementGrabItems, nextItem]
-    this.clearElementGrabHoverState()
-    this.elementPickerOpen = false
-    this.openCard()
+    this.elementGrabItems = [...this.elementGrabItems, nextItem];
+    this.clearElementGrabHoverState();
+    this.elementPickerOpen = false;
+    this.openCard();
+  }
+
+  // ---- Visual suggestion flow (feature-flagged, palette UX) ----
+
+  private beginVisualSuggestionSelection(): void {
+    if (!this.visualSuggestions) return;
+    this.visualSuggestionTargetOptions = [];
+    this.visualSuggestionScopeOptions = [];
+    this.elementPickerOnPick = (target) =>
+      this.handleVisualSuggestionPick(target);
+    this.renderElementPickerOverlay();
+  }
+
+  private async handleVisualSuggestionPick(target: HTMLElement): Promise<void> {
+    const mgr = this.visualSuggestions;
+    if (!mgr || mgr.isFull()) return;
+    const targetOptions = await this.createVisualSuggestionTargetOptions(target);
+    if (this.destroyed || !this.elementPickerOpen) return;
+    const selectedTarget = targetOptions[0];
+    if (!selectedTarget) return;
+    this.visualSuggestionTargetOptions = targetOptions;
+    this.visualSuggestionScopeOptions = selectedTarget.scopeOptions;
+    const defaultScope = selectedTarget.scopeOptions[0];
+    mgr.setActiveElementTargets(
+      selectedTarget.element,
+      selectedTarget.ref,
+      defaultScope?.targets ?? [
+        { element: selectedTarget.element, ref: selectedTarget.ref },
+      ],
+      defaultScope?.scope ?? {
+        kind: "element",
+        label: "This element",
+        matchedCount: 1,
+      },
+    );
+    this.activeVisualSuggestionItemId = null;
+    this.clearElementGrabHoverState();
+    this.elementPickerOpen = false;
+    this.elementPickerOnPick = null;
+    this.openCard();
+  }
+
+  private getActiveVisualSuggestionTargetOption(): VisualSuggestionTargetOption | null {
+    const active = this.visualSuggestions?.getActiveElement();
+    if (!active) return null;
+    return (
+      this.visualSuggestionTargetOptions.find(
+        (option) => option.ref.id === active.ref.id,
+      ) ?? null
+    );
+  }
+
+  private async createVisualSuggestionTargetOptions(
+    rawTarget: HTMLElement,
+  ): Promise<VisualSuggestionTargetOption[]> {
+    const normalizedTarget = normalizeVisualSuggestionTarget(rawTarget);
+    if (!isElementVisibleForScope(normalizedTarget)) {
+      return [];
+    }
+
+    const grab = await this.createElementGrabItem(normalizedTarget);
+    const ref = createVisualSuggestionElementRef(grab);
+    const label = getVisualSuggestionTargetLabel(normalizedTarget);
+    return [
+      {
+        id: ref.id,
+        kind: getVisualSuggestionTargetKind(normalizedTarget),
+        label,
+        element: normalizedTarget,
+        ref,
+        scopeOptions: await this.createVisualSuggestionScopeOptions(
+          normalizedTarget,
+          ref,
+          label,
+        ),
+      },
+    ];
+  }
+
+  private async createVisualSuggestionScopeOptions(
+    selectedTarget: HTMLElement,
+    selectedRef: FeedbackVisualSuggestionElementRef,
+    targetLabel = getVisualSuggestionTargetLabel(selectedTarget),
+  ): Promise<VisualSuggestionScopeOption[]> {
+    const singleTarget = { element: selectedTarget, ref: selectedRef };
+    const options: VisualSuggestionScopeOption[] = [
+      {
+        kind: "element",
+        label: supportsVisualSuggestionSiblingScope(targetLabel)
+          ? `This ${targetLabel.toLowerCase()}`
+          : "This",
+        targets: [singleTarget],
+        scope: {
+          kind: "element",
+          label: "This element",
+          matchedCount: 1,
+        },
+      },
+    ];
+
+    const siblingScope = findSimilarSiblingScope(selectedTarget);
+    if (!siblingScope || !supportsVisualSuggestionSiblingScope(targetLabel)) {
+      return options;
+    }
+
+    const siblingTargets: VisualSuggestionTargetInput[] = [];
+    for (const element of siblingScope.elements) {
+      if (element === selectedTarget) {
+        siblingTargets.push(singleTarget);
+        continue;
+      }
+      const grab = await this.createElementGrabItem(element);
+      siblingTargets.push({
+        element,
+        ref: createVisualSuggestionElementRef(grab),
+      });
+    }
+
+    const pluralTargetLabel = pluralizeVisualSuggestionTargetLabel(targetLabel);
+    options.push({
+      kind: "similar-siblings",
+      label: `All ${pluralTargetLabel}`,
+      targets: siblingTargets,
+      scope: {
+        kind: "similar-siblings",
+        label: `All ${pluralTargetLabel} in this row/group`,
+        matchedCount: siblingTargets.length,
+        parentElement: {
+          tagName: siblingScope.parent.tagName,
+          cssSelector: buildCssSelector(siblingScope.parent),
+        },
+        matchedElements: siblingTargets.map(({ element, ref }) => ({
+          tagName: ref.tagName,
+          cssSelector: ref.cssSelector,
+          textContent: getVisualSuggestionElementLabel(element),
+          componentName: ref.componentName,
+        })),
+      },
+    });
+
+    return options;
+  }
+
+  private renderVisualSuggestionPalette(): string {
+    const mgr = this.visualSuggestions;
+    const active = mgr?.getActiveElement();
+    if (!active) return "";
+    const targetOption = this.getActiveVisualSuggestionTargetOption();
+    const displayName =
+      targetOption?.label ??
+      active.ref.componentName ??
+      active.ref.tagName.toLowerCase();
+    const scopeControls =
+      this.visualSuggestionScopeOptions.length > 1
+        ? `<div class="obv-vs-scope" role="group" aria-label="Visual suggestion target scope">
+            ${this.visualSuggestionScopeOptions
+              .map((option) => {
+                const isActive = option.kind === active.scope.kind;
+                return `<button class="obv-button obv-vs-scope-button" type="button" data-vs-scope="${escapeHtml(option.kind)}" aria-pressed="${isActive}">${escapeHtml(option.label)}</button>`;
+              })
+              .join("")}
+          </div>`
+        : "";
+    const properties = getVisualSuggestionTargetProperties(
+      active.element,
+      targetOption?.kind ?? getVisualSuggestionTargetKind(active.element),
+    );
+    const rows = properties.map((prop) => {
+      const override = mgr?.getOverrideForActiveElement(prop) ?? null;
+      const displayValue = mgr?.getCurrentDisplayValue(prop) ?? "";
+      const hasOverride = override !== null;
+      if (isVisualSuggestionColorProperty(prop)) {
+        return this.renderVsPaletteColorRow(prop, displayValue, hasOverride);
+      }
+      return this.renderVsPaletteNumericRow(prop, displayValue, hasOverride);
+    }).join("");
+    return `
+      <div class="obv-vs-palette" role="group" aria-label="Visual suggestions for ${escapeHtml(displayName)}">
+        <div class="obv-vs-header">
+          <span class="obv-vs-target">${createIcon("element")} ${escapeHtml(displayName)}</span>
+          <button class="obv-icon-button obv-vs-close" type="button" data-vs-close="true" aria-label="Close palette">${createIcon("close")}</button>
+        </div>
+        ${scopeControls}
+        ${rows}
+      </div>
+    `;
+  }
+
+  private renderVsPaletteNumericRow(
+    property: FeedbackVisualSuggestionProperty,
+    displayValue: string,
+    hasOverride: boolean,
+  ): string {
+    const label = VISUAL_SUGGESTION_PROPERTY_LABELS[property] ?? property;
+    const sliderConfig = getVisualSuggestionSliderConfig(property);
+    const parsed = parseCssNumericValue(displayValue);
+    const sliderMin = sliderConfig?.min ?? 0;
+    const sliderMax = sliderConfig?.max ?? 100;
+    const sliderStep = sliderConfig?.step ?? 1;
+    const sliderUnit = parsed?.unit || sliderConfig?.unit || "px";
+    const shown = parsed
+      ? parsed.value > sliderMax
+        ? `${formatCssNumericValue(sliderMax, parsed.unit || sliderUnit)}+`
+        : formatCssNumericValue(parsed.value, parsed.unit)
+      : displayValue || "—";
+    const sliderValue = parsed
+      ? Math.min(sliderMax, Math.max(sliderMin, parsed.value))
+      : sliderMin;
+    const sliderPercent =
+      sliderMax > sliderMin
+        ? ((sliderValue - sliderMin) / (sliderMax - sliderMin)) * 100
+        : 0;
+    return `
+      <div class="obv-vs-row" data-has-override="${hasOverride}" data-vs-prop="${escapeHtml(property)}">
+        <span class="obv-vs-row-label">${escapeHtml(label)}</span>
+        <div class="obv-vs-numeric-group">
+          <div class="obv-vs-numeric-top">
+            <span class="obv-vs-scrub" data-vs-scrub="${escapeHtml(property)}" data-has-override="${hasOverride}">${escapeHtml(shown)}</span>
+          </div>
+          <input type="range" class="obv-vs-slider" data-vs-slider="${escapeHtml(property)}" data-vs-slider-unit="${escapeHtml(sliderUnit)}" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" value="${sliderValue}" style="--obv-vs-slider-percent: ${sliderPercent.toFixed(2)}%" aria-label="Adjust ${escapeHtml(label)}" />
+        </div>
+        <button class="obv-icon-button obv-vs-revert" type="button" data-vs-revert="${escapeHtml(property)}" aria-label="Revert ${escapeHtml(label)}">↺</button>
+      </div>
+    `;
+  }
+
+  private renderVsPaletteColorRow(
+    property: FeedbackVisualSuggestionProperty,
+    displayValue: string,
+    hasOverride: boolean,
+  ): string {
+    const label = VISUAL_SUGGESTION_PROPERTY_LABELS[property] ?? property;
+    const hex = cssColorToHex(displayValue);
+    const isTransparent =
+      !displayValue ||
+      displayValue === "transparent" ||
+      displayValue === "rgba(0, 0, 0, 0)";
+    const shown = isTransparent ? "transparent" : hex;
+    return `
+      <div class="obv-vs-row" data-has-override="${hasOverride}" data-vs-prop="${escapeHtml(property)}">
+        <span class="obv-vs-row-label">${escapeHtml(label)}</span>
+        <input type="color" class="obv-vs-swatch" data-vs-color="${escapeHtml(property)}" value="${escapeHtml(hex)}" aria-label="Pick ${escapeHtml(label)}" />
+        <span class="obv-vs-scrub" data-vs-scrub="${escapeHtml(property)}" data-has-override="${hasOverride}" data-vs-color-text="true">${escapeHtml(shown)}</span>
+        <button class="obv-icon-button obv-vs-revert" type="button" data-vs-revert="${escapeHtml(property)}" aria-label="Revert ${escapeHtml(label)}">↺</button>
+      </div>
+    `;
+  }
+
+  private renderVisualSuggestionChips(): string {
+    const mgr = this.visualSuggestions;
+    if (!mgr) return "";
+    const groups = this.groupVisualSuggestionsByElement(
+      this.getUncommittedVisualSuggestions(),
+    );
+    const activeId = mgr.getActiveElement()?.ref.id ?? null;
+    const chips = groups
+      .filter((g) => g.element.id !== activeId)
+      .map((g) => {
+        const name = getVisualSuggestionRefLabel(g.element, g.items);
+        const diffs = g.items
+          .map((i) => {
+            const short =
+              VISUAL_SUGGESTION_PROPERTY_LABELS[i.property] ?? i.property;
+            return `${short} ${i.originalValue || "—"}→${i.suggestedValue}`;
+          })
+          .join(", ");
+        return `<div class="obv-vs-chip" data-vs-chip-activate="${escapeHtml(g.element.id)}">
+          <span class="obv-vs-chip-name">${createIcon("element")} ${escapeHtml(name)}</span>
+          <span class="obv-vs-chip-diffs">${escapeHtml(diffs)}</span>
+          <button class="obv-icon-button obv-vs-chip-remove" type="button" data-vs-chip-remove="${escapeHtml(g.element.id)}" aria-label="Remove ${escapeHtml(name)} suggestions">${createIcon("close")}</button>
+        </div>`;
+      })
+      .join("");
+    if (!chips) return "";
+    return `<div class="obv-vs-chips">${chips}</div>`;
+  }
+
+  private bindVisualSuggestions(): void {
+    const mgr = this.visualSuggestions;
+    if (!mgr) return;
+
+    this.shadowRoot
+      .querySelector('[data-visual-suggest-start="true"]')
+      ?.addEventListener("click", () => {
+        this.syncAllInputsToRoundItems();
+        this.beginVisualSuggestionSelection();
+      });
+
+    this.shadowRoot
+      .querySelector('[data-vs-close="true"]')
+      ?.addEventListener("click", () => {
+        this.closeVisualSuggestionPalette();
+      });
+
+    this.shadowRoot.querySelectorAll("[data-vs-scope]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const kind = (button as HTMLElement).getAttribute(
+          "data-vs-scope",
+        ) as FeedbackVisualSuggestionScopeKind | null;
+        const active = mgr.getActiveElement();
+        if (!kind || !active || kind === active.scope.kind) {
+          return;
+        }
+        const option = this.visualSuggestionScopeOptions.find(
+          (candidate) => candidate.kind === kind,
+        );
+        if (!option) {
+          return;
+        }
+        mgr.setActiveElementTargets(
+          active.element,
+          active.ref,
+          option.targets,
+          option.scope,
+        );
+        this.syncActiveVisualSuggestionItem();
+        this.openCard();
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-vs-revert]").forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const prop = (btn as HTMLElement).getAttribute("data-vs-revert");
+        if (
+          prop &&
+          VISUAL_SUGGESTION_PROPERTIES.includes(
+            prop as FeedbackVisualSuggestionProperty,
+          )
+        ) {
+          mgr.clearPropertyOverride(prop as FeedbackVisualSuggestionProperty);
+          this.syncActiveVisualSuggestionItem();
+          this.openCard();
+        }
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-vs-scrub]").forEach((el) => {
+      this.bindScrubInteraction(el as HTMLElement, mgr);
+    });
+
+    this.shadowRoot.querySelectorAll("[data-vs-color]").forEach((el) => {
+      const prop = (el as HTMLElement).getAttribute(
+        "data-vs-color",
+      ) as FeedbackVisualSuggestionProperty | null;
+      if (!prop) return;
+      el.addEventListener("input", () => {
+        const value = (el as HTMLInputElement).value;
+        mgr.setPropertyOverride(prop, value);
+        this.syncActiveVisualSuggestionItem();
+        const textEl = this.shadowRoot.querySelector(
+          `[data-vs-scrub="${prop}"]`,
+        );
+        if (textEl) textEl.textContent = value;
+      });
+      el.addEventListener("change", () => {
+        this.openCard();
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-vs-slider]").forEach((el) => {
+      const prop = (el as HTMLElement).getAttribute(
+        "data-vs-slider",
+      ) as FeedbackVisualSuggestionProperty | null;
+      if (!prop) return;
+      const sliderUnit =
+        (el as HTMLElement).getAttribute("data-vs-slider-unit") ?? "px";
+      el.addEventListener("input", () => {
+        const input = el as HTMLInputElement;
+        const next = `${input.value}${sliderUnit}`;
+        const min = Number(input.min);
+        const max = Number(input.max);
+        const value = Number(input.value);
+        const percent =
+          Number.isFinite(min) && Number.isFinite(max) && max > min
+            ? ((value - min) / (max - min)) * 100
+            : 0;
+        input.style.setProperty(
+          "--obv-vs-slider-percent",
+          `${Math.min(100, Math.max(0, percent)).toFixed(2)}%`,
+        );
+        mgr.setPropertyOverride(prop, next);
+        this.syncActiveVisualSuggestionItem();
+        const scrubEl = this.shadowRoot.querySelector(
+          `[data-vs-scrub="${prop}"]`,
+        );
+        if (scrubEl) scrubEl.textContent = next;
+      });
+      el.addEventListener("change", () => {
+        this.openCard();
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-vs-chip-remove]").forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const id = (btn as HTMLElement).getAttribute("data-vs-chip-remove");
+        if (id) {
+          mgr.removeElement(id);
+          this.openCard();
+        }
+      });
+    });
+
+    this.shadowRoot
+      .querySelectorAll("[data-vs-chip-activate]")
+      .forEach((el) => {
+        el.addEventListener("click", () => {
+          const id = (el as HTMLElement).getAttribute("data-vs-chip-activate");
+          if (!id) return;
+          const groups = mgr.getElementsWithOverrides();
+          const group = groups.find((g) => g.ref.id === id);
+          if (!group) return;
+          this.activateVisualSuggestionElement(group.ref, group.items, null);
+        });
+      });
+  }
+
+  private bindScrubInteraction(
+    el: HTMLElement,
+    mgr: VisualSuggestionManager,
+  ): void {
+    const prop = el.getAttribute(
+      "data-vs-scrub",
+    ) as FeedbackVisualSuggestionProperty | null;
+    if (!prop) return;
+    const isColor = el.hasAttribute("data-vs-color-text");
+    let startX = 0;
+    let startValue = 0;
+    let dragging = false;
+    let unit = "";
+    let step = 1;
+
+    el.addEventListener("pointerdown", (event) => {
+      if (isColor) return;
+      event.preventDefault();
+      const currentDisplay = mgr.getCurrentDisplayValue(prop);
+      const parsed = parseCssNumericValue(currentDisplay);
+      const sliderConfig = getVisualSuggestionSliderConfig(prop);
+      if (parsed) {
+        startValue = parsed.value;
+        unit = parsed.unit || sliderConfig?.unit || "px";
+      } else {
+        const defaults = getDefaultScrubStart(prop);
+        startValue = defaults.value;
+        unit = defaults.unit || "px";
+      }
+      step = sliderConfig?.step ?? 1;
+      startX = event.clientX;
+      dragging = false;
+      el.setPointerCapture(event.pointerId);
+    });
+
+    el.addEventListener("pointermove", (event) => {
+      if (!el.hasPointerCapture(event.pointerId)) return;
+      const dx = event.clientX - startX;
+      if (!dragging && Math.abs(dx) < 3) return;
+      dragging = true;
+      let multiplier = 1;
+      if (event.shiftKey) multiplier = 10;
+      if (event.altKey) multiplier = 0.1;
+      const delta = Math.round(dx * multiplier * step);
+      const next = startValue + delta;
+      const formatted = formatCssNumericValue(
+        next,
+        unit as "px" | "rem" | "em" | "%" | "",
+      );
+      mgr.setPropertyOverride(prop, formatted);
+      this.syncActiveVisualSuggestionItem();
+      el.textContent = formatted;
+      const override = mgr.getOverrideForActiveElement(prop);
+      el.setAttribute("data-has-override", override ? "true" : "false");
+    });
+
+    el.addEventListener("pointerup", (event) => {
+      if (el.hasPointerCapture(event.pointerId)) {
+        el.releasePointerCapture(event.pointerId);
+      }
+      if (dragging) {
+        dragging = false;
+        this.openCard();
+        return;
+      }
+      this.showScrubInlineInput(el, prop, mgr);
+    });
+
+    if (isColor) {
+      el.addEventListener("click", () => {
+        this.showScrubInlineInput(el, prop, mgr);
+      });
+    }
+  }
+
+  private showScrubInlineInput(
+    el: HTMLElement,
+    prop: FeedbackVisualSuggestionProperty,
+    mgr: VisualSuggestionManager,
+  ): void {
+    const current = mgr.getCurrentDisplayValue(prop);
+    const parsed = parseCssNumericValue(current);
+    const inputValue = parsed ? String(parsed.value) : current;
+    const sliderConfig = getVisualSuggestionSliderConfig(prop);
+    const unit = parsed?.unit || sliderConfig?.unit || "";
+
+    const input = document.createElement("input");
+    input.className = "obv-vs-scrub-input";
+    input.type = "text";
+    input.inputMode = isVisualSuggestionColorProperty(prop)
+      ? "text"
+      : "decimal";
+    input.value = inputValue;
+    el.textContent = "";
+    el.appendChild(input);
+    input.focus();
+    input.select();
+
+    const commit = () => {
+      const raw = input.value.trim();
+      if (!raw) {
+        this.openCard();
+        return;
+      }
+      const isNumericOnly = unit && /^-?\d*\.?\d+$/.test(raw);
+      const value = isNumericOnly ? `${raw}${unit}` : raw;
+      mgr.setPropertyOverride(prop, value);
+      this.syncActiveVisualSuggestionItem();
+      this.openCard();
+    };
+
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        input.blur();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        input.removeEventListener("blur", commit);
+        this.openCard();
+      }
+    });
   }
 
   private renderRulerOverlay(): void {
-    this.measureOverlayOpen = true
-    this.markupOverlayOpen = false
-    this.elementPickerOpen = false
-    this.rulerLines = []
-    this.selectedRulerId = null
-    this.rulerPreview = null
-    this.draggingRulerId = null
-    this.rulerShiftHeld = false
+    this.measureOverlayOpen = true;
+    this.markupOverlayOpen = false;
+    this.elementPickerOpen = false;
+    this.rulerLines = [];
+    this.selectedRulerId = null;
+    this.rulerPreview = null;
+    this.draggingRulerId = null;
+    this.rulerShiftHeld = false;
     this.shadowRoot.innerHTML = `
       <style>${createStyles()}</style>
       <div class="obv-ruler-overlay" role="application" aria-label="Click to place rulers. Shift+click for vertical. Press Escape to cancel." tabindex="0">
@@ -3567,104 +5555,143 @@ class ObviousFeedbackWidget {
       </div>
       <div class="obv-measure-bar">
         <span>Click to place ruler. Shift+click for vertical.</span>
-        <button class="obv-button" type="button" data-measure-done="true">${createIcon('check')}Done</button>
+        <button class="obv-button" type="button" data-measure-done="true">${createIcon("check")}Done</button>
         <button class="obv-button obv-button-secondary" type="button" data-measure-cancel="true">Cancel</button>
       </div>
-    `
-    this.bindRulerOverlay()
+    `;
+    this.bindRulerOverlay();
   }
 
   private updateRulerSnapHighlight(snap: SnapResult | null): void {
-    const highlight = this.shadowRoot.querySelector('.obv-ruler-snap-highlight') as HTMLElement | null
+    const highlight = this.shadowRoot.querySelector(
+      ".obv-ruler-snap-highlight",
+    ) as HTMLElement | null;
     if (!highlight) {
-      return
+      return;
     }
     if (!snap) {
-      highlight.setAttribute('hidden', 'true')
-      return
+      highlight.setAttribute("hidden", "true");
+      return;
     }
-    highlight.removeAttribute('hidden')
-    highlight.setAttribute('data-edge', snap.edge)
-    highlight.style.left = `${Math.round(snap.rect.left)}px`
-    highlight.style.top = `${Math.round(snap.rect.top)}px`
-    highlight.style.width = `${Math.round(snap.rect.width)}px`
-    highlight.style.height = `${Math.round(snap.rect.height)}px`
+    highlight.removeAttribute("hidden");
+    highlight.setAttribute("data-edge", snap.edge);
+    highlight.style.left = `${Math.round(snap.rect.left)}px`;
+    highlight.style.top = `${Math.round(snap.rect.top)}px`;
+    highlight.style.width = `${Math.round(snap.rect.width)}px`;
+    highlight.style.height = `${Math.round(snap.rect.height)}px`;
   }
 
   private updateRulerSvg(): void {
-    const svg = this.shadowRoot.querySelector('.obv-ruler-svg')
+    const svg = this.shadowRoot.querySelector(".obv-ruler-svg");
     if (svg) {
       svg.innerHTML = renderRulerSvg(
         this.rulerLines,
         this.rulerPreview,
         this.selectedRulerId,
         window.innerWidth,
-        window.innerHeight
-      )
-      this.bindRulerHandles()
+        window.innerHeight,
+      );
+      this.bindRulerHandles();
     }
   }
 
   private bindRulerHandles(): void {
-    this.shadowRoot.querySelectorAll('[data-ruler-handle]').forEach((handle) => {
-      handle.addEventListener('pointerdown', (event) => {
-        event.stopPropagation()
-        event.preventDefault()
-        const id = (handle as Element).getAttribute('data-ruler-handle')
-        if (id) {
-          this.selectedRulerId = id
-          this.draggingRulerId = id
-          ;(handle as Element).setPointerCapture?.((event as PointerEvent).pointerId)
-        }
-      })
-    })
+    this.shadowRoot
+      .querySelectorAll("[data-ruler-handle]")
+      .forEach((handle) => {
+        handle.addEventListener("pointerdown", (event) => {
+          event.stopPropagation();
+          event.preventDefault();
+          const id = (handle as Element).getAttribute("data-ruler-handle");
+          if (id) {
+            this.selectedRulerId = id;
+            this.draggingRulerId = id;
+            (handle as Element).setPointerCapture?.(
+              (event as PointerEvent).pointerId,
+            );
+          }
+        });
+      });
   }
 
   private bindRulerOverlay(): void {
-    const overlay = this.shadowRoot.querySelector('.obv-ruler-overlay')
+    const overlay = this.shadowRoot.querySelector(".obv-ruler-overlay");
     if (!(overlay instanceof HTMLElement)) {
-      return
+      return;
     }
-    overlay.focus()
+    overlay.focus();
 
-    overlay.addEventListener('pointermove', (event) => {
-      const pointerEvent = event as PointerEvent
+    overlay.addEventListener("pointermove", (event) => {
+      const pointerEvent = event as PointerEvent;
       if (this.draggingRulerId) {
-        const ruler = this.rulerLines.find((r) => r.id === this.draggingRulerId)
+        const ruler = this.rulerLines.find(
+          (r) => r.id === this.draggingRulerId,
+        );
         if (ruler) {
-          const rawPos = ruler.orientation === 'horizontal' ? pointerEvent.clientY : pointerEvent.clientX
-          const snap = findSnapPosition(rawPos, ruler.orientation, pointerEvent.clientX, pointerEvent.clientY)
-          ruler.position = snap ? snap.position : Math.round(rawPos)
-          ruler.snappedTo = snap ? snap.selector : null
-          ruler.snappedElement = snap ? snap.element : null
-          ruler.snappedEdge = snap ? snap.edge : null
-          this.updateRulerSnapHighlight(snap)
-          this.updateRulerSvg()
+          const rawPos =
+            ruler.orientation === "horizontal"
+              ? pointerEvent.clientY
+              : pointerEvent.clientX;
+          const snap = findSnapPosition(
+            rawPos,
+            ruler.orientation,
+            pointerEvent.clientX,
+            pointerEvent.clientY,
+          );
+          ruler.position = snap ? snap.position : Math.round(rawPos);
+          ruler.snappedTo = snap ? snap.selector : null;
+          ruler.snappedElement = snap ? snap.element : null;
+          ruler.snappedEdge = snap ? snap.edge : null;
+          this.updateRulerSnapHighlight(snap);
+          this.updateRulerSvg();
         }
-        pointerEvent.preventDefault()
-        return
+        pointerEvent.preventDefault();
+        return;
       }
-      const orientation: 'horizontal' | 'vertical' = this.rulerShiftHeld ? 'vertical' : 'horizontal'
-      const rawPos = orientation === 'horizontal' ? pointerEvent.clientY : pointerEvent.clientX
-      const snap = findSnapPosition(rawPos, orientation, pointerEvent.clientX, pointerEvent.clientY)
-      this.rulerPreview = { orientation, position: snap ? snap.position : Math.round(rawPos) }
-      this.updateRulerSnapHighlight(snap)
-      this.updateRulerSvg()
-      pointerEvent.preventDefault()
-    })
+      const orientation: "horizontal" | "vertical" = this.rulerShiftHeld
+        ? "vertical"
+        : "horizontal";
+      const rawPos =
+        orientation === "horizontal"
+          ? pointerEvent.clientY
+          : pointerEvent.clientX;
+      const snap = findSnapPosition(
+        rawPos,
+        orientation,
+        pointerEvent.clientX,
+        pointerEvent.clientY,
+      );
+      this.rulerPreview = {
+        orientation,
+        position: snap ? snap.position : Math.round(rawPos),
+      };
+      this.updateRulerSnapHighlight(snap);
+      this.updateRulerSvg();
+      pointerEvent.preventDefault();
+    });
 
-    overlay.addEventListener('pointerup', (event) => {
+    overlay.addEventListener("pointerup", (event) => {
       if (this.draggingRulerId) {
-        this.draggingRulerId = null
-        this.updateRulerSnapHighlight(null)
-        event.preventDefault()
-        return
+        this.draggingRulerId = null;
+        this.updateRulerSnapHighlight(null);
+        event.preventDefault();
+        return;
       }
-      const pointerEvent = event as PointerEvent
-      const orientation: 'horizontal' | 'vertical' = this.rulerShiftHeld ? 'vertical' : 'horizontal'
-      const rawPos = orientation === 'horizontal' ? pointerEvent.clientY : pointerEvent.clientX
-      const snap = findSnapPosition(rawPos, orientation, pointerEvent.clientX, pointerEvent.clientY)
-      const position = snap ? snap.position : Math.round(rawPos)
+      const pointerEvent = event as PointerEvent;
+      const orientation: "horizontal" | "vertical" = this.rulerShiftHeld
+        ? "vertical"
+        : "horizontal";
+      const rawPos =
+        orientation === "horizontal"
+          ? pointerEvent.clientY
+          : pointerEvent.clientX;
+      const snap = findSnapPosition(
+        rawPos,
+        orientation,
+        pointerEvent.clientX,
+        pointerEvent.clientY,
+      );
+      const position = snap ? snap.position : Math.round(rawPos);
       const newRuler: RulerLine = {
         id: createRulerId(),
         orientation,
@@ -3672,117 +5699,141 @@ class ObviousFeedbackWidget {
         snappedTo: snap ? snap.selector : null,
         snappedElement: snap ? snap.element : null,
         snappedEdge: snap ? snap.edge : null,
-      }
-      this.rulerLines = [...this.rulerLines, newRuler]
-      this.selectedRulerId = newRuler.id
-      this.updateRulerSnapHighlight(null)
-      this.updateRulerSvg()
-      pointerEvent.preventDefault()
-    })
+      };
+      this.rulerLines = [...this.rulerLines, newRuler];
+      this.selectedRulerId = newRuler.id;
+      this.updateRulerSnapHighlight(null);
+      this.updateRulerSvg();
+      pointerEvent.preventDefault();
+    });
 
-    overlay.addEventListener('pointercancel', () => {
-      this.draggingRulerId = null
-      this.updateRulerSnapHighlight(null)
-    })
+    overlay.addEventListener("pointercancel", () => {
+      this.draggingRulerId = null;
+      this.updateRulerSnapHighlight(null);
+    });
 
-    overlay.addEventListener('keydown', (event) => {
-      const keyEvent = event as KeyboardEvent
-      if (keyEvent.key === 'Escape') {
-        keyEvent.preventDefault()
-        this.cancelMeasurement()
-        return
+    overlay.addEventListener("keydown", (event) => {
+      const keyEvent = event as KeyboardEvent;
+      if (keyEvent.key === "Escape") {
+        keyEvent.preventDefault();
+        this.cancelMeasurement();
+        return;
       }
-      if ((keyEvent.key === 'Backspace' || keyEvent.key === 'Delete') && this.selectedRulerId) {
-        keyEvent.preventDefault()
-        this.rulerLines = this.rulerLines.filter((r) => r.id !== this.selectedRulerId)
-        this.selectedRulerId = null
-        this.updateRulerSvg()
-        return
+      if (
+        (keyEvent.key === "Backspace" || keyEvent.key === "Delete") &&
+        this.selectedRulerId
+      ) {
+        keyEvent.preventDefault();
+        this.rulerLines = this.rulerLines.filter(
+          (r) => r.id !== this.selectedRulerId,
+        );
+        this.selectedRulerId = null;
+        this.updateRulerSvg();
+        return;
       }
-      if (keyEvent.key === 'Shift') {
-        this.rulerShiftHeld = true
+      if (keyEvent.key === "Shift") {
+        this.rulerShiftHeld = true;
         if (this.rulerPreview) {
-          this.rulerPreview = { ...this.rulerPreview, orientation: 'vertical' }
-          this.updateRulerSvg()
+          this.rulerPreview = { ...this.rulerPreview, orientation: "vertical" };
+          this.updateRulerSvg();
         }
       }
-    })
+    });
 
-    overlay.addEventListener('keyup', (event) => {
-      if ((event as KeyboardEvent).key === 'Shift') {
-        this.rulerShiftHeld = false
+    overlay.addEventListener("keyup", (event) => {
+      if ((event as KeyboardEvent).key === "Shift") {
+        this.rulerShiftHeld = false;
         if (this.rulerPreview) {
-          this.rulerPreview = { ...this.rulerPreview, orientation: 'horizontal' }
-          this.updateRulerSvg()
+          this.rulerPreview = {
+            ...this.rulerPreview,
+            orientation: "horizontal",
+          };
+          this.updateRulerSvg();
         }
       }
-    })
+    });
 
-    this.shadowRoot.querySelector('[data-measure-done="true"]')?.addEventListener('click', () => {
-      this.finishMeasurement()
-    })
-    this.shadowRoot.querySelector('[data-measure-cancel="true"]')?.addEventListener('click', () => {
-      this.cancelMeasurement()
-    })
+    this.shadowRoot
+      .querySelector('[data-measure-done="true"]')
+      ?.addEventListener("click", () => {
+        this.finishMeasurement();
+      });
+    this.shadowRoot
+      .querySelector('[data-measure-cancel="true"]')
+      ?.addEventListener("click", () => {
+        this.cancelMeasurement();
+      });
   }
 
   private async finishMeasurement(): Promise<void> {
     if (this.rulerLines.length === 0) {
-      this.cancelMeasurement()
-      return
+      this.cancelMeasurement();
+      return;
     }
-    const rawDistances = computeRulerDistances(this.rulerLines)
+    const rawDistances = computeRulerDistances(this.rulerLines);
 
-    const serializeRuler = async (ruler: RulerLine): Promise<FeedbackMeasurementRuler> => {
-      let snappedElement: FeedbackMeasurementRuler['snappedElement'] = null
+    const serializeRuler = async (
+      ruler: RulerLine,
+    ): Promise<FeedbackMeasurementRuler> => {
+      let snappedElement: FeedbackMeasurementRuler["snappedElement"] = null;
       if (ruler.snappedElement && document.contains(ruler.snappedElement)) {
-        const sourceInfo = await this.resolveElementSourceInfo(ruler.snappedElement)
-        const rect = ruler.snappedElement.getBoundingClientRect()
+        const sourceInfo = await this.resolveElementSourceInfo(
+          ruler.snappedElement,
+        );
+        const rect = ruler.snappedElement.getBoundingClientRect();
         snappedElement = {
-          cssSelector: ruler.snappedTo ?? buildCssSelector(ruler.snappedElement),
+          cssSelector:
+            ruler.snappedTo ?? buildCssSelector(ruler.snappedElement),
           tagName: ruler.snappedElement.tagName,
           componentName: sourceInfo?.componentName ?? null,
           sourceFile: sourceInfo?.source?.filePath ?? null,
           lineNumber: sourceInfo?.source?.lineNumber ?? null,
           boundingRect: createElementGrabRect(rect),
-        }
+        };
       }
       return {
         orientation: ruler.orientation,
         position: ruler.position,
         edge: ruler.snappedEdge,
         snappedElement,
-      }
-    }
+      };
+    };
 
-    const rulerMap = new Map<string, FeedbackMeasurementRuler>()
+    const rulerMap = new Map<string, FeedbackMeasurementRuler>();
     for (const ruler of this.rulerLines) {
-      rulerMap.set(ruler.id, await serializeRuler(ruler))
+      rulerMap.set(ruler.id, await serializeRuler(ruler));
     }
 
     const rulers = this.rulerLines
       .map((r) => rulerMap.get(r.id))
-      .filter((r): r is FeedbackMeasurementRuler => r !== undefined)
+      .filter((r): r is FeedbackMeasurementRuler => r !== undefined);
 
     const distances: FeedbackMeasurementDistance[] = rawDistances.map((d) => ({
       pixelDistance: d.distance,
       orientation: d.orientation,
       rulerA: rulerMap.get(d.rulerAId) ?? rulers[0],
       rulerB: rulerMap.get(d.rulerBId) ?? rulers[0],
-    }))
+    }));
 
-    const descParts: string[] = []
+    const descParts: string[] = [];
     for (const d of distances) {
       const labelA =
-        d.rulerA.snappedElement?.componentName ?? d.rulerA.snappedElement?.cssSelector ?? `${d.rulerA.position}px`
+        d.rulerA.snappedElement?.componentName ??
+        d.rulerA.snappedElement?.cssSelector ??
+        `${d.rulerA.position}px`;
       const labelB =
-        d.rulerB.snappedElement?.componentName ?? d.rulerB.snappedElement?.cssSelector ?? `${d.rulerB.position}px`
-      descParts.push(`${d.pixelDistance}px (${labelA} ${d.rulerA.edge ?? ''} → ${labelB} ${d.rulerB.edge ?? ''})`)
+        d.rulerB.snappedElement?.componentName ??
+        d.rulerB.snappedElement?.cssSelector ??
+        `${d.rulerB.position}px`;
+      descParts.push(
+        `${d.pixelDistance}px (${labelA} ${d.rulerA.edge ?? ""} → ${labelB} ${d.rulerB.edge ?? ""})`,
+      );
     }
     if (descParts.length === 0 && rulers.length > 0) {
-      descParts.push(`${rulers.length} ruler${rulers.length === 1 ? '' : 's'}`)
+      descParts.push(`${rulers.length} ruler${rulers.length === 1 ? "" : "s"}`);
     }
-    const description = descParts.length > 0 ? descParts.join(', ') : 'Measurement'
+    const description =
+      descParts.length > 0 ? descParts.join(", ") : "Measurement";
 
     const measurement: FeedbackMeasurement = {
       id: createMeasurementId(),
@@ -3790,28 +5841,30 @@ class ObviousFeedbackWidget {
       rulers,
       distances,
       viewport: { width: window.innerWidth, height: window.innerHeight },
-    }
-    this.measurementItems = [...this.measurementItems, measurement]
-    this.rulerLines = []
-    this.selectedRulerId = null
-    this.rulerPreview = null
-    this.draggingRulerId = null
-    this.measureOverlayOpen = false
-    this.openCard()
+    };
+    this.measurementItems = [...this.measurementItems, measurement];
+    this.rulerLines = [];
+    this.selectedRulerId = null;
+    this.rulerPreview = null;
+    this.draggingRulerId = null;
+    this.measureOverlayOpen = false;
+    this.openCard();
   }
 
   private cancelMeasurement(): void {
-    this.rulerLines = []
-    this.selectedRulerId = null
-    this.rulerPreview = null
-    this.draggingRulerId = null
-    this.measureOverlayOpen = false
-    this.openCard()
+    this.rulerLines = [];
+    this.selectedRulerId = null;
+    this.rulerPreview = null;
+    this.draggingRulerId = null;
+    this.measureOverlayOpen = false;
+    this.openCard();
   }
 
   private updateElementPickerHoverOverlay(): void {
-    const highlight = this.shadowRoot.querySelector('.obv-element-grab-highlight')
-    const label = this.shadowRoot.querySelector('.obv-element-grab-label')
+    const highlight = this.shadowRoot.querySelector(
+      ".obv-element-grab-highlight",
+    );
+    const label = this.shadowRoot.querySelector(".obv-element-grab-label");
     if (
       !(highlight instanceof HTMLElement) ||
       !(label instanceof HTMLElement) ||
@@ -3819,198 +5872,240 @@ class ObviousFeedbackWidget {
       !this.elementGrabHoverTarget
     ) {
       if (highlight instanceof HTMLElement) {
-        highlight.setAttribute('hidden', 'true')
+        highlight.setAttribute("hidden", "true");
       }
       if (label instanceof HTMLElement) {
-        label.setAttribute('hidden', 'true')
+        label.setAttribute("hidden", "true");
       }
-      return
+      return;
     }
-    const rect = this.elementGrabHoverTarget.getBoundingClientRect()
+    const rect = this.elementGrabHoverTarget.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) {
-      highlight.setAttribute('hidden', 'true')
-      label.setAttribute('hidden', 'true')
-      return
+      highlight.setAttribute("hidden", "true");
+      label.setAttribute("hidden", "true");
+      return;
     }
-    highlight.removeAttribute('hidden')
-    highlight.style.left = `${Math.round(rect.left)}px`
-    highlight.style.top = `${Math.round(rect.top)}px`
-    highlight.style.width = `${Math.round(rect.width)}px`
-    highlight.style.height = `${Math.round(rect.height)}px`
+    highlight.removeAttribute("hidden");
+    highlight.style.left = `${Math.round(rect.left)}px`;
+    highlight.style.top = `${Math.round(rect.top)}px`;
+    highlight.style.width = `${Math.round(rect.width)}px`;
+    highlight.style.height = `${Math.round(rect.height)}px`;
 
     const fallbackInfo: ElementGrabHoverInfo = {
       tagName: this.elementGrabHoverTarget.tagName,
       componentName: null,
       sourceFile: null,
       lineNumber: null,
-    }
-    const hoverInfo = this.elementGrabHoverInfo ?? fallbackInfo
-    label.removeAttribute('hidden')
-    label.textContent = getElementGrabHoverLabel(hoverInfo)
-    label.style.left = `${Math.max(8, Math.round(rect.left))}px`
-    label.style.top = `${Math.max(8, Math.round(rect.top - 36))}px`
+    };
+    const hoverInfo = this.elementGrabHoverInfo ?? fallbackInfo;
+    label.removeAttribute("hidden");
+    label.textContent = getElementGrabHoverLabel(hoverInfo);
+    label.style.left = `${Math.max(8, Math.round(rect.left))}px`;
+    label.style.top = `${Math.max(8, Math.round(rect.top - 36))}px`;
   }
 
   private handleMarkupPointerDown(event: PointerEvent): void {
-    this.suppressNextMarkupCanvasClick = true
-    event.stopPropagation?.()
+    this.suppressNextMarkupCanvasClick = true;
+    event.stopPropagation?.();
     if (!this.markupContext) {
-      this.markupContext = this.captureMarkupContext()
+      this.markupContext = this.captureMarkupContext();
     }
-    const point = getMarkupPoint(event)
-    this.markupDraft = { id: createMarkupId(), tool: this.markupTool, start: point, points: [point] }
+    const point = getMarkupPoint(event);
+    this.markupDraft = {
+      id: createMarkupId(),
+      tool: this.markupTool,
+      start: point,
+      points: [point],
+    };
     if (event.currentTarget instanceof Element) {
-      event.currentTarget.setPointerCapture?.(event.pointerId)
+      event.currentTarget.setPointerCapture?.(event.pointerId);
     }
-    event.preventDefault()
+    event.preventDefault();
   }
 
   private handleMarkupPointerMove(event: PointerEvent): void {
-    event.stopPropagation?.()
+    event.stopPropagation?.();
     if (!this.markupDraft) {
-      return
+      return;
     }
-    this.appendMarkupDraftPoint(getMarkupPoint(event))
-    this.scheduleMarkupSvgRender()
-    event.preventDefault()
+    this.appendMarkupDraftPoint(getMarkupPoint(event));
+    this.scheduleMarkupSvgRender();
+    event.preventDefault();
   }
 
   private handleMarkupPointerUp(event: PointerEvent): void {
-    event.stopPropagation?.()
+    event.stopPropagation?.();
     if (!this.markupDraft) {
-      return
+      return;
     }
-    this.appendMarkupDraftPoint(getMarkupPoint(event), { force: true })
-    const item = normalizeMarkupItem(this.markupDraft)
+    this.appendMarkupDraftPoint(getMarkupPoint(event), { force: true });
+    const item = normalizeMarkupItem(this.markupDraft);
     if (item && this.markupItems.length < MAX_MARKUP_ITEMS) {
-      this.markupItems = [...this.markupItems, item]
+      this.markupItems = [...this.markupItems, item];
     }
-    this.markupDraft = null
-    this.renderMarkupOverlay()
-    event.preventDefault()
+    this.markupDraft = null;
+    this.renderMarkupOverlay();
+    event.preventDefault();
   }
 
-  private appendMarkupDraftPoint(point: FeedbackMarkupPoint, options: { force?: boolean } = {}): void {
+  private appendMarkupDraftPoint(
+    point: FeedbackMarkupPoint,
+    options: { force?: boolean } = {},
+  ): void {
     if (!this.markupDraft) {
-      return
+      return;
     }
-    if (this.markupDraft.tool !== 'pen') {
-      this.markupDraft.points = [this.markupDraft.start, point]
-      return
+    if (this.markupDraft.tool !== "pen") {
+      this.markupDraft.points = [this.markupDraft.start, point];
+      return;
     }
     if (this.markupDraft.points.length >= MAX_MARKUP_POINTS_PER_ITEM) {
-      return
+      return;
     }
-    const previousPoint = this.markupDraft.points[this.markupDraft.points.length - 1] ?? this.markupDraft.start
-    const distance = distanceBetweenPoints(previousPoint, point)
-    if (distance === 0 || (!options.force && distance < MARKUP_POINTER_MOVE_THRESHOLD_PX)) {
-      return
+    const previousPoint =
+      this.markupDraft.points[this.markupDraft.points.length - 1] ??
+      this.markupDraft.start;
+    const distance = distanceBetweenPoints(previousPoint, point);
+    if (
+      distance === 0 ||
+      (!options.force && distance < MARKUP_POINTER_MOVE_THRESHOLD_PX)
+    ) {
+      return;
     }
-    this.markupDraft.points = [...this.markupDraft.points, point]
+    this.markupDraft.points = [...this.markupDraft.points, point];
   }
 
   private scheduleMarkupSvgRender(): void {
     if (this.markupRenderFrame !== null) {
-      return
+      return;
     }
-    const requestAnimationFrame = window.requestAnimationFrame?.bind(window)
+    const requestAnimationFrame = window.requestAnimationFrame?.bind(window);
     if (!requestAnimationFrame) {
-      this.renderMarkupSvgNow()
-      return
+      this.renderMarkupSvgNow();
+      return;
     }
-    this.markupRenderFrame = requestAnimationFrame(() => this.renderMarkupSvgNow())
+    this.markupRenderFrame = requestAnimationFrame(() =>
+      this.renderMarkupSvgNow(),
+    );
   }
 
   private renderMarkupSvgNow(): void {
-    this.markupRenderFrame = null
-    const svg = this.shadowRoot.querySelector('.obv-markup-svg')
+    this.markupRenderFrame = null;
+    const svg = this.shadowRoot.querySelector(".obv-markup-svg");
     if (svg) {
-      svg.innerHTML = this.renderMarkupSvg()
+      svg.innerHTML = this.renderMarkupSvg();
     }
   }
 
   private cancelMarkupSvgRender(): void {
     if (this.markupRenderFrame === null) {
-      return
+      return;
     }
-    window.cancelAnimationFrame?.(this.markupRenderFrame)
-    this.markupRenderFrame = null
+    window.cancelAnimationFrame?.(this.markupRenderFrame);
+    this.markupRenderFrame = null;
   }
 
   private addAttachmentFiles(files: File[]): void {
     if (files.length === 0 || this.config.previewOnly) {
-      return
+      return;
     }
-    this.syncAllInputsToRoundItems()
-    const acceptedFiles = files.slice(0, Math.max(0, MAX_FEEDBACK_ATTACHMENTS - this.feedbackAttachments.length))
+    this.syncAllInputsToRoundItems();
+    const acceptedFiles = files.slice(
+      0,
+      Math.max(0, MAX_FEEDBACK_ATTACHMENTS - this.feedbackAttachments.length),
+    );
     if (acceptedFiles.length === 0) {
-      this.openCard({ error: `Feedback supports up to ${MAX_FEEDBACK_ATTACHMENTS} attachments` })
-      return
+      this.openCard({
+        error: `Feedback supports up to ${MAX_FEEDBACK_ATTACHMENTS} attachments`,
+      });
+      return;
     }
     const partialWarning =
       acceptedFiles.length < files.length
         ? `Only ${acceptedFiles.length} of ${files.length} files accepted (limit: ${MAX_FEEDBACK_ATTACHMENTS} attachments)`
-        : null
+        : null;
     const newAttachments = acceptedFiles.map((file) => ({
       id: createFeedbackAttachmentId(),
       file,
-      name: file.name || 'attachment',
+      name: file.name || "attachment",
       mimeType: normalizeAttachmentMimeType(file),
       sizeBytes: file.size,
-      status: 'uploading' as const,
-    }))
-    this.feedbackAttachments = [...this.feedbackAttachments, ...newAttachments]
-    this.openCard({ error: partialWarning })
+      status: "uploading" as const,
+    }));
+    this.feedbackAttachments = [...this.feedbackAttachments, ...newAttachments];
+    this.openCard({ error: partialWarning });
     for (const attachment of newAttachments) {
-      this.uploadAttachment(attachment.id).catch(() => undefined)
+      this.uploadAttachment(attachment.id).catch(() => undefined);
     }
   }
 
   private removeAttachment(id: string): void {
-    this.syncAllInputsToRoundItems()
-    this.feedbackAttachments = this.feedbackAttachments.filter((attachment) => attachment.id !== id)
-    this.openCard()
+    this.syncAllInputsToRoundItems();
+    this.feedbackAttachments = this.feedbackAttachments.filter(
+      (attachment) => attachment.id !== id,
+    );
+    this.openCard();
   }
 
   private hasBlockingAttachmentUpload(): boolean {
-    return this.feedbackAttachments.some((attachment) => attachment.status !== 'ready')
+    return this.feedbackAttachments.some(
+      (attachment) => attachment.status !== "ready",
+    );
   }
 
   private getAttachmentSubmitBlocker(): string | null {
-    if (this.feedbackAttachments.some((attachment) => attachment.status === 'uploading')) {
-      return 'Please wait for attachments to finish uploading before submitting.'
+    if (
+      this.feedbackAttachments.some(
+        (attachment) => attachment.status === "uploading",
+      )
+    ) {
+      return "Please wait for attachments to finish uploading before submitting.";
     }
-    if (this.feedbackAttachments.some((attachment) => attachment.status === 'error')) {
-      return 'Remove failed attachments before submitting feedback.'
+    if (
+      this.feedbackAttachments.some(
+        (attachment) => attachment.status === "error",
+      )
+    ) {
+      return "Remove failed attachments before submitting feedback.";
     }
-    return null
+    return null;
   }
 
   private getReadyAttachmentTokens(): string[] {
     return this.feedbackAttachments
-      .filter((attachment) => attachment.status === 'ready')
+      .filter((attachment) => attachment.status === "ready")
       .map((attachment) => attachment.attachmentToken)
       .filter(
         (attachmentToken): attachmentToken is string =>
-          typeof attachmentToken === 'string' && attachmentToken.length > 0
-      )
+          typeof attachmentToken === "string" && attachmentToken.length > 0,
+      );
   }
 
   private async uploadAttachment(id: string): Promise<void> {
-    const attachment = this.feedbackAttachments.find((candidate) => candidate.id === id)
-    if (!attachment) return
-    const controller = new AbortController()
-    const timeoutId = window.setTimeout(() => controller.abort(), FEEDBACK_ATTACHMENT_UPLOAD_TIMEOUT_MS)
+    const attachment = this.feedbackAttachments.find(
+      (candidate) => candidate.id === id,
+    );
+    if (!attachment) return;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(
+      () => controller.abort(),
+      FEEDBACK_ATTACHMENT_UPLOAD_TIMEOUT_MS,
+    );
     try {
-      if (attachment.sizeBytes < 1) throw new Error('Attachment is empty')
+      if (attachment.sizeBytes < 1) throw new Error("Attachment is empty");
       if (attachment.sizeBytes > MAX_FEEDBACK_ATTACHMENT_SIZE_BYTES) {
-        throw new Error(`File exceeds the ${formatAttachmentSize(MAX_FEEDBACK_ATTACHMENT_SIZE_BYTES)} size limit`)
+        throw new Error(
+          `File exceeds the ${formatAttachmentSize(MAX_FEEDBACK_ATTACHMENT_SIZE_BYTES)} size limit`,
+        );
       }
       const presignResponse = await fetch(
-        createFeedbackApiUrl(this.config.apiBaseUrl, '/v1/feedback/attachments/upload'),
+        createFeedbackApiUrl(
+          this.config.apiBaseUrl,
+          "/v1/feedback/attachments/upload",
+        ),
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           signal: controller.signal,
           body: JSON.stringify({
             publicKey: this.config.publicKey,
@@ -4020,175 +6115,243 @@ class ObviousFeedbackWidget {
             mimeType: attachment.mimeType,
             sizeBytes: attachment.sizeBytes,
           }),
-        }
-      )
-      if (!presignResponse.ok) throw new Error(`Attachment upload setup failed (${presignResponse.status})`)
-      const payload = (await presignResponse.json()) as FeedbackAttachmentUploadResponse
-      const uploadUrl = payload.data?.uploadUrl
-      const attachmentToken = payload.data?.attachmentToken
-      if (!uploadUrl || !attachmentToken) throw new Error('Attachment upload setup response was incomplete')
+        },
+      );
+      if (!presignResponse.ok)
+        throw new Error(
+          `Attachment upload setup failed (${presignResponse.status})`,
+        );
+      const payload =
+        (await presignResponse.json()) as FeedbackAttachmentUploadResponse;
+      const uploadUrl = payload.data?.uploadUrl;
+      const attachmentToken = payload.data?.attachmentToken;
+      if (!uploadUrl || !attachmentToken)
+        throw new Error("Attachment upload setup response was incomplete");
       const putResponse = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': attachment.mimeType },
+        method: "PUT",
+        headers: { "Content-Type": attachment.mimeType },
         signal: controller.signal,
         body: attachment.file,
-      })
-      if (!putResponse.ok) throw new Error(`Attachment upload failed (${putResponse.status})`)
-      this.updateAttachment(id, { status: 'ready', attachmentToken, error: undefined })
+      });
+      if (!putResponse.ok)
+        throw new Error(`Attachment upload failed (${putResponse.status})`);
+      this.updateAttachment(id, {
+        status: "ready",
+        attachmentToken,
+        error: undefined,
+      });
     } catch (err: unknown) {
       this.updateAttachment(id, {
-        status: 'error',
+        status: "error",
         error: controller.signal.aborted
-          ? 'Attachment upload timed out'
+          ? "Attachment upload timed out"
           : err instanceof Error
             ? err.message
-            : 'Attachment upload failed',
-      })
+            : "Attachment upload failed",
+      });
     } finally {
-      window.clearTimeout(timeoutId)
+      window.clearTimeout(timeoutId);
     }
   }
 
-  private updateAttachment(id: string, patch: Partial<FeedbackAttachmentUpload>): void {
+  private updateAttachment(
+    id: string,
+    patch: Partial<FeedbackAttachmentUpload>,
+  ): void {
     if (this.destroyed) {
-      return
+      return;
     }
-    let changed = false
+    let changed = false;
     this.feedbackAttachments = this.feedbackAttachments.map((attachment) => {
-      if (attachment.id !== id) return attachment
-      changed = true
-      return { ...attachment, ...patch }
-    })
+      if (attachment.id !== id) return attachment;
+      changed = true;
+      return { ...attachment, ...patch };
+    });
     if (changed && this.isCardOpen() && !this.markupOverlayOpen) {
-      this.syncAllInputsToRoundItems()
-      this.openCard()
+      this.syncAllInputsToRoundItems();
+      this.openCard();
     }
   }
 
-  private async resolveSessionReplayUrl(input: FeedbackSubmissionInput): Promise<string | undefined> {
-    const explicitUrl = input.sessionReplayUrl?.trim()
+  private async resolveSessionReplayUrl(
+    input: FeedbackSubmissionInput,
+  ): Promise<string | undefined> {
+    const explicitUrl = input.sessionReplayUrl?.trim();
     if (explicitUrl) {
-      return explicitUrl
+      return explicitUrl;
     }
 
-    const resolver = this.config.sessionReplayUrlResolver
+    const resolver = this.config.sessionReplayUrlResolver;
     if (!resolver) {
-      return undefined
+      return undefined;
     }
 
-    let timeoutHandle: number | undefined
+    let timeoutHandle: number | undefined;
     try {
       const timeout = new Promise<null>((resolve) => {
-        timeoutHandle = window.setTimeout(() => resolve(null), SESSION_REPLAY_URL_RESOLVER_TIMEOUT_MS)
-      })
-      const resolvedUrl = await Promise.race([Promise.resolve(resolver()), timeout])
-      window.clearTimeout(timeoutHandle)
-      const normalizedUrl = resolvedUrl?.trim()
-      return normalizedUrl || undefined
+        timeoutHandle = window.setTimeout(
+          () => resolve(null),
+          SESSION_REPLAY_URL_RESOLVER_TIMEOUT_MS,
+        );
+      });
+      const resolvedUrl = await Promise.race([
+        Promise.resolve(resolver()),
+        timeout,
+      ]);
+      window.clearTimeout(timeoutHandle);
+      const normalizedUrl = resolvedUrl?.trim();
+      return normalizedUrl || undefined;
     } catch (error) {
-      window.clearTimeout(timeoutHandle)
-      console.debug('[ObviousFeedback] Session replay URL resolver failed; continuing without replay URL', error)
-      return undefined
+      window.clearTimeout(timeoutHandle);
+      console.debug(
+        "[ObviousFeedback] Session replay URL resolver failed; continuing without replay URL",
+        error,
+      );
+      return undefined;
     }
+  }
+
+  private buildSubmissionContext(): Record<string, unknown> | undefined {
+    const basePageContext = this.config.capturePageContext
+      ? {
+          url: redactUrl(window.location.href),
+          userAgent: navigator.userAgent,
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          scroll: { x: window.scrollX, y: window.scrollY },
+        }
+      : undefined;
+    const roundItemVisualSuggestions = this.roundItems.flatMap(
+      (item) => item.visualSuggestions ?? [],
+    );
+    const currentVisualSuggestions = this.visualSuggestions?.getItems() ?? [];
+    const visualSuggestionMap = new Map<string, FeedbackVisualSuggestion>();
+    for (const suggestion of roundItemVisualSuggestions) {
+      visualSuggestionMap.set(suggestion.id, suggestion);
+    }
+    for (const suggestion of currentVisualSuggestions) {
+      visualSuggestionMap.set(suggestion.id, suggestion);
+    }
+    const allVisualSuggestions = [...visualSuggestionMap.values()];
+    const visualSuggestions =
+      allVisualSuggestions.length > 0
+        ? ({
+            version: 1,
+            suggestions: allVisualSuggestions,
+          } satisfies FeedbackVisualSuggestionsPayload)
+        : undefined;
+    if (!basePageContext && !visualSuggestions) return undefined;
+    return {
+      ...(basePageContext ?? {}),
+      ...(visualSuggestions ? { visualSuggestions } : {}),
+    };
   }
 
   private async submitFeedback(input: FeedbackSubmissionInput): Promise<void> {
-    const sessionReplayUrl = await this.resolveSessionReplayUrl(input)
-    const response = await fetch(createFeedbackApiUrl(this.config.apiBaseUrl, '/v1/feedback/submit'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        publicKey: this.config.publicKey,
-        identityToken: this.config.identityToken,
-        env: this.config.env,
-        prNumber: this.config.prNumber,
-        sourceUrl: redactUrl(window.location.href),
-        sdkVersion: '0.0.1',
-        type: input.type,
-        severity: input.severity,
-        title: input.title,
-        description: input.description,
-        sessionReplayUrl,
-        domSnapshot: this.config.capturePageContext
-          ? serializeDomSnapshot(document.body, this.config.redactSelectors)
-          : undefined,
-        consoleLogs: this.consoleBuffer.read(),
-        networkLog: this.networkBuffer.read(),
-        annotationPayload: this.createAnnotationPayload(),
-        elementGrabs: this.elementGrabItems.length > 0 ? this.elementGrabItems : undefined,
-        measurements: this.measurementItems.length > 0 ? this.measurementItems : undefined,
-        context: this.config.capturePageContext
-          ? {
-              url: redactUrl(window.location.href),
-              userAgent: navigator.userAgent,
-              viewport: { width: window.innerWidth, height: window.innerHeight },
-              scroll: { x: window.scrollX, y: window.scrollY },
-            }
-          : undefined,
-        attachmentTokens:
-          input.attachmentTokens !== undefined
-            ? input.attachmentTokens.filter((token) => token.length > 0)
-            : this.getReadyAttachmentTokens(),
-      }),
-    })
+    const sessionReplayUrl = await this.resolveSessionReplayUrl(input);
+    const response = await fetch(
+      createFeedbackApiUrl(this.config.apiBaseUrl, "/v1/feedback/submit"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          publicKey: this.config.publicKey,
+          identityToken: this.config.identityToken,
+          env: this.config.env,
+          prNumber: this.config.prNumber,
+          sourceUrl: redactUrl(window.location.href),
+          sdkVersion: "0.0.1",
+          type: input.type,
+          severity: input.severity,
+          title: input.title,
+          description: input.description,
+          sessionReplayUrl,
+          domSnapshot: this.config.capturePageContext
+            ? serializeDomSnapshot(document.body, this.config.redactSelectors)
+            : undefined,
+          consoleLogs: this.consoleBuffer.read(),
+          networkLog: this.networkBuffer.read(),
+          annotationPayload: this.createAnnotationPayload(),
+          elementGrabs:
+            this.elementGrabItems.length > 0
+              ? this.elementGrabItems
+              : undefined,
+          measurements:
+            this.measurementItems.length > 0
+              ? this.measurementItems
+              : undefined,
+          context: this.buildSubmissionContext(),
+          attachmentTokens:
+            input.attachmentTokens !== undefined
+              ? input.attachmentTokens.filter((token) => token.length > 0)
+              : this.getReadyAttachmentTokens(),
+        }),
+      },
+    );
 
     if (!response.ok) {
-      throw new Error(`Feedback submission failed (${response.status})`)
+      throw new Error(`Feedback submission failed (${response.status})`);
     }
 
     const payload = (await response.json()) as {
       data?: {
-        issueId?: string
-        status?: FeedbackClientStatus
-        title?: string
-        reportedAt?: string
-        issueUrl?: string
-        workerThread?: FeedbackWorkerThreadLink
-      }
-    }
+        issueId?: string;
+        status?: FeedbackClientStatus;
+        title?: string;
+        reportedAt?: string;
+        issueUrl?: string;
+        workerThread?: FeedbackWorkerThreadLink;
+      };
+    };
     if (this.destroyed) {
-      return
+      return;
     }
-    this.issueId = payload.data?.issueId ?? null
-    this.statusPollIndex = 0
-    this.clearStatusTimer()
+    this.issueId = payload.data?.issueId ?? null;
+    this.statusPollIndex = 0;
+    this.clearStatusTimer();
     if (this.issueId) {
       this.rememberIssueHistoryEntry({
         issueId: this.issueId,
-        status: payload.data?.status ?? 'received',
+        status: payload.data?.status ?? "received",
         title: payload.data?.title,
         reportedAt: payload.data?.reportedAt,
         workerThread: normalizeWorkerThreadLink(payload.data?.workerThread),
-      })
+      });
     }
-    this.roundItems = []
-    this.focusedItemId = null
-    this.clearSubmissionDraftState()
-    this.feedbackFormError = null
-    this.submittedIssueUrl = payload.data?.issueUrl ?? null
-    this.persistDraftRound()
-    this.emitOpenIssueCountChange()
-    this.openCard()
-    this.scheduleStatusPoll(this.issueId)
+    this.roundItems = [];
+    this.focusedItemId = null;
+    this.clearSubmissionDraftState();
+    this.visualSuggestions?.restoreAll();
+    this.feedbackFormError = null;
+    this.submittedIssueUrl = payload.data?.issueUrl ?? null;
+    this.persistDraftRound();
+    this.emitOpenIssueCountChange();
+    this.openCard();
+    this.scheduleStatusPoll(this.issueId);
   }
 
   private rememberIssueHistoryEntry(entry: FeedbackIssueHistoryEntry): void {
-    const checkedAt = entry.checkedAt ?? new Date().toISOString()
-    const existingEntry = this.issueHistory.find((candidate) => candidate.issueId === entry.issueId)
-    const updatedEntry = { ...existingEntry, ...entry, checkedAt }
+    const checkedAt = entry.checkedAt ?? new Date().toISOString();
+    const existingEntry = this.issueHistory.find(
+      (candidate) => candidate.issueId === entry.issueId,
+    );
+    const updatedEntry = { ...existingEntry, ...entry, checkedAt };
     this.issueHistory = [
       updatedEntry,
-      ...this.issueHistory.filter((candidate) => candidate.issueId !== entry.issueId),
-    ].slice(0, MAX_ISSUE_HISTORY_ENTRIES)
-    this.persistIssueHistory()
-    this.emitOpenIssueCountChange()
+      ...this.issueHistory.filter(
+        (candidate) => candidate.issueId !== entry.issueId,
+      ),
+    ].slice(0, MAX_ISSUE_HISTORY_ENTRIES);
+    this.persistIssueHistory();
+    this.emitOpenIssueCountChange();
   }
 
   private updateIssueHistoryEntry(entry: FeedbackIssueHistoryEntry): void {
-    const existingIndex = this.issueHistory.findIndex((candidate) => candidate.issueId === entry.issueId)
+    const existingIndex = this.issueHistory.findIndex(
+      (candidate) => candidate.issueId === entry.issueId,
+    );
     if (existingIndex === -1) {
-      this.rememberIssueHistoryEntry(entry)
-      return
+      this.rememberIssueHistoryEntry(entry);
+      return;
     }
     this.issueHistory = this.issueHistory
       .map((candidate, index) =>
@@ -4196,26 +6359,34 @@ class ObviousFeedbackWidget {
           ? {
               ...candidate,
               ...entry,
-              acknowledgedStatusVersions: entry.acknowledgedStatusVersions ?? candidate.acknowledgedStatusVersions,
+              acknowledgedStatusVersions:
+                entry.acknowledgedStatusVersions ??
+                candidate.acknowledgedStatusVersions,
             }
-          : candidate
+          : candidate,
       )
-      .sort((left, right) => Number(isTerminalIssueStatus(left.status)) - Number(isTerminalIssueStatus(right.status)))
-    this.persistIssueHistory()
-    this.emitOpenIssueCountChange()
+      .sort(
+        (left, right) =>
+          Number(isTerminalIssueStatus(left.status)) -
+          Number(isTerminalIssueStatus(right.status)),
+      );
+    this.persistIssueHistory();
+    this.emitOpenIssueCountChange();
   }
 
   private acknowledgeIssueStatusVersion(
     issueId: string,
     status: FeedbackIssueHistoryStatus,
     updatedAt?: string | null,
-    reportedAt?: string | null
+    reportedAt?: string | null,
   ): void {
-    const version = getIssueStatusVersion({ status, updatedAt, reportedAt })
-    const existingEntry = this.issueHistory.find((candidate) => candidate.issueId === issueId)
+    const version = getIssueStatusVersion({ status, updatedAt, reportedAt });
+    const existingEntry = this.issueHistory.find(
+      (candidate) => candidate.issueId === issueId,
+    );
     const acknowledgedStatusVersions = Array.from(
-      new Set([...(existingEntry?.acknowledgedStatusVersions ?? []), version])
-    )
+      new Set([...(existingEntry?.acknowledgedStatusVersions ?? []), version]),
+    );
     this.rememberIssueHistoryEntry({
       ...existingEntry,
       issueId,
@@ -4223,70 +6394,90 @@ class ObviousFeedbackWidget {
       updatedAt: updatedAt ?? existingEntry?.updatedAt,
       reportedAt: reportedAt ?? existingEntry?.reportedAt,
       acknowledgedStatusVersions,
-    })
+    });
   }
 
   private acknowledgeOpenStatusCard(): void {
     if (!this.statusCardIssueId || !this.statusCardStatus) {
-      return
+      return;
     }
     this.acknowledgeIssueStatusVersion(
       this.statusCardIssueId,
       this.statusCardStatus,
       this.statusCardUpdatedAt,
-      this.statusCardReportedAt
-    )
-    this.statusCardIssueId = null
-    this.statusCardStatus = null
-    this.statusCardUpdatedAt = null
-    this.statusCardReportedAt = null
+      this.statusCardReportedAt,
+    );
+    this.statusCardIssueId = null;
+    this.statusCardStatus = null;
+    this.statusCardUpdatedAt = null;
+    this.statusCardReportedAt = null;
   }
 
   private persistIssueHistory(): void {
-    persistIssueHistory(this.issueHistoryStorageKey, this.issueHistory)
+    persistIssueHistory(this.issueHistoryStorageKey, this.issueHistory);
   }
 
   private async refreshIssueHistoryStatuses(): Promise<void> {
-    if (!this.config.publicKey || this.issueHistory.length === 0 || this.historyRefreshInFlight) {
-      return
+    if (
+      !this.config.publicKey ||
+      this.issueHistory.length === 0 ||
+      this.historyRefreshInFlight
+    ) {
+      return;
     }
-    this.historyRefreshInFlight = true
+    this.historyRefreshInFlight = true;
     try {
       const refreshCandidates = this.issueHistory
         .filter((entry) => !isTerminalIssueStatus(entry.status))
-        .filter((entry) => !entry.checkedAt || Date.now() - Date.parse(entry.checkedAt) > HISTORY_REFRESH_STALE_MS)
-        .slice(0, MAX_HISTORY_REFRESH_PER_OPEN)
+        .filter(
+          (entry) =>
+            !entry.checkedAt ||
+            Date.now() - Date.parse(entry.checkedAt) > HISTORY_REFRESH_STALE_MS,
+        )
+        .slice(0, MAX_HISTORY_REFRESH_PER_OPEN);
       for (const entry of refreshCandidates) {
-        await this.refreshIssueHistoryEntry(entry.issueId)
+        await this.refreshIssueHistoryEntry(entry.issueId);
       }
       if (this.isCardOpen() && !this.markupOverlayOpen) {
-        this.syncAllInputsToRoundItems()
-        this.openCard()
+        this.syncAllInputsToRoundItems();
+        this.openCard();
       }
     } finally {
-      this.historyRefreshInFlight = false
+      this.historyRefreshInFlight = false;
     }
   }
 
   private async refreshIssueHistoryEntry(issueId: string): Promise<void> {
-    const checkedAt = new Date().toISOString()
+    const checkedAt = new Date().toISOString();
     try {
-      const { url, init } = this.createStatusRequest(issueId)
-      const response = init ? await fetch(url.toString(), init) : await fetch(url.toString())
+      const { url, init } = this.createStatusRequest(issueId);
+      const response = init
+        ? await fetch(url.toString(), init)
+        : await fetch(url.toString());
       if (!this.issueHistory.some((entry) => entry.issueId === issueId)) {
-        return
+        return;
       }
       if (!response.ok) {
-        this.updateIssueHistoryEntry({ issueId, status: 'unavailable', checkedAt })
-        return
+        this.updateIssueHistoryEntry({
+          issueId,
+          status: "unavailable",
+          checkedAt,
+        });
+        return;
       }
-      const payload = (await response.json()) as { data?: FeedbackStatusResponse }
+      const payload = (await response.json()) as {
+        data?: FeedbackStatusResponse;
+      };
       if (!this.issueHistory.some((entry) => entry.issueId === issueId)) {
-        return
+        return;
       }
       if (!payload.data) {
-        this.updateIssueHistoryEntry({ issueId, status: 'unavailable', checkedAt })
-        return
+        this.updateIssueHistoryEntry({
+          issueId,
+          status: "unavailable",
+          checkedAt,
+        });
+        return;
       }
       this.updateIssueHistoryEntry({
         issueId: payload.data.issueId,
@@ -4300,9 +6491,13 @@ class ObviousFeedbackWidget {
         updatedAt: payload.data.updatedAt,
         checkedAt,
         workerThread: normalizeWorkerThreadLink(payload.data.workerThread),
-      })
+      });
     } catch {
-      this.updateIssueHistoryEntry({ issueId, status: 'unavailable', checkedAt })
+      this.updateIssueHistoryEntry({
+        issueId,
+        status: "unavailable",
+        checkedAt,
+      });
     }
   }
 
@@ -4312,107 +6507,115 @@ class ObviousFeedbackWidget {
     issueId: string | null = this.issueId,
     updatedAt?: string | null,
     reportedAt?: string | null,
-    issueUrl?: string
+    issueUrl?: string,
   ): void {
-    this.statusCardIssueId = issueId
-    this.statusCardStatus = status
-    this.statusCardUpdatedAt = updatedAt ?? null
-    this.statusCardReportedAt = reportedAt ?? null
-    this.activePanel = null
-    this.markupOverlayOpen = false
-    this.installGlobalFileDropGuards()
-    const feedbackCardPlacement = this.getFeedbackCardPlacement('status')
-    const safeIssueUrl = getSafeExternalUrl(issueUrl)
+    this.statusCardIssueId = issueId;
+    this.statusCardStatus = status;
+    this.statusCardUpdatedAt = updatedAt ?? null;
+    this.statusCardReportedAt = reportedAt ?? null;
+    this.activePanel = null;
+    this.markupOverlayOpen = false;
+    this.installGlobalFileDropGuards();
+    const feedbackCardPlacement = this.getFeedbackCardPlacement("status");
+    const safeIssueUrl = getSafeExternalUrl(issueUrl);
     const linkSentence = safeIssueUrl
       ? ` You can monitor its progress <a href="${escapeHtml(safeIssueUrl)}" target="_blank" rel="noreferrer" style="color: var(--obv-feedback-text); font-weight: 650;">here</a>.`
-      : ''
+      : "";
     const statusMessage =
       note !== undefined
         ? `${escapeHtml(note)}${linkSentence}`
         : safeIssueUrl
           ? `Autobuild has started addressing your issues.${linkSentence}`
-          : 'Autobuild has started addressing your issues.'
+          : "Autobuild has started addressing your issues.";
     this.shadowRoot.innerHTML = `
       <style>${createStyles()}</style>
       ${this.renderTriggerButton()}
       <div class="obv-card" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-dialog-direction="${escapeHtml(feedbackCardPlacement.direction)}" style="${escapeHtml(feedbackCardPlacement.style)}">
         <div class="obv-kicker">Feedback state</div>
-        <div class="obv-title obv-status-title">${createIcon('status')}${escapeHtml(statusLabel(status))}</div>
+        <div class="obv-title obv-status-title">${createIcon("status")}${escapeHtml(statusLabel(status))}</div>
         <div class="obv-status">${statusMessage}</div>
         <div class="obv-actions" style="margin-top: 12px; justify-content: flex-end;">
-          <button class="obv-button" type="button" data-new="true">${createIcon('compose')}New feedback</button>
+          <button class="obv-button" type="button" data-new="true">${createIcon("compose")}New feedback</button>
         </div>
       </div>
-    `
+    `;
     this.bindTrigger(() => {
-      this.acknowledgeOpenStatusCard()
-      this.renderTrigger()
-    })
-    this.observeAnchoredFeedbackCard()
-    this.shadowRoot.querySelector('[data-new="true"]')?.addEventListener('click', () => {
-      this.acknowledgeOpenStatusCard()
-      this.startNewFeedbackSession()
-    })
+      this.acknowledgeOpenStatusCard();
+      this.renderTrigger();
+    });
+    this.observeAnchoredFeedbackCard();
+    this.shadowRoot
+      .querySelector('[data-new="true"]')
+      ?.addEventListener("click", () => {
+        this.acknowledgeOpenStatusCard();
+        this.startNewFeedbackSession();
+      });
   }
 
   private startNewFeedbackSession(): void {
-    this.issueId = null
-    this.statusPollIndex = 0
-    this.clearStatusTimer()
-    this.selectedIssueId = null
-    this.roundItems = []
-    this.focusedItemId = null
-    this.persistDraftRound()
+    this.issueId = null;
+    this.statusPollIndex = 0;
+    this.clearStatusTimer();
+    this.selectedIssueId = null;
+    this.roundItems = [];
+    this.focusedItemId = null;
+    this.persistDraftRound();
 
-    this.clearSubmissionDraftState()
-    this.feedbackFormError = null
-    this.emitOpenIssueCountChange()
-    this.openCard()
+    this.clearSubmissionDraftState();
+    this.visualSuggestions?.restoreAll();
+    this.feedbackFormError = null;
+    this.emitOpenIssueCountChange();
+    this.openCard();
   }
 
   private clearStatusTimer(): void {
     if (this.statusTimer) {
-      window.clearTimeout(this.statusTimer)
-      this.statusTimer = null
+      window.clearTimeout(this.statusTimer);
+      this.statusTimer = null;
     }
   }
 
   private scheduleStatusPoll(issueId: string | null): void {
     if (this.destroyed || !issueId || issueId !== this.issueId) {
-      return
+      return;
     }
-    this.clearStatusTimer()
-    const delays = [120_000, 300_000, 600_000, 86_400_000]
-    const delay = delays[Math.min(this.statusPollIndex, delays.length - 1)] ?? 86_400_000
+    this.clearStatusTimer();
+    const delays = [120_000, 300_000, 600_000, 86_400_000];
+    const delay =
+      delays[Math.min(this.statusPollIndex, delays.length - 1)] ?? 86_400_000;
     this.statusTimer = window.setTimeout(() => {
-      this.statusTimer = null
-      this.pollStatus(issueId).catch(() => undefined)
-    }, delay)
-    this.statusPollIndex += 1
+      this.statusTimer = null;
+      this.pollStatus(issueId).catch(() => undefined);
+    }, delay);
+    this.statusPollIndex += 1;
   }
 
   private async pollStatus(issueId: string): Promise<void> {
     if (this.destroyed || !this.issueId || issueId !== this.issueId) {
       if (!this.destroyed && this.isCardOpen()) {
-        this.syncAllInputsToRoundItems()
-        this.openCard()
+        this.syncAllInputsToRoundItems();
+        this.openCard();
       }
-      return
+      return;
     }
-    const { url, init } = this.createStatusRequest(issueId)
-    const response = init ? await fetch(url.toString(), init) : await fetch(url.toString())
+    const { url, init } = this.createStatusRequest(issueId);
+    const response = init
+      ? await fetch(url.toString(), init)
+      : await fetch(url.toString());
     if (this.destroyed || !this.issueId || issueId !== this.issueId) {
-      return
+      return;
     }
     if (!response.ok) {
-      this.scheduleStatusPoll(issueId)
-      return
+      this.scheduleStatusPoll(issueId);
+      return;
     }
-    const payload = (await response.json()) as { data?: FeedbackStatusResponse }
+    const payload = (await response.json()) as {
+      data?: FeedbackStatusResponse;
+    };
     if (this.destroyed || !this.issueId || issueId !== this.issueId) {
-      return
+      return;
     }
-    const status = payload.data?.status ?? 'received'
+    const status = payload.data?.status ?? "received";
     if (payload.data) {
       this.rememberIssueHistoryEntry({
         issueId: payload.data.issueId,
@@ -4425,84 +6628,106 @@ class ObviousFeedbackWidget {
         reportedAt: payload.data.reportedAt,
         updatedAt: payload.data.updatedAt,
         workerThread: normalizeWorkerThreadLink(payload.data.workerThread),
-      })
+      });
     }
 
-    const isTerminalStatus = status === 'resolved' || status === 'no_action' || status === 'duplicate'
+    const isTerminalStatus =
+      status === "resolved" || status === "no_action" || status === "duplicate";
     if (this.markupOverlayOpen) {
       if (!isTerminalStatus) {
-        this.scheduleStatusPoll(issueId)
+        this.scheduleStatusPoll(issueId);
       }
-      return
+      return;
     }
     if (this.isCardOpen()) {
-      this.syncAllInputsToRoundItems()
-      this.openCard()
+      this.syncAllInputsToRoundItems();
+      this.openCard();
       if (!isTerminalStatus) {
-        this.scheduleStatusPoll(issueId)
+        this.scheduleStatusPoll(issueId);
       }
-      return
+      return;
     }
-    this.acknowledgeIssueStatusVersion(issueId, status, payload.data?.updatedAt, payload.data?.reportedAt)
-    this.renderTrigger()
+    this.acknowledgeIssueStatusVersion(
+      issueId,
+      status,
+      payload.data?.updatedAt,
+      payload.data?.reportedAt,
+    );
+    this.renderTrigger();
     if (!isTerminalStatus) {
-      this.scheduleStatusPoll(issueId)
+      this.scheduleStatusPoll(issueId);
     }
   }
 
-  private createStatusRequest(issueId: string): { url: URL; init?: RequestInit } {
-    const url = new URL(createFeedbackApiUrl(this.config.apiBaseUrl, `/v1/feedback/status/${issueId}`))
-    url.searchParams.set('publicKey', this.config.publicKey)
-    const headers: Record<string, string> = {}
+  private createStatusRequest(issueId: string): {
+    url: URL;
+    init?: RequestInit;
+  } {
+    const url = new URL(
+      createFeedbackApiUrl(
+        this.config.apiBaseUrl,
+        `/v1/feedback/status/${issueId}`,
+      ),
+    );
+    url.searchParams.set("publicKey", this.config.publicKey);
+    const headers: Record<string, string> = {};
     if (this.config.identityToken) {
-      headers.Authorization = `Bearer ${this.config.identityToken}`
+      headers.Authorization = `Bearer ${this.config.identityToken}`;
     }
-    return Object.keys(headers).length > 0 ? { url, init: { headers } } : { url }
+    return Object.keys(headers).length > 0
+      ? { url, init: { headers } }
+      : { url };
   }
 }
 
-let activeWidget: ObviousFeedbackWidget | null = null
+let activeWidget: ObviousFeedbackWidget | null = null;
 
 export const ObviousFeedback = {
   init(config: FeedbackSdkConfig): FeedbackSdkHandle {
     if (!config.publicKey && !config.previewOnly) {
-      throw new Error('ObviousFeedback.init requires publicKey')
+      throw new Error("ObviousFeedback.init requires publicKey");
     }
-    activeWidget?.destroy()
-    activeWidget = new ObviousFeedbackWidget(config)
+    activeWidget?.destroy();
+    activeWidget = new ObviousFeedbackWidget(config);
     return {
       destroy: () => {
-        activeWidget?.destroy()
-        activeWidget = null
+        activeWidget?.destroy();
+        activeWidget = null;
       },
       open: () => activeWidget?.open(),
       getOpenIssueCount: () => activeWidget?.getOpenIssueCount() ?? 0,
-      subscribeToOpenIssueCount: (listener) => activeWidget?.subscribeToOpenIssueCount(listener) ?? (() => {}),
-    }
+      subscribeToOpenIssueCount: (listener) =>
+        activeWidget?.subscribeToOpenIssueCount(listener) ?? (() => {}),
+    };
   },
-}
+};
 
 function initFromCurrentScript(): void {
-  const script = document.currentScript
+  const script = document.currentScript;
   if (!(script instanceof HTMLScriptElement)) {
-    return
+    return;
   }
-  const publicKey = script.dataset.pubKey
+  const publicKey = script.dataset.pubKey;
   if (!publicKey) {
-    return
+    return;
   }
-  const dataTheme = script.dataset.theme
+  const dataTheme = script.dataset.theme;
   ObviousFeedback.init({
     publicKey,
     apiBaseUrl: script.dataset.apiBaseUrl,
     identityToken: script.dataset.identityToken,
     env: script.dataset.env,
-    prNumber: script.dataset.prNumber ? Number(script.dataset.prNumber) : undefined,
+    prNumber: script.dataset.prNumber
+      ? Number(script.dataset.prNumber)
+      : undefined,
     triggerLabel: script.dataset.triggerLabel,
-    theme: dataTheme === 'light' || dataTheme === 'dark' || dataTheme === 'system' ? dataTheme : undefined,
-  })
+    theme:
+      dataTheme === "light" || dataTheme === "dark" || dataTheme === "system"
+        ? dataTheme
+        : undefined,
+  });
 }
 
-if (typeof document !== 'undefined') {
-  initFromCurrentScript()
+if (typeof document !== "undefined") {
+  initFromCurrentScript();
 }

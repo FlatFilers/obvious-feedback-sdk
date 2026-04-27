@@ -14,6 +14,30 @@ const originalHTMLScriptElement = globalThis.HTMLScriptElement
 
 let restorePatchedFormData: (() => void) | null = null
 
+type FetchImpl = (url: string | URL | Request, init?: RequestInit) => Promise<Response>
+type FetchCall = [url: string | URL | Request, init?: RequestInit]
+type FetchMockLike = { mock: { calls: unknown[] } }
+
+function createDefaultFetchMock() {
+  return mock(async (_url: string | URL | Request, _init?: RequestInit) => {
+    return new Response(JSON.stringify({ data: { issueId: 'abi_test', status: 'received' } }))
+  })
+}
+
+function fetchCalls(fetchImpl: FetchMockLike): FetchCall[] {
+  return fetchImpl.mock.calls as FetchCall[]
+}
+
+function firstFetchBody(fetchImpl: FetchMockLike): string {
+  const body = fetchCalls(fetchImpl)[0]?.[1]?.body
+  return typeof body === 'string' ? body : ''
+}
+
+function findFetchBody(fetchImpl: FetchMockLike, path: string): string {
+  const body = fetchCalls(fetchImpl).find((call) => String(call[0]).includes(path))?.[1]?.body
+  return typeof body === 'string' ? body : ''
+}
+
 class MiniElement {
   tagName: string
   private textValue = ''
@@ -194,9 +218,20 @@ class MiniScriptElement extends MiniElement {
   }
 }
 
-function installDom(
-  fetchImpl = mock(async () => new Response(JSON.stringify({ data: { issueId: 'abi_test', status: 'received' } })))
-) {
+type InstallDomResult<TFetch extends FetchImpl> = {
+  body: MiniElement
+  listeners: Map<string, (event: Event) => void>
+  documentListeners: Map<string, (event: Event) => void>
+  fetchImpl: TFetch
+  storage: Map<string, string>
+}
+
+function installDom(): InstallDomResult<ReturnType<typeof createDefaultFetchMock>>
+function installDom<TFetch extends FetchImpl>(fetchImpl: TFetch): InstallDomResult<TFetch>
+function installDom<TFetch extends FetchImpl>(
+  fetchImpl?: TFetch
+): InstallDomResult<TFetch | ReturnType<typeof createDefaultFetchMock>> {
+  const resolvedFetchImpl = fetchImpl ?? createDefaultFetchMock()
   const listeners = new Map<string, (event: Event) => void>()
 
   const documentListeners = new Map<string, (event: Event) => void>()
@@ -224,7 +259,7 @@ function installDom(
   })
   Object.defineProperty(globalThis, 'window', {
     value: {
-      fetch: fetchImpl,
+      fetch: resolvedFetchImpl,
       localStorage,
       location: { href: 'https://example.com/path?token=secret', origin: 'https://example.com' },
       innerWidth: 800,
@@ -243,10 +278,10 @@ function installDom(
   Object.defineProperty(globalThis, 'Element', { value: MiniElement, configurable: true })
   Object.defineProperty(globalThis, 'HTMLElement', { value: MiniElement, configurable: true })
   Object.defineProperty(globalThis, 'HTMLScriptElement', { value: MiniScriptElement, configurable: true })
-  Object.defineProperty(globalThis, 'fetch', { value: fetchImpl, writable: true, configurable: true })
+  Object.defineProperty(globalThis, 'fetch', { value: resolvedFetchImpl, writable: true, configurable: true })
   Object.defineProperty(globalThis, 'localStorage', { value: localStorage, configurable: true })
 
-  return { body, listeners, documentListeners, fetchImpl, storage }
+  return { body, listeners, documentListeners, fetchImpl: resolvedFetchImpl, storage }
 }
 
 function createFeedbackFile(name: string, type: string, contents = 'file-bytes'): File {
@@ -348,10 +383,10 @@ describe('ObviousFeedback', () => {
     expect(host.shadowRoot?.innerHTML).not.toContain('width 440ms cubic-bezier')
     expect(host.shadowRoot?.innerHTML).not.toContain('>?</span>')
 
-    trigger?.dispatch('mouseenter', { preventDefault() {} } as Event)
+    trigger?.dispatch('mouseenter', { preventDefault() {} } as unknown as Event)
     expect(trigger?.getAttribute('aria-label')).toBe('Open feedback')
 
-    trigger?.dispatch('click', { preventDefault() {} } as Event)
+    trigger?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(host.shadowRoot?.innerHTML).toContain('<div class="obv-kicker">Feedback</div>')
     expect(host.shadowRoot?.innerHTML).not.toContain('Describe what happened')
     expect(host.shadowRoot?.innerHTML).not.toContain('Field note')
@@ -366,7 +401,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test', env: 'staging' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const originalFormData = globalThis.FormData
     Object.defineProperty(globalThis, 'FormData', {
@@ -378,7 +413,7 @@ describe('ObviousFeedback', () => {
       configurable: true,
     })
 
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     const historyKey = 'obvious.feedback.issueHistory:fsk_pub_test:staging:https%3A%2F%2Fexample.com'
@@ -399,7 +434,7 @@ describe('ObviousFeedback', () => {
       sessionReplayUrlResolver: () => 'https://app.fullstory.com/ui/session/abc',
     })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     Object.defineProperty(globalThis, 'FormData', {
       value: class {
         get(name: string): string {
@@ -408,21 +443,21 @@ describe('ObviousFeedback', () => {
       },
       configurable: true,
     })
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string).sessionReplayUrl).toBe(
+    expect(JSON.parse(firstFetchBody(fetchImpl)).sessionReplayUrl).toBe(
       'https://app.fullstory.com/ui/session/abc'
     )
 
     fetchImpl.mockClear()
     ObviousFeedback.init({ publicKey: 'fsk_pub_test_2', sessionReplayUrlResolver: () => null })
     const secondHost = body.children[2]
-    secondHost.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    secondHost.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     secondHost.shadowRoot
       ?.querySelector('form')
-      ?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+      ?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string).sessionReplayUrl).toBeUndefined()
+    expect(JSON.parse(firstFetchBody(fetchImpl)).sessionReplayUrl).toBeUndefined()
 
     fetchImpl.mockClear()
     ObviousFeedback.init({
@@ -432,10 +467,10 @@ describe('ObviousFeedback', () => {
       },
     })
     const thirdHost = body.children[3]
-    thirdHost.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
-    thirdHost.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    thirdHost.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
+    thirdHost.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string).sessionReplayUrl).toBeUndefined()
+    expect(JSON.parse(firstFetchBody(fetchImpl)).sessionReplayUrl).toBeUndefined()
   })
   it('renders compact previous issue rows inside the form, refreshes saved statuses, and preserves titles', async () => {
     const historyKey = 'obvious.feedback.issueHistory:fsk_pub_test:production:https%3A%2F%2Fexample.com'
@@ -471,14 +506,13 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).toContain('obv-issue-section')
     expect(host.shadowRoot?.innerHTML).toContain('Issue abi_old')
     expect(host.shadowRoot?.innerHTML).toContain('Received')
-    expect(host.shadowRoot?.innerHTML.indexOf('type="submit"')).toBeLessThan(
-      host.shadowRoot?.innerHTML.lastIndexOf('obv-issue-section')
-    )
+    const issueHistoryHtml = host.shadowRoot?.innerHTML ?? ''
+    expect(issueHistoryHtml.indexOf('type="submit"')).toBeLessThan(issueHistoryHtml.lastIndexOf('obv-issue-section'))
 
     await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -493,7 +527,7 @@ describe('ObviousFeedback', () => {
 
     host.shadowRoot
       ?.querySelector('[data-history-dismiss-index="0"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).not.toContain('Export CSV button is hidden')
     expect(JSON.parse(storage.get(historyKey) ?? '[]')).toHaveLength(1)
@@ -550,7 +584,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     const html = host.shadowRoot?.innerHTML ?? ''
@@ -562,7 +596,7 @@ describe('ObviousFeedback', () => {
 
     host.shadowRoot
       ?.querySelector('[data-history-detail-index="1"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
     const detailHtml = host.shadowRoot?.innerHTML ?? ''
     expect(detailHtml).toContain('Current status')
@@ -605,7 +639,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     const html = host.shadowRoot?.innerHTML ?? ''
@@ -623,7 +657,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).toContain('Status unavailable')
     expect(host.shadowRoot?.innerHTML).not.toContain('Received')
@@ -715,11 +749,11 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
     host.shadowRoot
       ?.querySelector('[data-history-detail-index="0"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     const detailHtml = host.shadowRoot?.innerHTML ?? ''
@@ -734,7 +768,7 @@ describe('ObviousFeedback', () => {
 
     host.shadowRoot
       ?.querySelector('[data-issue-detail-close="true"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(host.shadowRoot?.innerHTML).not.toContain('Issue status details')
   })
 
@@ -756,7 +790,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).toContain('<div class="obv-kicker">Feedback</div>')
 
@@ -777,7 +811,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).toContain('Salt and Pepper')
   })
@@ -796,7 +830,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const descriptionInput = host.shadowRoot?.querySelector('textarea[name="description"]') as
       | HTMLTextAreaElement
@@ -805,7 +839,7 @@ describe('ObviousFeedback', () => {
 
     host.shadowRoot
       ?.querySelector('[data-history-dismiss-index="0"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(host.shadowRoot?.innerHTML).toContain('My screen freezes when I open exports.')
   })
 
@@ -816,13 +850,13 @@ describe('ObviousFeedback', () => {
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
 
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     const descriptionInput = host.shadowRoot?.querySelector('textarea[name="description"]') as
       | HTMLTextAreaElement
       | undefined
     descriptionInput!.value = 'The submit button never finishes.'
 
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('mouseenter', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('mouseenter', { preventDefault() {} } as unknown as Event)
 
     expect(descriptionInput!.value).toBe('The submit button never finishes.')
     expect(host.shadowRoot?.querySelector('.obv-trigger')?.getAttribute('aria-label')).toBe('Open feedback')
@@ -835,7 +869,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test', assistantPosition: 'top-left' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const html = host.shadowRoot?.innerHTML ?? ''
     expect(html).toContain('data-assistant-position="top-left"')
@@ -849,7 +883,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const html = host.shadowRoot?.innerHTML ?? ''
     expect(html).toContain('data-trigger-corner="bottom-right"')
@@ -864,7 +898,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test', assistantPosition: 'top-left' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const html = host.shadowRoot?.innerHTML ?? ''
     expect(html).toContain('data-dialog-direction="up-right"')
@@ -877,7 +911,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const html = host.shadowRoot?.innerHTML ?? ''
     expect(html).toContain('<div class="obv-kicker">Feedback</div>')
@@ -896,7 +930,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const formHtml = host.shadowRoot?.innerHTML ?? ''
     expect(formHtml).toContain(
@@ -913,7 +947,7 @@ describe('ObviousFeedback', () => {
 
     host.shadowRoot
       ?.querySelector('[data-screenshot-start="true"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
     const markupHtml = host.shadowRoot?.innerHTML ?? ''
     expect(markupHtml).toContain('<button class="obv-button" type="button" data-markup-done="true">')
     expect(markupHtml).toContain('Done</button>')
@@ -927,10 +961,10 @@ describe('ObviousFeedback', () => {
     const host = body.children[1]
     const trigger = host.shadowRoot?.querySelector('.obv-trigger')
 
-    trigger?.dispatch('pointerdown', { pointerId: 1, clientX: 780, clientY: 580, preventDefault() {} } as Event)
-    trigger?.dispatch('pointermove', { pointerId: 1, clientX: 120, clientY: 80, preventDefault() {} } as Event)
-    trigger?.dispatch('pointerup', { pointerId: 1, clientX: 120, clientY: 80, preventDefault() {} } as Event)
-    trigger?.dispatch('click', { preventDefault() {} } as Event)
+    trigger?.dispatch('pointerdown', { pointerId: 1, clientX: 780, clientY: 580, preventDefault() {} } as unknown as Event)
+    trigger?.dispatch('pointermove', { pointerId: 1, clientX: 120, clientY: 80, preventDefault() {} } as unknown as Event)
+    trigger?.dispatch('pointerup', { pointerId: 1, clientX: 120, clientY: 80, preventDefault() {} } as unknown as Event)
+    trigger?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).not.toContain('Describe what happened')
     expect(trigger?.getAttribute('data-trigger-corner')).toBe('top-left')
@@ -966,17 +1000,17 @@ describe('ObviousFeedback', () => {
     const host = body.children[1]
     const trigger = host.shadowRoot?.querySelector('.obv-trigger')
 
-    trigger?.dispatch('mouseenter', { preventDefault() {} } as Event)
+    trigger?.dispatch('mouseenter', { preventDefault() {} } as unknown as Event)
     trigger?.dispatch('pointerdown', {
       pointerId: 1,
       clientX: 780,
       clientY: 580,
       currentTarget: trigger,
       preventDefault() {},
-    } as Event)
-    trigger?.dispatch('pointermove', { pointerId: 1, clientX: 120, clientY: 80, preventDefault() {} } as Event)
-    trigger?.dispatch('pointercancel', { preventDefault() {} } as Event)
-    trigger?.dispatch('click', { preventDefault() {} } as Event)
+    } as unknown as Event)
+    trigger?.dispatch('pointermove', { pointerId: 1, clientX: 120, clientY: 80, preventDefault() {} } as unknown as Event)
+    trigger?.dispatch('pointercancel', { preventDefault() {} } as unknown as Event)
+    trigger?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).toContain('class="obv-kicker"')
     expect(trigger?.getAttribute('data-trigger-corner')).toBe('bottom-right')
@@ -992,13 +1026,13 @@ describe('ObviousFeedback', () => {
     const host = body.children[1]
     const trigger = host.shadowRoot?.querySelector('.obv-trigger')
 
-    trigger?.dispatch('pointerdown', { pointerId: 1, clientX: 780, clientY: 580, preventDefault() {} } as Event)
-    trigger?.dispatch('pointermove', { pointerId: 1, clientX: 760, clientY: 560, preventDefault() {} } as Event)
-    trigger?.dispatch('pointerup', { pointerId: 1, clientX: 760, clientY: 560, preventDefault() {} } as Event)
+    trigger?.dispatch('pointerdown', { pointerId: 1, clientX: 780, clientY: 580, preventDefault() {} } as unknown as Event)
+    trigger?.dispatch('pointermove', { pointerId: 1, clientX: 760, clientY: 560, preventDefault() {} } as unknown as Event)
+    trigger?.dispatch('pointerup', { pointerId: 1, clientX: 760, clientY: 560, preventDefault() {} } as unknown as Event)
     expect(trigger?.getAttribute('style')).toContain('left: 716px; top: 440px')
 
     Object.assign(globalThis.window, { innerWidth: 240, innerHeight: 180 })
-    listeners.get('resize')?.({ preventDefault() {} } as Event)
+    listeners.get('resize')?.({ preventDefault() {} } as unknown as Event)
 
     expect(trigger?.getAttribute('style')).toContain('left: 156px; top: 20px')
   })
@@ -1009,12 +1043,12 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ previewOnly: true })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).toContain('Preview only — submissions disabled.')
     expect(host.shadowRoot?.innerHTML).toContain('disabled aria-disabled="true"')
 
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {} } as unknown as Event)
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(host.shadowRoot?.innerHTML).toContain('Preview only — submissions disabled.')
   })
@@ -1028,12 +1062,12 @@ describe('ObviousFeedback', () => {
       previewOnlyReason: 'Feedback SDK public key is not configured for this preview host; submissions are disabled.',
     })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).toContain(
       'Feedback SDK public key is not configured for this preview host; submissions are disabled.'
     )
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {} } as unknown as Event)
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(host.shadowRoot?.innerHTML).toContain(
       'Feedback SDK public key is not configured for this preview host; submissions are disabled.'
@@ -1046,7 +1080,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).toContain('Screenshot')
     const descriptionInput = host.shadowRoot?.querySelector('textarea[name="description"]') as
@@ -1056,7 +1090,7 @@ describe('ObviousFeedback', () => {
 
     host.shadowRoot
       ?.querySelector('[data-screenshot-start="true"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(host.shadowRoot?.innerHTML).toContain('Feedback markup canvas')
     expect(host.shadowRoot?.innerHTML).toContain('Rectangle')
     expect(host.shadowRoot?.innerHTML).toContain('Point')
@@ -1068,11 +1102,11 @@ describe('ObviousFeedback', () => {
       clientY: 120,
       currentTarget: overlay,
       preventDefault() {},
-    } as Event)
-    overlay?.dispatch('pointermove', { pointerId: 1, clientX: 220, clientY: 260, preventDefault() {} } as Event)
-    overlay?.dispatch('pointerup', { pointerId: 1, clientX: 220, clientY: 260, preventDefault() {} } as Event)
+    } as unknown as Event)
+    overlay?.dispatch('pointermove', { pointerId: 1, clientX: 220, clientY: 260, preventDefault() {} } as unknown as Event)
+    overlay?.dispatch('pointerup', { pointerId: 1, clientX: 220, clientY: 260, preventDefault() {} } as unknown as Event)
     Object.assign(globalThis.window, { innerWidth: 320, innerHeight: 240, scrollX: 90, scrollY: 91 })
-    host.shadowRoot?.querySelector('[data-markup-done="true"]')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('[data-markup-done="true"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).toContain('1 annotation attached')
     expect(host.shadowRoot?.innerHTML).toContain('Typed before annotate &amp; still here')
@@ -1088,10 +1122,10 @@ describe('ObviousFeedback', () => {
       configurable: true,
     })
 
-    form?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    form?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    const payload = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string)
+    const payload = JSON.parse(firstFetchBody(fetchImpl))
     expect(payload.annotationPayload).toMatchObject({
       items: [
         {
@@ -1111,7 +1145,7 @@ describe('ObviousFeedback', () => {
     expect(payload.annotationPayload.capturedAt).toBeString()
     expect(payload.domSnapshot).toBeUndefined()
 
-    host.shadowRoot?.querySelector('[data-new="true"]')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('[data-new="true"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(host.shadowRoot?.innerHTML).not.toContain('annotation attached')
     expect(host.shadowRoot?.innerHTML).not.toContain('Typed before annotate')
 
@@ -1123,7 +1157,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const markupStart = host.shadowRoot?.querySelector('[data-screenshot-start="true"]')
     const pointerPreventDefault = mock(() => {})
@@ -1240,10 +1274,10 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     host.shadowRoot
       ?.querySelector('[data-screenshot-start="true"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).toContain('Feedback markup canvas')
     listeners.get('keydown')?.({
@@ -1261,10 +1295,10 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     host.shadowRoot
       ?.querySelector('[data-screenshot-start="true"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const overlay = host.shadowRoot?.querySelector('.obv-markup-overlay')
     overlay?.dispatch('pointerdown', {
@@ -1273,9 +1307,9 @@ describe('ObviousFeedback', () => {
       clientY: 120,
       currentTarget: overlay,
       preventDefault() {},
-    } as Event)
-    overlay?.dispatch('pointerup', { pointerId: 1, clientX: 220, clientY: 260, preventDefault() {} } as Event)
-    host.shadowRoot?.querySelector('[data-markup-cancel="true"]')?.dispatch('click', { preventDefault() {} } as Event)
+    } as unknown as Event)
+    overlay?.dispatch('pointerup', { pointerId: 1, clientX: 220, clientY: 260, preventDefault() {} } as unknown as Event)
+    host.shadowRoot?.querySelector('[data-markup-cancel="true"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).not.toContain('annotation attached')
 
@@ -1290,10 +1324,10 @@ describe('ObviousFeedback', () => {
       configurable: true,
     })
 
-    form?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    form?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    const payload = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string)
+    const payload = JSON.parse(firstFetchBody(fetchImpl))
     expect(payload.annotationPayload).toBeUndefined()
 
     Object.defineProperty(globalThis, 'FormData', { value: originalFormData, configurable: true })
@@ -1305,11 +1339,11 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     host.shadowRoot
       ?.querySelector('[data-screenshot-start="true"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
     let overlay = host.shadowRoot?.querySelector('.obv-markup-overlay')
     overlay?.dispatch('pointerdown', {
       pointerId: 1,
@@ -1317,15 +1351,15 @@ describe('ObviousFeedback', () => {
       clientY: 120,
       currentTarget: overlay,
       preventDefault() {},
-    } as Event)
-    overlay?.dispatch('pointermove', { pointerId: 1, clientX: 220, clientY: 260, preventDefault() {} } as Event)
-    overlay?.dispatch('pointerup', { pointerId: 1, clientX: 220, clientY: 260, preventDefault() {} } as Event)
-    host.shadowRoot?.querySelector('[data-markup-done="true"]')?.dispatch('click', { preventDefault() {} } as Event)
+    } as unknown as Event)
+    overlay?.dispatch('pointermove', { pointerId: 1, clientX: 220, clientY: 260, preventDefault() {} } as unknown as Event)
+    overlay?.dispatch('pointerup', { pointerId: 1, clientX: 220, clientY: 260, preventDefault() {} } as unknown as Event)
+    host.shadowRoot?.querySelector('[data-markup-done="true"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(host.shadowRoot?.innerHTML).toContain('1 annotation attached')
 
     host.shadowRoot
       ?.querySelector('[data-screenshot-start="true"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
     overlay = host.shadowRoot?.querySelector('.obv-markup-overlay')
     overlay?.dispatch('pointerdown', {
       pointerId: 2,
@@ -1333,8 +1367,8 @@ describe('ObviousFeedback', () => {
       clientY: 10,
       currentTarget: overlay,
       preventDefault() {},
-    } as Event)
-    overlay?.dispatch('pointermove', { pointerId: 2, clientX: 60, clientY: 60, preventDefault() {} } as Event)
+    } as unknown as Event)
+    overlay?.dispatch('pointermove', { pointerId: 2, clientX: 60, clientY: 60, preventDefault() {} } as unknown as Event)
     listeners.get('keydown')?.({ key: 'Escape', preventDefault() {} } as KeyboardEvent)
     expect(host.shadowRoot?.innerHTML).toContain('1 annotation attached')
 
@@ -1347,10 +1381,10 @@ describe('ObviousFeedback', () => {
       },
       configurable: true,
     })
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    const payload = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string)
+    const payload = JSON.parse(firstFetchBody(fetchImpl))
     expect(payload.annotationPayload.items).toHaveLength(1)
     expect(payload.annotationPayload.items[0].points).toEqual([
       { x: 100, y: 120 },
@@ -1366,11 +1400,11 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     host.shadowRoot
       ?.querySelector('[data-screenshot-start="true"]')
-      ?.dispatch('click', { preventDefault() {} } as Event)
-    host.shadowRoot?.querySelector('[data-markup-tool="pen"]')?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
+    host.shadowRoot?.querySelector('[data-markup-tool="pen"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const overlay = host.shadowRoot?.querySelector('.obv-markup-overlay')
     overlay?.dispatch('pointerdown', {
@@ -1379,12 +1413,12 @@ describe('ObviousFeedback', () => {
       clientY: 5,
       currentTarget: overlay,
       preventDefault() {},
-    } as Event)
+    } as unknown as Event)
     for (let index = 0; index < 1_000; index += 1) {
-      overlay?.dispatch('pointermove', { pointerId: 1, clientX: 5 + index, clientY: 5, preventDefault() {} } as Event)
+      overlay?.dispatch('pointermove', { pointerId: 1, clientX: 5 + index, clientY: 5, preventDefault() {} } as unknown as Event)
     }
-    overlay?.dispatch('pointerup', { pointerId: 1, clientX: 1_200, clientY: 5, preventDefault() {} } as Event)
-    host.shadowRoot?.querySelector('[data-markup-done="true"]')?.dispatch('click', { preventDefault() {} } as Event)
+    overlay?.dispatch('pointerup', { pointerId: 1, clientX: 1_200, clientY: 5, preventDefault() {} } as unknown as Event)
+    host.shadowRoot?.querySelector('[data-markup-done="true"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const originalFormData = globalThis.FormData
     Object.defineProperty(globalThis, 'FormData', {
@@ -1395,10 +1429,10 @@ describe('ObviousFeedback', () => {
       },
       configurable: true,
     })
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    const payload = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string)
+    const payload = JSON.parse(firstFetchBody(fetchImpl))
     expect(payload.annotationPayload.items).toHaveLength(1)
     expect(payload.annotationPayload.items[0].tool).toBe('pen')
     expect(payload.annotationPayload.items[0].points.length).toBeLessThanOrEqual(240)
@@ -1449,10 +1483,10 @@ describe('ObviousFeedback', () => {
       configurable: true,
     })
 
-    form?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    form?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    const payload = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string)
+    const payload = JSON.parse(firstFetchBody(fetchImpl))
     expect(payload.sourceUrl).toBe('https://example.com/path?token=%5BREDACTED%5D')
     expect(payload.domSnapshot.children[0]).toEqual({ tag: 'input', redacted: true })
     expect(payload.domSnapshot.text).toEndWith('…')
@@ -1504,7 +1538,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const originalFormData = globalThis.FormData
     let description = 'First submitted issue'
@@ -1517,17 +1551,17 @@ describe('ObviousFeedback', () => {
       configurable: true,
     })
 
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(scheduledTimers).toHaveLength(1)
 
-    host.shadowRoot?.querySelector('[data-new="true"]')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('[data-new="true"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(clearedTimers.has(1)).toBe(true)
     const textarea = host.shadowRoot?.querySelector('textarea[name="description"]') as HTMLTextAreaElement | undefined
     textarea!.value = 'Draft that must survive a stale poll.'
 
     await new Promise((resolve) => setTimeout(resolve, 0))
-    const statusUrlsAfterNewSession = fetchImpl.mock.calls
+    const statusUrlsAfterNewSession = fetchCalls(fetchImpl)
       .map((call) => String(call[0]))
       .filter((url) => url.includes('/v1/feedback/status/'))
     scheduledTimers[0]?.()
@@ -1535,18 +1569,18 @@ describe('ObviousFeedback', () => {
     expect(host.shadowRoot?.innerHTML).toContain('Draft that must survive a stale poll.')
     expect(host.shadowRoot?.innerHTML).toContain('<div class="obv-kicker">Feedback</div>')
     expect(
-      fetchImpl.mock.calls.map((call) => String(call[0])).filter((url) => url.includes('/v1/feedback/status/'))
+      fetchCalls(fetchImpl).map((call) => String(call[0])).filter((url) => url.includes('/v1/feedback/status/'))
     ).toEqual(statusUrlsAfterNewSession)
 
     description = 'Second submitted issue'
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(scheduledTimers).toHaveLength(2)
 
     scheduledTimers[1]?.()
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(
-      fetchImpl.mock.calls.map((call) => String(call[0])).filter((url) => url.includes('/v1/feedback/status/'))
+      fetchCalls(fetchImpl).map((call) => String(call[0])).filter((url) => url.includes('/v1/feedback/status/'))
     ).toEqual([
       ...statusUrlsAfterNewSession,
       'https://app.obvious.ai/prepare/v1/feedback/status/abi_second?publicKey=fsk_pub_test',
@@ -1562,6 +1596,7 @@ describe('ObviousFeedback', () => {
       {
         issueId: 'abi_polling',
         status: 'under_review',
+        triageStatus: 'triaged',
         title: 'Polling issue',
         description: null,
         resolvedNote: null,
@@ -1571,6 +1606,7 @@ describe('ObviousFeedback', () => {
       {
         issueId: 'abi_polling',
         status: 'in_progress',
+        triageStatus: 'triaged',
         title: 'Polling issue',
         description: null,
         resolvedNote: null,
@@ -1580,6 +1616,7 @@ describe('ObviousFeedback', () => {
       {
         issueId: 'abi_polling',
         status: 'resolved',
+        triageStatus: 'auto_fixed',
         title: 'Polling issue',
         description: null,
         resolvedNote: 'Fixed by the worker.',
@@ -1621,13 +1658,13 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     setFormDescription('Status polling should stay silent')
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(host.shadowRoot?.innerHTML).toContain('<div class="obv-kicker">Feedback state</div>')
-    host.shadowRoot?.querySelector('[data-close="true"]')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('[data-close="true"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(host.shadowRoot?.innerHTML).not.toContain('Feedback state')
 
     for (const expectedStatus of ['Under review', 'In progress', 'Resolved']) {
@@ -1715,7 +1752,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const originalFormData = globalThis.FormData
     Object.defineProperty(globalThis, 'FormData', {
@@ -1727,12 +1764,12 @@ describe('ObviousFeedback', () => {
       configurable: true,
     })
 
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
     scheduledTimers[0]?.()
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(statusFetchCount).toBe(1)
-    host.shadowRoot?.querySelector('[data-close="true"]')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('[data-close="true"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     scheduledTimers[1]?.()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -1792,7 +1829,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(fetchedStatusUrls).toEqual([
@@ -1862,7 +1899,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const originalFormData = globalThis.FormData
     Object.defineProperty(globalThis, 'FormData', {
@@ -1874,11 +1911,11 @@ describe('ObviousFeedback', () => {
       configurable: true,
     })
 
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(host.shadowRoot?.innerHTML).toContain('Received')
 
-    host.shadowRoot?.querySelector('[data-close="true"]')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('[data-close="true"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(host.shadowRoot?.innerHTML).not.toContain('Feedback state')
 
     scheduledTimers[0]?.()
@@ -1956,7 +1993,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const originalFormData = globalThis.FormData
     Object.defineProperty(globalThis, 'FormData', {
@@ -1968,10 +2005,10 @@ describe('ObviousFeedback', () => {
       configurable: true,
     })
 
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
-    host.shadowRoot?.querySelector('[data-close="true"]')?.dispatch('click', { preventDefault() {} } as Event)
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('[data-close="true"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     scheduledTimers[0]?.()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -2013,7 +2050,7 @@ describe('ObviousFeedback', () => {
 
     const sdk = ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const originalFormData = globalThis.FormData
     Object.defineProperty(globalThis, 'FormData', {
@@ -2025,14 +2062,15 @@ describe('ObviousFeedback', () => {
       configurable: true,
     })
 
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(scheduledTimers).toHaveLength(1)
 
     scheduledTimers[0]?.()
     await statusFetchStarted
     sdk.destroy()
-    resolveStatus?.(
+    const completeStatusFetch = resolveStatus as ((response: Response) => void) | null
+    completeStatusFetch?.(
       new Response(JSON.stringify({ data: { issueId: 'abi_destroy', status: 'in_progress', triageStatus: 'triaged' } }))
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -2069,7 +2107,7 @@ describe('ObviousFeedback', () => {
       configurable: true,
     })
 
-    form?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    form?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(fetchImpl).not.toHaveBeenCalled()
@@ -2110,10 +2148,10 @@ describe('ObviousFeedback', () => {
       configurable: true,
     })
 
-    form?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    form?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    const payload = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string)
+    const payload = JSON.parse(firstFetchBody(fetchImpl))
     expect(payload.domSnapshot).toBeUndefined()
     expect(payload.context).toBeUndefined()
     expect(host.shadowRoot?.innerHTML).toContain('role="alert"')
@@ -2133,7 +2171,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     host.shadowRoot?.querySelector('form')?.dispatch('drop', {
       preventDefault() {},
       stopPropagation() {},
@@ -2144,7 +2182,7 @@ describe('ObviousFeedback', () => {
           createFeedbackFile('remove-me.txt', 'text/plain'),
         ],
       },
-    } as DragEvent)
+    } as unknown as DragEvent)
 
     expect(host.shadowRoot?.innerHTML).toContain('Uploading…')
     await flushAttachmentWork()
@@ -2158,13 +2196,13 @@ describe('ObviousFeedback', () => {
     ])
     host.shadowRoot
       ?.querySelectorAll('[data-attachment-remove]')[2]
-      ?.dispatch('click', { preventDefault() {} } as Event)
+      ?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(host.shadowRoot?.innerHTML).not.toContain('remove-me.txt')
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await flushAttachmentWork()
 
     const payload = JSON.parse(
-      fetchImpl.mock.calls.find((call) => String(call[0]).includes('/v1/feedback/submit'))?.[1]?.body as string
+      findFetchBody(fetchImpl, '/v1/feedback/submit')
     )
     expect(payload.attachmentTokens).toEqual(['token_1', 'token_2'])
     expect(payload.description).toBe('Please inspect the reporter attachments')
@@ -2178,7 +2216,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     let defaultPrevented = 0
     let propagationStopped = 0
@@ -2190,7 +2228,7 @@ describe('ObviousFeedback', () => {
         propagationStopped += 1
       },
       dataTransfer: { files: [createFeedbackFile('inside-dialog.png', 'image/png')] },
-    } as DragEvent)
+    } as unknown as DragEvent)
 
     expect(defaultPrevented).toBe(1)
     expect(propagationStopped).toBe(1)
@@ -2206,7 +2244,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(documentListeners.has('drop')).toBe(true)
 
     let defaultPrevented = 0
@@ -2241,7 +2279,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(documentListeners.has('drop')).toBe(true)
 
     let defaultPrevented = 0
@@ -2282,7 +2320,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     let defaultPrevented = 0
     listeners.get('drop')?.({
@@ -2296,7 +2334,7 @@ describe('ObviousFeedback', () => {
     } as unknown as DragEvent)
 
     expect(defaultPrevented).toBe(0)
-    host.shadowRoot?.querySelector('[data-close="true"]')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('[data-close="true"]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     expect(listeners.has('drop')).toBe(false)
     expect(documentListeners.has('drop')).toBe(false)
   })
@@ -2307,7 +2345,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     expect(host.shadowRoot?.innerHTML).toContain('data-attachment-dropzone="true" role="button" tabindex="0"')
     expect(host.shadowRoot?.innerHTML).toContain('class="obv-attachment-prompt"')
@@ -2321,7 +2359,7 @@ describe('ObviousFeedback', () => {
       }
     }
 
-    host.shadowRoot?.querySelector('[data-attachment-dropzone]')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('[data-attachment-dropzone]')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     let keyboardDefaultPrevented = 0
     host.shadowRoot?.querySelector('[data-attachment-dropzone]')?.dispatch('keydown', {
       key: 'Enter',
@@ -2341,7 +2379,7 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     host.shadowRoot?.querySelector('form')?.dispatch('paste', {
       preventDefault() {},
       clipboardData: {
@@ -2351,13 +2389,13 @@ describe('ObviousFeedback', () => {
           { kind: 'file', getAsFile: () => createFeedbackFile('notes.txt', 'text/plain') },
         ],
       },
-    } as ClipboardEvent)
+    } as unknown as ClipboardEvent)
     await flushAttachmentWork()
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await flushAttachmentWork()
 
     const payload = JSON.parse(
-      fetchImpl.mock.calls.find((call) => String(call[0]).includes('/v1/feedback/submit'))?.[1]?.body as string
+      findFetchBody(fetchImpl, '/v1/feedback/submit')
     )
     expect(payload.attachmentTokens).toEqual(['token_1', 'token_2'])
     restoreFormData()
@@ -2371,16 +2409,16 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     host.shadowRoot?.querySelector('form')?.dispatch('drop', {
       preventDefault() {},
       stopPropagation() {},
       dataTransfer: { files: [createFeedbackFile('pending.png', 'image/png')] },
-    } as DragEvent)
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    } as unknown as DragEvent)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(host.shadowRoot?.innerHTML).toContain('Please wait for attachments to finish uploading')
-    expect(fetchImpl.mock.calls.some((call) => String(call[0]).includes('/v1/feedback/submit'))).toBe(false)
+    expect(fetchCalls(fetchImpl).some((call) => String(call[0]).includes('/v1/feedback/submit'))).toBe(false)
     delayedMock.resolvePresign()
     await flushAttachmentWork()
 
@@ -2390,10 +2428,10 @@ describe('ObviousFeedback', () => {
       preventDefault() {},
       stopPropagation() {},
       dataTransfer: { files: [createFeedbackFile('fails.png', 'image/png')] },
-    } as DragEvent)
+    } as unknown as DragEvent)
     await flushAttachmentWork()
     expect(host.shadowRoot?.innerHTML).toContain('Attachment upload failed (500)')
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     expect(host.shadowRoot?.innerHTML).toContain('Remove failed attachments before submitting feedback')
     restoreFormData()
   })
@@ -2406,14 +2444,14 @@ describe('ObviousFeedback', () => {
 
     ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await flushAttachmentWork()
 
-    const urls = fetchImpl.mock.calls.map((call) => String(call[0]))
+    const urls = fetchCalls(fetchImpl).map((call) => String(call[0]))
     expect(urls.some((url) => url.includes('/v1/feedback/attachments/upload'))).toBe(false)
     const payload = JSON.parse(
-      fetchImpl.mock.calls.find((call) => String(call[0]).includes('/v1/feedback/submit'))?.[1]?.body as string
+      findFetchBody(fetchImpl, '/v1/feedback/submit')
     )
     expect(payload.attachmentTokens).toEqual([])
     restoreFormData()
@@ -2433,13 +2471,13 @@ describe('ObviousFeedback', () => {
       publicKey: 'fsk_pub_test',
     })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const restoreFormData = setFormDescription('Preview feedback should reach the staging API route.')
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe('https://api.stage.obvious.ai/prepare/v1/feedback/submit')
+    expect(String(fetchCalls(fetchImpl)[0]?.[0])).toBe('https://api.stage.obvious.ai/prepare/v1/feedback/submit')
 
     restoreFormData()
   })
@@ -2456,15 +2494,15 @@ describe('ObviousFeedback', () => {
       publicKey: 'fsk_pub_test',
     })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
     host.shadowRoot?.querySelector('form')?.dispatch('drop', {
       preventDefault() {},
       stopPropagation() {},
       dataTransfer: { files: [createFeedbackFile('markup-arrow.png', 'image/png')] },
-    } as DragEvent)
+    } as unknown as DragEvent)
     await flushAttachmentWork()
 
-    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+    expect(String(fetchCalls(fetchImpl)[0]?.[0])).toBe(
       'https://api.stage.obvious.ai/prepare/v1/feedback/attachments/upload'
     )
   })
@@ -2494,15 +2532,15 @@ describe('ObviousFeedback', () => {
       publicKey: 'fsk_pub_test',
     })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const restoreFormData = setFormDescription('Preview feedback status should poll through prepare.')
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
     scheduledTimers[0]?.()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    const statusUrls = fetchImpl.mock.calls
+    const statusUrls = fetchCalls(fetchImpl)
       .map((call) => String(call[0]))
       .filter((url) => url.includes('/v1/feedback/status/'))
     expect(statusUrls).toEqual([
@@ -2525,13 +2563,13 @@ describe('ObviousFeedback', () => {
       publicKey: 'fsk_pub_test',
     })
     const host = body.children[1]
-    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as Event)
+    host.shadowRoot?.querySelector('.obv-trigger')?.dispatch('click', { preventDefault() {} } as unknown as Event)
 
     const restoreFormData = setFormDescription('Prefixed base URLs should not double-prefix.')
-    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as Event)
+    host.shadowRoot?.querySelector('form')?.dispatch('submit', { preventDefault() {}, currentTarget: {} } as unknown as Event)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe('https://api.stage.obvious.ai/prepare/v1/feedback/submit')
+    expect(String(fetchCalls(fetchImpl)[0]?.[0])).toBe('https://api.stage.obvious.ai/prepare/v1/feedback/submit')
 
     restoreFormData()
   })
@@ -2540,7 +2578,7 @@ describe('ObviousFeedback', () => {
     const { body } = installDom()
     const script = new MiniScriptElement()
     script.dataset.pubKey = 'fsk_pub_script'
-    globalThis.document.currentScript = script
+    Object.defineProperty(globalThis.document, 'currentScript', { value: script, configurable: true })
 
     await import(`./index?script=${Date.now()}`)
 
