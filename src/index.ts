@@ -1356,7 +1356,11 @@ function createStyles(): string {
     .obv-vs-palette { --obv-vs-accent: #3b82f6; --obv-vs-slider-track: color-mix(in srgb, var(--obv-feedback-border-strong) 58%, transparent); margin-top: 10px; padding: 10px 10px 6px; border-radius: 10px; background: var(--obv-feedback-bg-subtle); border: 1px solid color-mix(in srgb, var(--obv-feedback-border) 78%, #3b82f6 22%); display: flex; flex-direction: column; gap: 2px; }
     .obv-vs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--obv-feedback-border); }
     .obv-vs-target { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--obv-feedback-text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .obv-vs-close { width: 24px; height: 24px; min-height: 24px; padding: 0; flex-shrink: 0; border: none; box-shadow: none; border-radius: 6px; }
+    .obv-vs-palette .obv-vs-close {
+      width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 0;
+      flex-shrink: 0; border-radius: 8px; box-shadow: none;
+    }
+    .obv-vs-palette .obv-vs-close .obv-icon { width: 15px; height: 15px; }
     .obv-vs-row { display: flex; align-items: center; gap: 6px; padding: 4px 4px; border-radius: 5px; }
     .obv-vs-row:hover { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 82%, var(--obv-feedback-text) 8%); }
     .obv-vs-row-label { font-size: 11px; color: var(--obv-feedback-muted); width: 82px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1392,7 +1396,10 @@ function createStyles(): string {
     .obv-vs-swatch::-webkit-color-swatch-wrapper { padding: 1px; }
     .obv-vs-swatch::-webkit-color-swatch { border: none; border-radius: 3px; }
     .obv-vs-swatch::-moz-color-swatch { border: none; border-radius: 3px; }
-    .obv-vs-revert { width: 22px; height: 22px; min-height: 22px; padding: 0; font-size: 13px; flex-shrink: 0; visibility: hidden; border: none; box-shadow: none; opacity: 0.5; border-radius: 6px; }
+    .obv-vs-palette .obv-vs-revert {
+      width: 28px; min-width: 28px; height: 28px; min-height: 28px; padding: 0;
+      font-size: 13px; flex-shrink: 0; visibility: hidden; box-shadow: none; opacity: 0.5; border-radius: 8px;
+    }
     .obv-vs-revert:hover { opacity: 1; }
     .obv-vs-row[data-has-override="true"] .obv-vs-revert { visibility: visible; }
     .obv-vs-chips { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
