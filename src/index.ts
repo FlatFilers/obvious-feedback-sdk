@@ -1462,12 +1462,6 @@ function createStyles(): string {
     }
     .obv-vs-revert:hover { opacity: 1; }
     .obv-vs-row[data-has-override="true"] .obv-vs-revert { visibility: visible; }
-    .obv-vs-chips { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-    .obv-vs-chip { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 6px; background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 72%, #3b82f6 28%); border: 1px solid color-mix(in srgb, var(--obv-feedback-border) 58%, #3b82f6 42%); cursor: pointer; }
-    .obv-vs-chip:hover { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 58%, #3b82f6 42%); }
-    .obv-vs-chip-name { font-size: 12px; font-weight: 600; color: var(--obv-feedback-text); display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .obv-vs-chip-diffs { flex: 1 1 auto; font-size: 11px; color: var(--obv-feedback-muted); font-family: ui-monospace, monospace; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .obv-vs-chip-remove { width: 18px; height: 18px; min-height: 18px; padding: 0; flex-shrink: 0; border: none; box-shadow: none; }
     .obv-row-pill-vs { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 72%, #3b82f6 28%); color: var(--obv-feedback-text); }
     .obv-row-pill-vs .obv-row-pill-label { color: var(--obv-feedback-text); }
     .obv-annotation-summary { margin-top: 6px; color: var(--obv-feedback-muted); font-size: 12px; }
@@ -3159,7 +3153,6 @@ class ObviousFeedbackWidget {
         <div class="obv-list-body">
           ${this.renderRoundItemList()}
           ${this.visualSuggestions ? this.renderVisualSuggestionPalette() : ""}
-          ${this.visualSuggestions ? this.renderVisualSuggestionChips() : ""}
         </div>
         <div class="obv-list-footer">
           <div class="obv-footer-tools">
@@ -3586,7 +3579,8 @@ class ObviousFeedbackWidget {
     this.shadowRoot
       .querySelectorAll("[data-remove-vs-element]")
       .forEach((button) => {
-        button.addEventListener("click", () => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
           const id = (button as HTMLElement).getAttribute(
             "data-remove-vs-element",
           );
@@ -4332,7 +4326,7 @@ class ObviousFeedbackWidget {
             ? `${VISUAL_SUGGESTION_PROPERTY_LABELS[group.items[0].property] ?? group.items[0].property}`
             : `${count} changes`;
         pills.push(
-          `<span class="obv-row-pill obv-row-pill-vs"><span class="obv-row-pill-label">${escapeHtml(name)} · ${escapeHtml(summary)}</span><button class="obv-row-pill-x" type="button" data-remove-vs-element="${escapeHtml(group.element.id)}" aria-label="Remove visual suggestions for ${escapeHtml(name)}">${createIcon("close")}</button></span>`,
+          `<span class="obv-row-pill obv-row-pill-vs obv-row-pill-action" data-vs-activate="${escapeHtml(group.element.id)}"><span class="obv-row-pill-label">${escapeHtml(name)} · ${escapeHtml(summary)}</span><button class="obv-row-pill-x" type="button" data-remove-vs-element="${escapeHtml(group.element.id)}" aria-label="Remove visual suggestions for ${escapeHtml(name)}">${createIcon("close")}</button></span>`,
         );
       }
     }
@@ -5243,35 +5237,6 @@ class ObviousFeedbackWidget {
     `;
   }
 
-  private renderVisualSuggestionChips(): string {
-    const mgr = this.visualSuggestions;
-    if (!mgr) return "";
-    const groups = this.groupVisualSuggestionsByElement(
-      this.getUncommittedVisualSuggestions(),
-    );
-    const activeId = mgr.getActiveElement()?.ref.id ?? null;
-    const chips = groups
-      .filter((g) => g.element.id !== activeId)
-      .map((g) => {
-        const name = getVisualSuggestionRefLabel(g.element, g.items);
-        const diffs = g.items
-          .map((i) => {
-            const short =
-              VISUAL_SUGGESTION_PROPERTY_LABELS[i.property] ?? i.property;
-            return `${short} ${i.originalValue || "—"}→${i.suggestedValue}`;
-          })
-          .join(", ");
-        return `<div class="obv-vs-chip" data-vs-chip-activate="${escapeHtml(g.element.id)}">
-          <span class="obv-vs-chip-name">${createIcon("element")} ${escapeHtml(name)}</span>
-          <span class="obv-vs-chip-diffs">${escapeHtml(diffs)}</span>
-          <button class="obv-icon-button obv-vs-chip-remove" type="button" data-vs-chip-remove="${escapeHtml(g.element.id)}" aria-label="Remove ${escapeHtml(name)} suggestions">${createIcon("close")}</button>
-        </div>`;
-      })
-      .join("");
-    if (!chips) return "";
-    return `<div class="obv-vs-chips">${chips}</div>`;
-  }
-
   private bindVisualSuggestions(): void {
     const mgr = this.visualSuggestions;
     if (!mgr) return;
@@ -5388,22 +5353,11 @@ class ObviousFeedbackWidget {
       });
     });
 
-    this.shadowRoot.querySelectorAll("[data-vs-chip-remove]").forEach((btn) => {
-      btn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const id = (btn as HTMLElement).getAttribute("data-vs-chip-remove");
-        if (id) {
-          mgr.removeElement(id);
-          this.openCard();
-        }
-      });
-    });
-
     this.shadowRoot
-      .querySelectorAll("[data-vs-chip-activate]")
+      .querySelectorAll("[data-vs-activate]")
       .forEach((el) => {
         el.addEventListener("click", () => {
-          const id = (el as HTMLElement).getAttribute("data-vs-chip-activate");
+          const id = (el as HTMLElement).getAttribute("data-vs-activate");
           if (!id) return;
           const groups = mgr.getElementsWithOverrides();
           const group = groups.find((g) => g.ref.id === id);
