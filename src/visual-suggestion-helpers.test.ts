@@ -43,6 +43,13 @@ describe("parseCssNumericValue", () => {
   it("handles negative numbers", () => {
     expect(parseCssNumericValue("-4px")).toEqual({ value: -4, unit: "px" });
   });
+
+  it("parses browser scientific notation values", () => {
+    expect(parseCssNumericValue("1.67772e+07px")).toEqual({
+      value: 16777200,
+      unit: "px",
+    });
+  });
 });
 
 describe("formatCssNumericValue", () => {

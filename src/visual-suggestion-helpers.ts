@@ -55,7 +55,7 @@ export interface ParsedCssValue {
 export function parseCssNumericValue(raw: string): ParsedCssValue | null {
   if (!raw) return null;
   const first = raw.trim().split(/\s+/)[0] ?? "";
-  const match = first.match(/^(-?\d*\.?\d+)(px|rem|em|%)?$/i);
+  const match = first.match(/^(-?(?:\d*\.?\d+)(?:e[+-]?\d+)?)(px|rem|em|%)?$/i);
   if (!match) return null;
   const value = Number.parseFloat(match[1]);
   if (!Number.isFinite(value)) return null;

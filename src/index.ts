@@ -1,5 +1,6 @@
 import {
   cssColorToHex,
+  createVisualSuggestionElementRef,
   formatCssNumericValue,
   getDefaultScrubStart,
   getVisualSuggestionSliderConfig,
@@ -8,7 +9,10 @@ import {
   VISUAL_SUGGESTION_PROPERTIES,
   VISUAL_SUGGESTION_PROPERTY_LABELS,
 } from "./visual-suggestion-helpers";
-import { VisualSuggestionManager } from "./visual-suggestion-manager";
+import {
+  type VisualSuggestionTargetInput,
+  VisualSuggestionManager,
+} from "./visual-suggestion-manager";
 
 export type FeedbackIssueType = "bug" | "improvement" | "question";
 export type FeedbackIssueSeverity = "critical" | "high" | "medium" | "low";
@@ -258,6 +262,24 @@ export interface FeedbackVisualSuggestionElementRef {
   lineNumber: number | null;
 }
 
+export type FeedbackVisualSuggestionScopeKind = "element" | "similar-siblings";
+
+export interface FeedbackVisualSuggestionScope {
+  kind: FeedbackVisualSuggestionScopeKind;
+  label: string;
+  matchedCount: number;
+  parentElement?: {
+    tagName: string;
+    cssSelector: string;
+  };
+  matchedElements?: Array<{
+    tagName: string;
+    cssSelector: string;
+    textContent: string;
+    componentName: string | null;
+  }>;
+}
+
 export interface FeedbackVisualSuggestion {
   id: string;
   property: FeedbackVisualSuggestionProperty;
@@ -265,6 +287,7 @@ export interface FeedbackVisualSuggestion {
   suggestedValue: string;
   prompt: string;
   element: FeedbackVisualSuggestionElementRef;
+  scope?: FeedbackVisualSuggestionScope;
   capturedAt: string;
 }
 
@@ -370,6 +393,13 @@ interface FeedbackRoundItem {
   attachmentTokens?: string[];
 }
 
+interface VisualSuggestionScopeOption {
+  kind: FeedbackVisualSuggestionScopeKind;
+  label: string;
+  targets: VisualSuggestionTargetInput[];
+  scope: FeedbackVisualSuggestionScope;
+}
+
 const TRIGGER_POSITION_STORAGE_KEY = "obvious.feedback.triggerPosition";
 const ISSUE_HISTORY_STORAGE_PREFIX = "obvious.feedback.issueHistory";
 const DRAFT_ROUND_STORAGE_PREFIX = "obvious.feedback.draftRound";
@@ -433,6 +463,8 @@ const SECRET_QUERY_KEYS = new Set([
 const DEFAULT_FEEDBACK_ISSUE_TYPE: FeedbackIssueType = "improvement";
 const DEFAULT_FEEDBACK_ISSUE_SEVERITY: FeedbackIssueSeverity = "medium";
 const MARKUP_TOOLS: FeedbackMarkupTool[] = ["rectangle", "point", "pen"];
+const MAX_VISUAL_SUGGESTION_SCOPE_TARGETS = 12;
+const MAX_VISUAL_SUGGESTION_SCOPE_DEPTH = 5;
 const SILLY_FEEDBACK_MESSAGES = [
   "Feature request",
   "Report a bug",
@@ -1361,6 +1393,18 @@ function createStyles(): string {
       flex-shrink: 0; border-radius: 8px; box-shadow: none;
     }
     .obv-vs-palette .obv-vs-close .obv-icon { width: 15px; height: 15px; }
+    .obv-vs-scope {
+      display: flex; align-items: center; gap: 4px; margin: 0 0 5px; padding: 2px;
+      border: 1px solid var(--obv-feedback-border); border-radius: 8px;
+      background: color-mix(in srgb, var(--obv-feedback-bg) 58%, transparent);
+    }
+    .obv-vs-scope .obv-vs-scope-button {
+      flex: 1 1 0; min-height: 24px; padding: 3px 8px; border: 0; border-radius: 6px;
+      background: transparent; color: var(--obv-feedback-muted); box-shadow: none;
+      font-size: 11px; font-weight: 650;
+    }
+    .obv-vs-scope .obv-vs-scope-button:hover:not(:disabled) { transform: none; background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-text); }
+    .obv-vs-scope .obv-vs-scope-button[aria-pressed="true"] { background: var(--obv-feedback-bg); color: var(--obv-feedback-text); box-shadow: var(--obv-feedback-shadow-sm); }
     .obv-vs-row { display: flex; align-items: center; gap: 6px; padding: 4px 4px; border-radius: 5px; }
     .obv-vs-row:hover { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 82%, var(--obv-feedback-text) 8%); }
     .obv-vs-row-label { font-size: 11px; color: var(--obv-feedback-muted); width: 82px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1807,6 +1851,137 @@ function createElementGrabRect(rect: DOMRect): ElementGrabRect {
     width: Math.round(rect.width),
     height: Math.round(rect.height),
   };
+}
+
+function normalizeVisualSuggestionTarget(target: HTMLElement): HTMLElement {
+  if (
+    target.matches(
+      'button, a, [role="button"], [role="tab"], [role="menuitem"]',
+    )
+  ) {
+    return target;
+  }
+  const interactiveParent = target.closest(
+    'button, a, [role="button"], [role="tab"], [role="menuitem"]',
+  );
+  return interactiveParent instanceof HTMLElement ? interactiveParent : target;
+}
+
+function isElementVisibleForScope(element: HTMLElement): boolean {
+  const rect = element.getBoundingClientRect();
+  if (rect.width < 4 || rect.height < 4) {
+    return false;
+  }
+  const style = window.getComputedStyle(element);
+  return (
+    style.display !== "none" &&
+    style.visibility !== "hidden" &&
+    style.opacity !== "0"
+  );
+}
+
+function getClassTokens(element: HTMLElement): Set<string> {
+  return new Set(
+    (element.getAttribute("class") ?? "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean),
+  );
+}
+
+function getVisualSuggestionElementLabel(element: HTMLElement): string {
+  return truncateText(
+    (element.getAttribute("aria-label") ?? element.textContent ?? "")
+      .trim()
+      .replace(/\s+/g, " "),
+    80,
+  );
+}
+
+function hasSimilarDimensions(a: DOMRect, b: DOMRect): boolean {
+  const widthRatio = b.width / Math.max(a.width, 1);
+  const heightRatio = b.height / Math.max(a.height, 1);
+  return (
+    widthRatio >= 0.45 &&
+    widthRatio <= 2.4 &&
+    heightRatio >= 0.45 &&
+    heightRatio <= 2.4
+  );
+}
+
+function isSimilarVisualSuggestionElement(
+  selected: HTMLElement,
+  candidate: HTMLElement,
+): boolean {
+  if (candidate === selected) {
+    return true;
+  }
+  if (candidate.tagName !== selected.tagName) {
+    return false;
+  }
+  const selectedRole = selected.getAttribute("role") ?? "";
+  const candidateRole = candidate.getAttribute("role") ?? "";
+  if (selectedRole && candidateRole && selectedRole !== candidateRole) {
+    return false;
+  }
+  if (
+    !hasSimilarDimensions(
+      selected.getBoundingClientRect(),
+      candidate.getBoundingClientRect(),
+    )
+  ) {
+    return false;
+  }
+  const selectedClasses = getClassTokens(selected);
+  const candidateClasses = getClassTokens(candidate);
+  if (selectedClasses.size === 0 || candidateClasses.size === 0) {
+    return true;
+  }
+  let shared = 0;
+  for (const token of selectedClasses) {
+    if (candidateClasses.has(token)) {
+      shared += 1;
+    }
+  }
+  const overlap = shared / Math.max(selectedClasses.size, candidateClasses.size);
+  return overlap >= 0.35;
+}
+
+function findSimilarSiblingScope(
+  selected: HTMLElement,
+): { parent: HTMLElement; elements: HTMLElement[] } | null {
+  let ancestor = selected.parentElement;
+  let depth = 0;
+  while (ancestor && depth < MAX_VISUAL_SUGGESTION_SCOPE_DEPTH) {
+    const candidates = Array.from(
+      ancestor.querySelectorAll(selected.tagName.toLowerCase()),
+    )
+      .filter((candidate): candidate is HTMLElement => {
+        return (
+          candidate instanceof HTMLElement &&
+          isElementVisibleForScope(candidate) &&
+          isSimilarVisualSuggestionElement(selected, candidate)
+        );
+      })
+      .sort((a, b) => {
+        if (a === b) return 0;
+        return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING
+          ? -1
+          : 1;
+      });
+
+    if (
+      candidates.includes(selected) &&
+      candidates.length >= 2 &&
+      candidates.length <= MAX_VISUAL_SUGGESTION_SCOPE_TARGETS
+    ) {
+      return { parent: ancestor, elements: candidates };
+    }
+
+    ancestor = ancestor.parentElement;
+    depth += 1;
+  }
+  return null;
 }
 
 function getElementGrabDisplayName(
@@ -2312,6 +2487,7 @@ class ObviousFeedbackWidget {
   private elementPickerOnPick: ((target: HTMLElement) => void) | null = null;
   private readonly visualSuggestions: VisualSuggestionManager | null;
   private activeVisualSuggestionItemId: string | null = null;
+  private visualSuggestionScopeOptions: VisualSuggestionScopeOption[] = [];
   private measureOverlayOpen = false;
   private measurementItems: FeedbackMeasurement[] = [];
   private newRowDraft = "";
@@ -3785,6 +3961,18 @@ class ObviousFeedbackWidget {
       element,
       suggestions,
     );
+    this.visualSuggestionScopeOptions = [
+      {
+        kind: "element",
+        label: "This",
+        targets: [{ element: previewedElement, ref: element }],
+        scope: {
+          kind: "element",
+          label: "This element",
+          matchedCount: 1,
+        },
+      },
+    ];
     this.activeVisualSuggestionItemId = itemId;
     this.openCard();
   }
@@ -3823,6 +4011,7 @@ class ObviousFeedbackWidget {
     } else {
       manager.closeActiveElement();
     }
+    this.visualSuggestionScopeOptions = [];
     this.openCard();
   }
 
@@ -4581,6 +4770,7 @@ class ObviousFeedbackWidget {
 
   private beginVisualSuggestionSelection(): void {
     if (!this.visualSuggestions) return;
+    this.visualSuggestionScopeOptions = [];
     this.elementPickerOnPick = (target) =>
       this.handleVisualSuggestionPick(target);
     this.renderElementPickerOverlay();
@@ -4589,14 +4779,92 @@ class ObviousFeedbackWidget {
   private async handleVisualSuggestionPick(target: HTMLElement): Promise<void> {
     const mgr = this.visualSuggestions;
     if (!mgr || mgr.isFull()) return;
-    const grab = await this.createElementGrabItem(target);
+    const normalizedTarget = normalizeVisualSuggestionTarget(target);
+    const grab = await this.createElementGrabItem(normalizedTarget);
     if (this.destroyed || !this.elementPickerOpen) return;
-    mgr.setActiveElement(target, grab);
+    const selectedRef = createVisualSuggestionElementRef(grab);
+    const scopeOptions = await this.createVisualSuggestionScopeOptions(
+      normalizedTarget,
+      selectedRef,
+    );
+    if (this.destroyed || !this.elementPickerOpen) return;
+    this.visualSuggestionScopeOptions = scopeOptions;
+    const defaultScope = scopeOptions[0];
+    mgr.setActiveElementTargets(
+      normalizedTarget,
+      selectedRef,
+      defaultScope?.targets ?? [{ element: normalizedTarget, ref: selectedRef }],
+      defaultScope?.scope ?? {
+        kind: "element",
+        label: "This element",
+        matchedCount: 1,
+      },
+    );
     this.activeVisualSuggestionItemId = null;
     this.clearElementGrabHoverState();
     this.elementPickerOpen = false;
     this.elementPickerOnPick = null;
     this.openCard();
+  }
+
+  private async createVisualSuggestionScopeOptions(
+    selectedTarget: HTMLElement,
+    selectedRef: FeedbackVisualSuggestionElementRef,
+  ): Promise<VisualSuggestionScopeOption[]> {
+    const singleTarget = { element: selectedTarget, ref: selectedRef };
+    const options: VisualSuggestionScopeOption[] = [
+      {
+        kind: "element",
+        label: "This",
+        targets: [singleTarget],
+        scope: {
+          kind: "element",
+          label: "This element",
+          matchedCount: 1,
+        },
+      },
+    ];
+
+    const siblingScope = findSimilarSiblingScope(selectedTarget);
+    if (!siblingScope) {
+      return options;
+    }
+
+    const siblingTargets: VisualSuggestionTargetInput[] = [];
+    for (const element of siblingScope.elements) {
+      if (element === selectedTarget) {
+        siblingTargets.push(singleTarget);
+        continue;
+      }
+      const grab = await this.createElementGrabItem(element);
+      siblingTargets.push({
+        element,
+        ref: createVisualSuggestionElementRef(grab),
+      });
+    }
+
+    options.push({
+      kind: "similar-siblings",
+      label: `Row (${siblingTargets.length})`,
+      targets: siblingTargets,
+      scope: {
+        kind: "similar-siblings",
+        label: "Similar elements in this row/group",
+        matchedCount: siblingTargets.length,
+        parentElement: {
+          tagName: siblingScope.parent.tagName,
+          cssSelector: buildCssSelector(siblingScope.parent),
+        },
+        matchedElements: siblingTargets.map(({ element, ref }) => ({
+          tagName: ref.tagName,
+          cssSelector: ref.cssSelector,
+          textContent: getVisualSuggestionElementLabel(element),
+          componentName: ref.componentName,
+        })),
+      },
+    });
+
+    return options;
   }
 
   private renderVisualSuggestionPalette(): string {
@@ -4605,6 +4873,17 @@ class ObviousFeedbackWidget {
     if (!active) return "";
     const displayName =
       active.ref.componentName ?? active.ref.tagName.toLowerCase();
+    const scopeControls =
+      this.visualSuggestionScopeOptions.length > 1
+        ? `<div class="obv-vs-scope" role="group" aria-label="Visual suggestion target scope">
+            ${this.visualSuggestionScopeOptions
+              .map((option) => {
+                const isActive = option.kind === active.scope.kind;
+                return `<button class="obv-button obv-vs-scope-button" type="button" data-vs-scope="${escapeHtml(option.kind)}" aria-pressed="${isActive}">${escapeHtml(option.label)}</button>`;
+              })
+              .join("")}
+          </div>`
+        : "";
     const rows = VISUAL_SUGGESTION_PROPERTIES.map((prop) => {
       const override = mgr?.getOverrideForActiveElement(prop) ?? null;
       const displayValue = mgr?.getCurrentDisplayValue(prop) ?? "";
@@ -4620,6 +4899,7 @@ class ObviousFeedbackWidget {
           <span class="obv-vs-target">${createIcon("element")} ${escapeHtml(displayName)}</span>
           <button class="obv-icon-button obv-vs-close" type="button" data-vs-close="true" aria-label="Close palette">${createIcon("close")}</button>
         </div>
+        ${scopeControls}
         ${rows}
       </div>
     `;
@@ -4633,13 +4913,15 @@ class ObviousFeedbackWidget {
     const label = VISUAL_SUGGESTION_PROPERTY_LABELS[property] ?? property;
     const sliderConfig = getVisualSuggestionSliderConfig(property);
     const parsed = parseCssNumericValue(displayValue);
-    const shown = parsed
-      ? formatCssNumericValue(parsed.value, parsed.unit)
-      : displayValue || "—";
     const sliderMin = sliderConfig?.min ?? 0;
     const sliderMax = sliderConfig?.max ?? 100;
     const sliderStep = sliderConfig?.step ?? 1;
     const sliderUnit = parsed?.unit || sliderConfig?.unit || "px";
+    const shown = parsed
+      ? parsed.value > sliderMax
+        ? `${formatCssNumericValue(sliderMax, parsed.unit || sliderUnit)}+`
+        : formatCssNumericValue(parsed.value, parsed.unit)
+      : displayValue || "—";
     const sliderValue = parsed
       ? Math.min(sliderMax, Math.max(sliderMin, parsed.value))
       : sliderMin;
@@ -4728,6 +5010,32 @@ class ObviousFeedbackWidget {
       ?.addEventListener("click", () => {
         this.closeVisualSuggestionPalette();
       });
+
+    this.shadowRoot.querySelectorAll("[data-vs-scope]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const kind = (button as HTMLElement).getAttribute(
+          "data-vs-scope",
+        ) as FeedbackVisualSuggestionScopeKind | null;
+        const active = mgr.getActiveElement();
+        if (!kind || !active || kind === active.scope.kind) {
+          return;
+        }
+        const option = this.visualSuggestionScopeOptions.find(
+          (candidate) => candidate.kind === kind,
+        );
+        if (!option) {
+          return;
+        }
+        mgr.setActiveElementTargets(
+          active.element,
+          active.ref,
+          option.targets,
+          option.scope,
+        );
+        this.syncActiveVisualSuggestionItem();
+        this.openCard();
+      });
+    });
 
     this.shadowRoot.querySelectorAll("[data-vs-revert]").forEach((btn) => {
       btn.addEventListener("click", (event) => {

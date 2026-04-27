@@ -3,6 +3,7 @@ import type {
   FeedbackVisualSuggestion,
   FeedbackVisualSuggestionElementRef,
   FeedbackVisualSuggestionProperty,
+  FeedbackVisualSuggestionScope,
   FeedbackVisualSuggestionsPayload,
 } from "./index";
 import {
@@ -24,14 +25,32 @@ export interface ActiveElement {
     FeedbackVisualSuggestionProperty,
     { computedValue: string; previousInlineValue: string | null }
   >;
+  targets: ActiveElementTarget[];
+  scope: FeedbackVisualSuggestionScope;
+}
+
+export interface ActiveElementTarget {
+  element: HTMLElement;
+  ref: FeedbackVisualSuggestionElementRef;
+  originals: Map<
+    FeedbackVisualSuggestionProperty,
+    { computedValue: string; previousInlineValue: string | null }
+  >;
+}
+
+export interface VisualSuggestionTargetInput {
+  element: HTMLElement;
+  ref: FeedbackVisualSuggestionElementRef;
 }
 
 interface PersistentPreviewEntry {
   id: string;
   elementId: string;
-  element: HTMLElement;
   property: FeedbackVisualSuggestionProperty;
-  previousInlineValue: string | null;
+  targets: Array<{
+    element: HTMLElement;
+    previousInlineValue: string | null;
+  }>;
   appliedValue: string;
 }
 
@@ -66,6 +85,50 @@ export class VisualSuggestionManager {
       target,
       createVisualSuggestionElementRef(grab),
     );
+  }
+
+  setActiveElementTargets(
+    selectedTarget: HTMLElement,
+    selectedRef: FeedbackVisualSuggestionElementRef,
+    targets: readonly VisualSuggestionTargetInput[],
+    scope: FeedbackVisualSuggestionScope,
+  ): void {
+    const active = this.active;
+    const existingActiveItemProperties =
+      active?.ref.id === selectedRef.id
+        ? this.items
+            .filter((item) => item.element.id === selectedRef.id)
+            .map((item) => ({
+              property: item.property,
+              suggestedValue: item.suggestedValue,
+            }))
+        : [];
+
+    for (const item of this.items.filter(
+      (candidate) => candidate.element.id === selectedRef.id,
+    )) {
+      const preview = this.previews.get(item.id);
+      if (preview) {
+        this.restoreInlineStyle(preview);
+        this.previews.delete(item.id);
+      }
+    }
+    this.items = this.items.filter(
+      (candidate) => candidate.element.id !== selectedRef.id,
+    );
+
+    this.active = this.createActiveElementState(
+      selectedTarget,
+      selectedRef,
+      targets.map((target) =>
+        this.createActiveElementTarget(target.element, target.ref),
+      ),
+      scope,
+    );
+
+    for (const item of existingActiveItemProperties) {
+      this.setPropertyOverride(item.property, item.suggestedValue);
+    }
   }
 
   activateElementWithSuggestions(
@@ -120,21 +183,19 @@ export class VisualSuggestionManager {
       return;
     }
 
-    try {
-      active.element.style.setProperty(property, sanitized);
-    } catch {
-      return;
-    }
-
     const existingIndex = this.items.findIndex(
       (i) => i.element.id === active.ref.id && i.property === property,
     );
-    const prompt = buildVisualSuggestionPrompt(
+    const basePrompt = buildVisualSuggestionPrompt(
       active.ref,
       property,
       original.computedValue,
       sanitized,
     );
+    const prompt =
+      active.scope.kind === "similar-siblings"
+        ? `${basePrompt} Apply the same visual intent to ${active.scope.matchedCount} similar nearby elements in the same row/group.`
+        : basePrompt;
     const suggestion: FeedbackVisualSuggestion = {
       id:
         existingIndex >= 0
@@ -145,6 +206,7 @@ export class VisualSuggestionManager {
       suggestedValue: sanitized,
       prompt,
       element: active.ref,
+      scope: active.scope.kind === "element" ? undefined : active.scope,
       capturedAt: new Date().toISOString(),
     };
 
@@ -156,12 +218,26 @@ export class VisualSuggestionManager {
       this.items = [...this.items, suggestion];
     }
 
+    const appliedTargets: PersistentPreviewEntry["targets"] = [];
+    for (const target of active.targets) {
+      const targetOriginal = target.originals.get(property);
+      if (!targetOriginal) continue;
+      try {
+        target.element.style.setProperty(property, sanitized);
+        appliedTargets.push({
+          element: target.element,
+          previousInlineValue: targetOriginal.previousInlineValue,
+        });
+      } catch {
+        // Keep previewing the other matched elements.
+      }
+    }
+
     this.previews.set(suggestion.id, {
       id: suggestion.id,
       elementId: active.ref.id,
-      element: active.element,
       property,
-      previousInlineValue: original.previousInlineValue,
+      targets: appliedTargets,
       appliedValue: sanitized,
     });
   }
@@ -176,7 +252,10 @@ export class VisualSuggestionManager {
     );
     if (!existing) return;
 
-    if (original.previousInlineValue) {
+    const preview = this.previews.get(existing.id);
+    if (preview) {
+      this.restoreInlineStyle(preview);
+    } else if (original.previousInlineValue) {
       active.element.style.setProperty(property, original.previousInlineValue);
     } else {
       active.element.style.removeProperty(property);
@@ -198,7 +277,9 @@ export class VisualSuggestionManager {
 
   getPreviewedElement(elementId: string): HTMLElement | null {
     for (const entry of this.previews.values()) {
-      if (entry.elementId === elementId) return entry.element;
+      if (entry.elementId === elementId) {
+        return entry.targets[0]?.element ?? null;
+      }
     }
     return null;
   }
@@ -263,32 +344,58 @@ export class VisualSuggestionManager {
   private createActiveElementState(
     target: HTMLElement,
     ref: FeedbackVisualSuggestionElementRef,
+    targets: readonly ActiveElementTarget[] = [],
+    scope: FeedbackVisualSuggestionScope = {
+      kind: "element",
+      label: "This element",
+      matchedCount: 1,
+    },
   ): ActiveElement {
+    const fallbackTarget = this.createActiveElementTarget(target, ref);
+    const activeTargets = targets.length > 0 ? [...targets] : [fallbackTarget];
+    const selectedTarget =
+      activeTargets.find((candidate) => candidate.ref.id === ref.id) ??
+      fallbackTarget;
+    return {
+      element: selectedTarget.element,
+      ref,
+      originals: selectedTarget.originals,
+      targets: activeTargets,
+      scope,
+    };
+  }
+
+  private createActiveElementTarget(
+    element: HTMLElement,
+    ref: FeedbackVisualSuggestionElementRef,
+  ): ActiveElementTarget {
     const originals = new Map<
       FeedbackVisualSuggestionProperty,
       { computedValue: string; previousInlineValue: string | null }
     >();
     for (const prop of VISUAL_SUGGESTION_PROPERTIES) {
       originals.set(prop, {
-        computedValue: getVisualSuggestionComputedValue(target, prop),
-        previousInlineValue: target.style.getPropertyValue(prop) || null,
+        computedValue: getVisualSuggestionComputedValue(element, prop),
+        previousInlineValue: element.style.getPropertyValue(prop) || null,
       });
     }
-    return { element: target, ref, originals };
+    return { element, ref, originals };
   }
 
   private restoreInlineStyle(entry: PersistentPreviewEntry): void {
-    try {
-      if (entry.previousInlineValue) {
-        entry.element.style.setProperty(
-          entry.property,
-          entry.previousInlineValue,
-        );
-      } else {
-        entry.element.style.removeProperty(entry.property);
+    for (const target of entry.targets) {
+      try {
+        if (target.previousInlineValue) {
+          target.element.style.setProperty(
+            entry.property,
+            target.previousInlineValue,
+          );
+        } else {
+          target.element.style.removeProperty(entry.property);
+        }
+      } catch {
+        // element may have been removed from the DOM
       }
-    } catch {
-      // element may have been removed from the DOM
     }
   }
 }

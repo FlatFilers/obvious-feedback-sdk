@@ -88,6 +88,71 @@ describe("VisualSuggestionManager", () => {
     expect(el.style.getPropertyValue("font-size")).toBe("24px");
   });
 
+  it("setPropertyOverride previews scoped changes across matched targets", () => {
+    const mgr = new VisualSuggestionManager();
+    const selected = createMockElement({ "font-size": "16px" });
+    const sibling = createMockElement({ "font-size": "14px" });
+    const selectedGrab = createMockGrab("eg_1");
+    const siblingGrab = createMockGrab("eg_2");
+
+    mgr.setActiveElementTargets(
+      selected,
+      {
+        id: selectedGrab.id,
+        tagName: selectedGrab.tagName,
+        cssSelector: selectedGrab.cssSelector,
+        boundingRect: selectedGrab.boundingRect,
+        componentName: selectedGrab.componentName,
+        sourceFile: selectedGrab.sourceFile,
+        lineNumber: selectedGrab.lineNumber,
+      },
+      [
+        {
+          element: selected,
+          ref: {
+            id: selectedGrab.id,
+            tagName: selectedGrab.tagName,
+            cssSelector: selectedGrab.cssSelector,
+            boundingRect: selectedGrab.boundingRect,
+            componentName: selectedGrab.componentName,
+            sourceFile: selectedGrab.sourceFile,
+            lineNumber: selectedGrab.lineNumber,
+          },
+        },
+        {
+          element: sibling,
+          ref: {
+            id: siblingGrab.id,
+            tagName: siblingGrab.tagName,
+            cssSelector: siblingGrab.cssSelector,
+            boundingRect: siblingGrab.boundingRect,
+            componentName: siblingGrab.componentName,
+            sourceFile: siblingGrab.sourceFile,
+            lineNumber: siblingGrab.lineNumber,
+          },
+        },
+      ],
+      {
+        kind: "similar-siblings",
+        label: "Similar elements in this row/group",
+        matchedCount: 2,
+      },
+    );
+
+    mgr.setPropertyOverride("font-size", "24px");
+
+    const item = mgr.getItems()[0];
+    expect(item.scope?.kind).toBe("similar-siblings");
+    expect(item.scope?.matchedCount).toBe(2);
+    expect(selected.style.getPropertyValue("font-size")).toBe("24px");
+    expect(sibling.style.getPropertyValue("font-size")).toBe("24px");
+
+    mgr.removeSuggestions([item.id]);
+
+    expect(selected.style.getPropertyValue("font-size")).toBe("");
+    expect(sibling.style.getPropertyValue("font-size")).toBe("");
+  });
+
   it("setPropertyOverride with original value clears the item (silent revert)", () => {
     const mgr = new VisualSuggestionManager();
     const el = createMockElement({ "font-size": "16px" });
