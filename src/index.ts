@@ -406,6 +406,7 @@ interface VisualSuggestionTargetOption {
   id: string;
   kind: VisualSuggestionTargetKind;
   label: string;
+  displayLabel: string;
   element: HTMLElement;
   ref: FeedbackVisualSuggestionElementRef;
   scopeOptions: VisualSuggestionScopeOption[];
@@ -1420,7 +1421,11 @@ function createStyles(): string {
     .obv-vs-target-level .obv-vs-target-button:hover:not(:disabled),
     .obv-vs-scope .obv-vs-scope-button:hover:not(:disabled) { transform: none; background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-text); }
     .obv-vs-target-level .obv-vs-target-button[aria-pressed="true"],
-    .obv-vs-scope .obv-vs-scope-button[aria-pressed="true"] { background: var(--obv-feedback-bg); color: var(--obv-feedback-text); box-shadow: var(--obv-feedback-shadow-sm); }
+    .obv-vs-scope .obv-vs-scope-button[aria-pressed="true"] {
+      background: color-mix(in srgb, var(--obv-vs-accent) 22%, var(--obv-feedback-bg));
+      color: var(--obv-feedback-text);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--obv-vs-accent) 64%, transparent), var(--obv-feedback-shadow-sm);
+    }
     .obv-vs-row { display: flex; align-items: center; gap: 6px; padding: 4px 4px; border-radius: 5px; }
     .obv-vs-row:hover { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 82%, var(--obv-feedback-text) 8%); }
     .obv-vs-row-label { font-size: 11px; color: var(--obv-feedback-muted); width: 82px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1965,6 +1970,60 @@ function pluralizeVisualSuggestionTargetLabel(label: string): string {
 
 function supportsVisualSuggestionSiblingScope(label: string): boolean {
   return ["Pill", "Card", "Button", "Link"].includes(label);
+}
+
+function getVisualSuggestionTargetDisplayLabel(
+  option: VisualSuggestionTargetOption,
+  options: readonly VisualSuggestionTargetOption[],
+): string {
+  const surfaceOption = options.find(
+    (candidate) => candidate.kind !== "text",
+  );
+
+  if (option.kind === "text" && surfaceOption) {
+    return surfaceOption.label === "Pill" ? "Label only" : "Text only";
+  }
+
+  if (option.label === "Pill") return "Whole pill";
+  if (option.label === "Card") return "Whole card";
+  if (option.label === "Button") return "Whole button";
+  if (option.label === "Link") return "Whole link";
+  if (option.label === "Container") return "Whole area";
+  return option.label;
+}
+
+function simplifyVisualSuggestionTargetOptions(
+  options: readonly VisualSuggestionTargetOption[],
+): VisualSuggestionTargetOption[] {
+  if (options.length <= 1) {
+    return options.map((option) => ({
+      ...option,
+      displayLabel: option.displayLabel || option.label,
+    }));
+  }
+
+  const hasSurfaceOption = options.some((option) => option.kind !== "text");
+  if (!hasSurfaceOption) {
+    const preferredTextOption =
+      options.find((option) => option.label === "Heading") ?? options[0];
+    return [
+      {
+        ...preferredTextOption,
+        displayLabel: preferredTextOption.label,
+      },
+    ];
+  }
+
+  const dedupedOptions: VisualSuggestionTargetOption[] = [];
+  const seenDisplayLabels = new Set<string>();
+  for (const option of options) {
+    const displayLabel = getVisualSuggestionTargetDisplayLabel(option, options);
+    if (seenDisplayLabels.has(displayLabel)) continue;
+    seenDisplayLabels.add(displayLabel);
+    dedupedOptions.push({ ...option, displayLabel });
+  }
+
+  return dedupedOptions;
 }
 
 function findVisualSuggestionContainerTarget(
@@ -4186,6 +4245,7 @@ class ObviousFeedbackWidget {
         id: element.id,
         kind: getVisualSuggestionTargetKind(previewedElement),
         label: getVisualSuggestionTargetLabel(previewedElement),
+        displayLabel: getVisualSuggestionTargetLabel(previewedElement),
         element: previewedElement,
         ref: element,
         scopeOptions: this.visualSuggestionScopeOptions,
@@ -5064,6 +5124,7 @@ class ObviousFeedbackWidget {
         id: ref.id,
         kind: getVisualSuggestionTargetKind(element),
         label,
+        displayLabel: label,
         element,
         ref,
         scopeOptions: await this.createVisualSuggestionScopeOptions(
@@ -5074,7 +5135,7 @@ class ObviousFeedbackWidget {
       });
     }
 
-    return options;
+    return simplifyVisualSuggestionTargetOptions(options);
   }
 
   private async createVisualSuggestionScopeOptions(
@@ -5145,6 +5206,7 @@ class ObviousFeedbackWidget {
     if (!active) return "";
     const targetOption = this.getActiveVisualSuggestionTargetOption();
     const displayName =
+      targetOption?.displayLabel ??
       targetOption?.label ??
       active.ref.componentName ??
       active.ref.tagName.toLowerCase();
@@ -5154,7 +5216,8 @@ class ObviousFeedbackWidget {
             ${this.visualSuggestionTargetOptions
               .map((option) => {
                 const isActive = option.ref.id === active.ref.id;
-                return `<button class="obv-button obv-vs-target-button" type="button" data-vs-target="${escapeHtml(option.id)}" aria-pressed="${isActive}">${escapeHtml(option.label)}</button>`;
+                const label = option.displayLabel || option.label;
+                return `<button class="obv-button obv-vs-target-button" type="button" data-vs-target="${escapeHtml(option.id)}" aria-pressed="${isActive}">${escapeHtml(label)}</button>`;
               })
               .join("")}
           </div>`
