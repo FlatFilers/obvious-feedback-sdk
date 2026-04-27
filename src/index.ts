@@ -4250,7 +4250,7 @@ class ObviousFeedbackWidget {
             : `${count} changes`;
         const ids = group.items.map((suggestion) => suggestion.id).join(",");
         pills.push(
-          `<span class="obv-row-pill obv-row-pill-vs obv-row-pill-action" data-item-vs-activate="${escapeHtml(item.id)}:${escapeHtml(group.element.id)}">${createIcon("dial")}<span class="obv-row-pill-label">${escapeHtml(name)} · ${escapeHtml(summary)}</span><button class="obv-row-pill-x" type="button" data-item-remove-vs="${escapeHtml(item.id)}:${escapeHtml(ids)}" aria-label="Remove visual suggestions for ${escapeHtml(name)}">${createIcon("close")}</button></span>`,
+          `<span class="obv-row-pill obv-row-pill-vs obv-row-pill-action" data-item-vs-activate="${escapeHtml(item.id)}:${escapeHtml(group.element.id)}"><span class="obv-row-pill-label">${escapeHtml(name)} · ${escapeHtml(summary)}</span><button class="obv-row-pill-x" type="button" data-item-remove-vs="${escapeHtml(item.id)}:${escapeHtml(ids)}" aria-label="Remove visual suggestions for ${escapeHtml(name)}">${createIcon("close")}</button></span>`,
         );
       }
     }
@@ -4294,7 +4294,7 @@ class ObviousFeedbackWidget {
             ? `${VISUAL_SUGGESTION_PROPERTY_LABELS[group.items[0].property] ?? group.items[0].property}`
             : `${count} changes`;
         pills.push(
-          `<span class="obv-row-pill obv-row-pill-vs">${createIcon("dial")}<span class="obv-row-pill-label">${escapeHtml(name)} · ${escapeHtml(summary)}</span><button class="obv-row-pill-x" type="button" data-remove-vs-element="${escapeHtml(group.element.id)}" aria-label="Remove visual suggestions for ${escapeHtml(name)}">${createIcon("close")}</button></span>`,
+          `<span class="obv-row-pill obv-row-pill-vs"><span class="obv-row-pill-label">${escapeHtml(name)} · ${escapeHtml(summary)}</span><button class="obv-row-pill-x" type="button" data-remove-vs-element="${escapeHtml(group.element.id)}" aria-label="Remove visual suggestions for ${escapeHtml(name)}">${createIcon("close")}</button></span>`,
         );
       }
     }
