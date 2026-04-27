@@ -1550,6 +1550,8 @@ function createStyles(): string {
       font-size: 11px; font-weight: 500; white-space: nowrap;
       opacity: 0; transition: opacity 100ms ease;
     }
+    .obv-footer-tool-btn:first-of-type::after { left: 0; transform: none; }
+    .obv-footer-tool-btn:last-of-type::after { left: auto; right: 0; transform: none; }
     .obv-footer-tool-btn:hover::after { opacity: 1; }
     .obv-markup-toolbar {
       position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483647;
