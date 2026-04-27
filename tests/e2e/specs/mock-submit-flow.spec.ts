@@ -104,6 +104,13 @@ test.describe("Mock submit flow", () => {
     });
 
     await expect(page.locator("#visual-target")).toHaveCSS("font-size", "28px");
+    await page.locator('[data-vs-close="true"]').click();
+    await expect(page.locator(".obv-vs-chip")).toHaveCount(0);
+    await expect(page.locator(".obv-row-pill-vs")).toContainText(
+      "Text · Font size",
+    );
+    await page.locator(".obv-row-pill-vs").click();
+    await expect(fontSizeSlider).toBeVisible();
 
     await page.locator('[data-item-input="__new"]').press("Enter");
     await page.locator('[data-submit-round="true"]').click();
