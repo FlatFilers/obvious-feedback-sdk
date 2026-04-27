@@ -35,11 +35,11 @@ The script auto-initializes the widget when `data-pub-key` is present.
 ### ES module
 
 ```js
-import { ObviousFeedback } from '@obvi/feedback-sdk'
+import { ObviousFeedback } from "@obvi/feedback-sdk";
 
 const widget = ObviousFeedback.init({
-  publicKey: 'fsk_pub_...',
-})
+  publicKey: "fsk_pub_...",
+});
 
 // Later: widget.destroy()
 ```
@@ -59,23 +59,22 @@ const widget = ObviousFeedback.init({
 
 Pass options to `ObviousFeedback.init()` or use `data-*` attributes on the script tag.
 
-
-| Option                     | `data-*` attribute    | Type                                                        | Default                  | Description                                               |
-| -------------------------- | --------------------- | ----------------------------------------------------------- | ------------------------ | --------------------------------------------------------- |
-| `publicKey`                | `data-pub-key`        | `string`                                                    | —                        | **Required.** Your workspace feedback key.                |
-| `apiBaseUrl`               | `data-api-base-url`   | `string`                                                    | `https://api.app.obvious.ai` | Base URL for the Obvious API.                         |
-| `identityToken`            | `data-identity-token` | `string`                                                    | —                        | Signed JWT for verified identity (see below).             |
-| `env`                      | `data-env`            | `string`                                                    | `production`             | Environment label attached to submissions.                |
-| `prNumber`                 | `data-pr-number`      | `number`                                                    | —                        | PR number for preview environment routing.                |
-| `theme`                    | `data-theme`          | `'light' | 'dark' | 'system'`                               | `light`                  | Widget color scheme.                                      |
-| `triggerLabel`             | `data-trigger-label`  | `string`                                                    | `Open feedback`          | Tooltip text on the trigger button.                       |
-| `assistantPosition`        | —                     | `'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'` | `bottom-right`           | Corner for the floating trigger.                          |
-| `redactSelectors`          | —                     | `string[]`                                                  | `[]`                     | CSS selectors for elements to redact from DOM snapshots.  |
-| `captureConsole`           | —                     | `boolean`                                                   | `false`                  | Include recent console logs with submissions.             |
-| `captureNetwork`           | —                     | `boolean`                                                   | `false`                  | Include recent network requests with submissions.         |
-| `sessionReplayUrlResolver` | —                     | `() => string | null`                                       | —                        | Returns a session replay URL (e.g. FullStory, LogRocket). |
-| `previewOnly`              | —                     | `boolean`                                                   | `false`                  | Show the widget in read-only mode without submitting.     |
-
+| Option                     | `data-*` attribute    | Type                    | Default                      | Description                                                |
+| -------------------------- | --------------------- | ----------------------- | ---------------------------- | ---------------------------------------------------------- | --------------------------------------------------------- | -------------------- | -------------------------------- |
+| `publicKey`                | `data-pub-key`        | `string`                | —                            | **Required.** Your workspace feedback key.                 |
+| `apiBaseUrl`               | `data-api-base-url`   | `string`                | `https://api.app.obvious.ai` | Base URL for the Obvious API.                              |
+| `identityToken`            | `data-identity-token` | `string`                | —                            | Signed JWT for verified identity (see below).              |
+| `env`                      | `data-env`            | `string`                | `production`                 | Environment label attached to submissions.                 |
+| `prNumber`                 | `data-pr-number`      | `number`                | —                            | PR number for preview environment routing.                 |
+| `theme`                    | `data-theme`          | `'light'                | 'dark'                       | 'system'`                                                  | `light`                                                   | Widget color scheme. |
+| `triggerLabel`             | `data-trigger-label`  | `string`                | `Open feedback`              | Tooltip text on the trigger button.                        |
+| `assistantPosition`        | —                     | `'bottom-right'         | 'bottom-left'                | 'top-right'                                                | 'top-left'`                                               | `bottom-right`       | Corner for the floating trigger. |
+| `redactSelectors`          | —                     | `string[]`              | `[]`                         | CSS selectors for elements to redact from DOM snapshots.   |
+| `captureConsole`           | —                     | `boolean`               | `false`                      | Include recent console logs with submissions.              |
+| `captureNetwork`           | —                     | `boolean`               | `false`                      | Include recent network requests with submissions.          |
+| `sessionReplayUrlResolver` | —                     | `() => string           | null`                        | —                                                          | Returns a session replay URL (e.g. FullStory, LogRocket). |
+| `visualSuggestions`        | —                     | `{ enabled?: boolean }` | `{ enabled: false }`         | Let reporters preview narrow visual changes before submit. |
+| `previewOnly`              | —                     | `boolean`               | `false`                      | Show the widget in read-only mode without submitting.      |
 
 ## Setup
 
@@ -93,16 +92,16 @@ Configure **allowed domains** to restrict which origins can submit feedback with
 To attach verified user information to feedback submissions, sign an identity token on your server using the private key:
 
 ```js
-import { SignJWT } from 'jose'
+import { SignJWT } from "jose";
 
 const identityToken = await new SignJWT({
   identity: { email: user.email, name: user.name },
 })
-  .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
-  .setSubject('fsk_pub_...')
+  .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+  .setSubject("fsk_pub_...")
   .setIssuedAt()
-  .setExpirationTime('1h')
-  .sign(new TextEncoder().encode('fsk_secret_...'))
+  .setExpirationTime("1h")
+  .sign(new TextEncoder().encode("fsk_secret_..."));
 ```
 
 Pass the resulting token as `identityToken` in the SDK config. If the token is missing or invalid, feedback is still accepted but marked as unverified.
@@ -115,9 +114,9 @@ The widget uses Shadow DOM and does not inherit host-page styles. Control appear
 
 ```js
 ObviousFeedback.init({
-  publicKey: 'fsk_pub_...',
-  theme: 'dark', // 'light' (default) | 'dark' | 'system'
-})
+  publicKey: "fsk_pub_...",
+  theme: "dark", // 'light' (default) | 'dark' | 'system'
+});
 ```
 
 - **`light`** — Always light. Safe for light-only host pages.
@@ -147,14 +146,12 @@ Initialize the widget. Only one instance can be active at a time; calling `init`
 
 Returns a handle with:
 
-
 | Method                                | Description                                                             |
 | ------------------------------------- | ----------------------------------------------------------------------- |
 | `destroy()`                           | Remove the widget from the page.                                        |
 | `open()`                              | Programmatically open the feedback card.                                |
 | `getOpenIssueCount()`                 | Number of non-terminal issues submitted in this session.                |
 | `subscribeToOpenIssueCount(listener)` | Subscribe to open issue count changes. Returns an unsubscribe function. |
-
 
 ## Keyboard shortcut
 
@@ -163,6 +160,39 @@ Press **Cmd/Ctrl + Shift + .** to open the feedback card when the widget is acti
 ## Attachments
 
 Users can attach files (up to 25 MB each, 10 per submission) via drag-and-drop or the file picker in the widget. Attachments are uploaded directly to secure storage via pre-signed URLs.
+
+## Visual Suggestions
+
+Visual suggestions are default-off for external consumers. Enable them when you want reporters to select a page element, preview a narrow style change live, and submit that intent with the feedback payload:
+
+```js
+ObviousFeedback.init({
+  publicKey: "fsk_pub_...",
+  visualSuggestions: { enabled: true },
+});
+```
+
+Submitted feedback includes `context.visualSuggestions` with `{ version: 1, suggestions: [...] }`. The SDK only accepts font size, border radius, padding, gap, text color, and background color, and it rejects unsafe CSS syntax before applying or submitting a preview.
+
+### Local Dashboard Dogfood
+
+Use a local package link to test SDK changes inside the Obvious dashboard before publishing:
+
+```bash
+cd /Users/alexolyaiy/Repositories/obvious-feedback-sdk
+bun install
+bun link
+bun run dev
+```
+
+In the dashboard package:
+
+```bash
+cd /Users/alexolyaiy/Repositories/obvious/dashboard
+bun link @obvi/feedback-sdk --no-save
+```
+
+Restart the dashboard so Vite reloads the linked package. Before committing dashboard dependency changes, remove the local link and depend on the published prerelease package.
 
 ## Status polling
 
