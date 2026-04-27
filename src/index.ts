@@ -1991,12 +1991,65 @@ function findVisualSuggestionContainerTarget(
   return null;
 }
 
+function isTransparentCssColor(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === "transparent") return true;
+  const rgbaMatch = normalized.match(
+    /^rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+(?:\s*,\s*([\d.]+%?))?\s*\)$/,
+  );
+  if (!rgbaMatch) return false;
+  const alpha = rgbaMatch[1];
+  if (!alpha) return false;
+  return alpha.endsWith("%")
+    ? Number.parseFloat(alpha) === 0
+    : Number.parseFloat(alpha) === 0;
+}
+
+function hasVisibleBorderSide(
+  style: CSSStyleDeclaration,
+  side: "Top" | "Right" | "Bottom" | "Left",
+): boolean {
+  const borderStyle = style.getPropertyValue(
+    `border-${side.toLowerCase()}-style`,
+  );
+  if (borderStyle === "none" || borderStyle === "hidden") return false;
+
+  const borderWidth = Number.parseFloat(
+    style.getPropertyValue(`border-${side.toLowerCase()}-width`),
+  );
+  if (!Number.isFinite(borderWidth) || borderWidth <= 0) return false;
+
+  return !isTransparentCssColor(
+    style.getPropertyValue(`border-${side.toLowerCase()}-color`),
+  );
+}
+
+function hasVisibleRoundedSurface(element: HTMLElement): boolean {
+  const style = window.getComputedStyle(element);
+  const hasBackground =
+    !isTransparentCssColor(style.backgroundColor) ||
+    style.backgroundImage !== "none";
+  const hasBorder =
+    hasVisibleBorderSide(style, "Top") ||
+    hasVisibleBorderSide(style, "Right") ||
+    hasVisibleBorderSide(style, "Bottom") ||
+    hasVisibleBorderSide(style, "Left");
+  const hasShadow = style.boxShadow !== "none";
+  const clipsContent = [style.overflow, style.overflowX, style.overflowY].some(
+    (value) => ["hidden", "clip", "scroll", "auto"].includes(value),
+  );
+
+  return hasBackground || hasBorder || hasShadow || clipsContent;
+}
+
 function getVisualSuggestionTargetProperties(
   element: HTMLElement,
   kind: VisualSuggestionTargetKind,
 ): FeedbackVisualSuggestionProperty[] {
   const style = window.getComputedStyle(element);
   const isLayoutContainer = style.display === "flex" || style.display === "grid";
+  const shapeProperties: FeedbackVisualSuggestionProperty[] =
+    hasVisibleRoundedSurface(element) ? ["border-radius"] : [];
 
   if (kind === "text") {
     return ["font-size", "color"];
@@ -2004,7 +2057,7 @@ function getVisualSuggestionTargetProperties(
 
   if (kind === "container") {
     return [
-      "border-radius",
+      ...shapeProperties,
       "padding",
       ...(isLayoutContainer ? (["gap"] as const) : []),
       "background-color",
@@ -2013,7 +2066,7 @@ function getVisualSuggestionTargetProperties(
 
   return [
     "font-size",
-    "border-radius",
+    ...shapeProperties,
     "padding",
     ...(isLayoutContainer ? (["gap"] as const) : []),
     "color",
