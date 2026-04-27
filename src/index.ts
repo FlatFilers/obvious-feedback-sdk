@@ -1353,7 +1353,7 @@ function createStyles(): string {
     .obv-element-grab-chip-name .obv-icon { flex-shrink: 0; }
     .obv-element-grab-remove { width: 22px; height: 22px; min-height: 22px; padding: 0; }
     .obv-visual-suggest-flag-dot { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 999px; background: #3b82f6; }
-    .obv-vs-palette { margin-top: 10px; padding: 10px 10px 6px; border-radius: 10px; background: var(--obv-feedback-bg-subtle); border: 1px solid color-mix(in srgb, var(--obv-feedback-border) 78%, #3b82f6 22%); display: flex; flex-direction: column; gap: 2px; }
+    .obv-vs-palette { --obv-vs-accent: #3b82f6; --obv-vs-slider-track: color-mix(in srgb, var(--obv-feedback-border-strong) 58%, transparent); margin-top: 10px; padding: 10px 10px 6px; border-radius: 10px; background: var(--obv-feedback-bg-subtle); border: 1px solid color-mix(in srgb, var(--obv-feedback-border) 78%, #3b82f6 22%); display: flex; flex-direction: column; gap: 2px; }
     .obv-vs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--obv-feedback-border); }
     .obv-vs-target { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--obv-feedback-text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .obv-vs-close { width: 24px; height: 24px; min-height: 24px; padding: 0; flex-shrink: 0; border: none; box-shadow: none; border-radius: 6px; }
@@ -1363,8 +1363,29 @@ function createStyles(): string {
     .obv-vs-scrub { font-family: ui-monospace, monospace; font-size: 12px; color: var(--obv-feedback-text); cursor: ew-resize; user-select: none; -webkit-user-select: none; text-align: right; padding: 1px 4px; border-radius: 4px; background: transparent; min-width: 48px; white-space: nowrap; }
     .obv-vs-scrub[data-has-override="true"] { color: #3b82f6; font-weight: 600; background: transparent; }
     .obv-vs-scrub-input { font: inherit; font-family: ui-monospace, monospace; font-size: 12px; width: 72px; text-align: right; padding: 2px 5px; border: 1px solid #3b82f6; border-radius: 4px; background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-text); outline: none; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15); }
-    .obv-vs-slider { width: 100%; height: 4px; margin: 0 0 2px; accent-color: #3b82f6; cursor: pointer; border-radius: 2px; }
-    .obv-vs-slider::-webkit-slider-thumb { width: 12px; height: 12px; }
+    .obv-vs-slider {
+      appearance: none; -webkit-appearance: none;
+      width: 100%; height: 18px; margin: -1px 0 0; padding: 0;
+      cursor: pointer; border-radius: 999px; outline: none;
+      background: linear-gradient(to right, var(--obv-vs-accent) 0%, var(--obv-vs-accent) var(--obv-vs-slider-percent, 0%), var(--obv-vs-slider-track) var(--obv-vs-slider-percent, 0%), var(--obv-vs-slider-track) 100%);
+      background-size: 100% 3px; background-repeat: no-repeat; background-position: center;
+    }
+    .obv-vs-slider::-webkit-slider-runnable-track { height: 3px; border-radius: 999px; background: transparent; }
+    .obv-vs-slider::-webkit-slider-thumb {
+      appearance: none; -webkit-appearance: none;
+      width: 13px; height: 13px; margin-top: -5px; border-radius: 999px;
+      border: 2px solid var(--obv-feedback-bg-subtle); background: var(--obv-vs-accent);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 0 0 1px color-mix(in srgb, var(--obv-vs-accent) 42%, transparent);
+    }
+    .obv-vs-slider::-moz-range-track { height: 3px; border-radius: 999px; background: transparent; }
+    .obv-vs-slider::-moz-range-progress { height: 3px; border-radius: 999px; background: var(--obv-vs-accent); }
+    .obv-vs-slider::-moz-range-thumb {
+      width: 9px; height: 9px; border-radius: 999px;
+      border: 2px solid var(--obv-feedback-bg-subtle); background: var(--obv-vs-accent);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 0 0 1px color-mix(in srgb, var(--obv-vs-accent) 42%, transparent);
+    }
+    .obv-vs-slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--obv-feedback-focus), 0 1px 2px rgba(0, 0, 0, 0.22); }
+    .obv-vs-slider:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--obv-feedback-focus), 0 1px 2px rgba(0, 0, 0, 0.22); }
     .obv-vs-numeric-group { display: flex; flex-direction: column; flex: 1 1 auto; gap: 1px; min-width: 0; }
     .obv-vs-numeric-top { display: flex; align-items: center; gap: 6px; }
     .obv-vs-swatch { width: 22px; height: 22px; padding: 0; border: 1.5px solid var(--obv-feedback-border-strong); border-radius: 5px; cursor: pointer; flex-shrink: 0; appearance: none; -webkit-appearance: none; background: transparent; }
@@ -1511,10 +1532,9 @@ function createStyles(): string {
       --obv-feedback-shadow: 0 18px 46px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.26);
     }
     :host([data-theme="dark"]) .obv-form-error { background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.28); color: #fecaca; }
-    :host([data-theme="dark"]) .obv-vs-palette { background: #242424; border-color: rgba(255, 255, 255, 0.16); }
+    :host([data-theme="dark"]) .obv-vs-palette { --obv-vs-accent: #60a5fa; --obv-vs-slider-track: rgba(255, 255, 255, 0.26); background: #242424; border-color: rgba(255, 255, 255, 0.16); }
     :host([data-theme="dark"]) .obv-vs-row:hover { background: rgba(255, 255, 255, 0.05); }
     :host([data-theme="dark"]) .obv-vs-scrub[data-has-override="true"] { color: #93c5fd; }
-    :host([data-theme="dark"]) .obv-vs-slider { accent-color: #60a5fa; }
     :host([data-theme="dark"]) .obv-visual-suggest-flag-dot { background: #60a5fa; }
   `;
 }
@@ -4616,6 +4636,10 @@ class ObviousFeedbackWidget {
     const sliderValue = parsed
       ? Math.min(sliderMax, Math.max(sliderMin, parsed.value))
       : sliderMin;
+    const sliderPercent =
+      sliderMax > sliderMin
+        ? ((sliderValue - sliderMin) / (sliderMax - sliderMin)) * 100
+        : 0;
     return `
       <div class="obv-vs-row" data-has-override="${hasOverride}" data-vs-prop="${escapeHtml(property)}">
         <span class="obv-vs-row-label">${escapeHtml(label)}</span>
@@ -4623,7 +4647,7 @@ class ObviousFeedbackWidget {
           <div class="obv-vs-numeric-top">
             <span class="obv-vs-scrub" data-vs-scrub="${escapeHtml(property)}" data-has-override="${hasOverride}">${escapeHtml(shown)}</span>
           </div>
-          <input type="range" class="obv-vs-slider" data-vs-slider="${escapeHtml(property)}" data-vs-slider-unit="${escapeHtml(sliderUnit)}" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" value="${sliderValue}" aria-label="Adjust ${escapeHtml(label)}" />
+          <input type="range" class="obv-vs-slider" data-vs-slider="${escapeHtml(property)}" data-vs-slider-unit="${escapeHtml(sliderUnit)}" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" value="${sliderValue}" style="--obv-vs-slider-percent: ${sliderPercent.toFixed(2)}%" aria-label="Adjust ${escapeHtml(label)}" />
         </div>
         <button class="obv-icon-button obv-vs-revert" type="button" data-vs-revert="${escapeHtml(property)}" aria-label="Revert ${escapeHtml(label)}">↺</button>
       </div>
@@ -4746,7 +4770,19 @@ class ObviousFeedbackWidget {
       const sliderUnit =
         (el as HTMLElement).getAttribute("data-vs-slider-unit") ?? "px";
       el.addEventListener("input", () => {
-        const next = `${(el as HTMLInputElement).value}${sliderUnit}`;
+        const input = el as HTMLInputElement;
+        const next = `${input.value}${sliderUnit}`;
+        const min = Number(input.min);
+        const max = Number(input.max);
+        const value = Number(input.value);
+        const percent =
+          Number.isFinite(min) && Number.isFinite(max) && max > min
+            ? ((value - min) / (max - min)) * 100
+            : 0;
+        input.style.setProperty(
+          "--obv-vs-slider-percent",
+          `${Math.min(100, Math.max(0, percent)).toFixed(2)}%`,
+        );
         mgr.setPropertyOverride(prop, next);
         this.syncActiveVisualSuggestionItem();
         const scrubEl = this.shadowRoot.querySelector(
