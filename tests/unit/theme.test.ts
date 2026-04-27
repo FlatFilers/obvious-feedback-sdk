@@ -30,4 +30,14 @@ describe('theme', () => {
       expect(hostTokenPattern.test(block)).toBe(false)
     }
   })
+
+  it('pins footer edge tooltips inside the feedback card', async () => {
+    const { body } = installDom()
+    const { ObviousFeedback } = await import(`../../src/index?tooltip-edge-alignment=${Date.now()}`)
+    ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
+    const host = body.children[1]
+
+    expect(host.shadowRoot?.innerHTML).toContain('.obv-footer-tool-btn:first-of-type::after')
+    expect(host.shadowRoot?.innerHTML).toContain('.obv-footer-tool-btn:last-of-type::after')
+  })
 })
