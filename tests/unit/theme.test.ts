@@ -80,6 +80,9 @@ describe('theme', () => {
     const host = body.children[1]
     // Card should have overflow:visible so ::after tooltips on footer buttons are not clipped
     expect(host.shadowRoot?.innerHTML).toContain('overflow: visible')
+    // Inner scroll wrapper contains the scrollable content, keeping the footer outside the overflow boundary
+    expect(host.shadowRoot?.innerHTML).toContain('.obv-card-scroll')
+    expect(host.shadowRoot?.innerHTML).toContain('overflow-y: auto')
   })
 
   it('uses layout viewport (clientWidth) for trigger sizing to prevent zoom drift', async () => {

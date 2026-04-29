@@ -1285,10 +1285,12 @@ function createStyles(): string {
     .obv-trigger[data-assistant-position="top-right"] { top: 96px; bottom: auto; }
     .obv-trigger[data-assistant-position="top-left"] { top: 96px; left: 20px; right: auto; bottom: auto; }
     .obv-card {
-      position: fixed; right: 20px; bottom: 150px; width: min(392px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: visible; z-index: 2147483647; display: flex; flex-direction: column;
+      position: fixed; right: 20px; bottom: 150px; width: min(392px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: visible; z-index: 2147483647;
       background: var(--obv-feedback-bg); color: var(--obv-feedback-text); border: 1px solid var(--obv-feedback-border); border-radius: var(--obv-feedback-radius-card);
       box-shadow: var(--obv-feedback-shadow); padding: 18px; box-sizing: border-box;
     }
+    /* Inner scroll container: moves overflow out of .obv-card so footer tool ::after tooltips are not clipped */
+    .obv-card-scroll { overflow-y: auto; max-height: calc(100vh - 76px); }
     .obv-card[data-assistant-position="bottom-left"] { left: 20px; right: auto; }
     .obv-card[data-assistant-position="top-right"] { top: 150px; bottom: auto; }
     .obv-card[data-assistant-position="top-left"] { top: 150px; left: 20px; right: auto; bottom: auto; }
@@ -1475,12 +1477,12 @@ function createStyles(): string {
     .obv-row-pill-vs { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 72%, #3b82f6 28%); color: var(--obv-feedback-text); }
     .obv-row-pill-vs .obv-row-pill-label { color: var(--obv-feedback-text); }
     .obv-annotation-summary { margin-top: 6px; color: var(--obv-feedback-muted); font-size: 12px; }
-    .obv-unified-panel { display: flex; flex-direction: column; gap: 0; flex: 1 1 0; min-height: 0; }
+    .obv-unified-panel { display: flex; flex-direction: column; gap: 0; }
     .obv-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
     .obv-card-header .obv-kicker { margin-bottom: 0; }
     .obv-shortcut-hint { color: var(--obv-feedback-muted); font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.7; margin-left: 6px; }
     .obv-card-close { width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 999px; }
-    .obv-list-body { padding: 2px 0; min-height: 40px; flex: 1 1 0; overflow-y: auto; }
+    .obv-list-body { padding: 2px 0; min-height: 40px; }
     .obv-list-row { display: flex; align-items: baseline; gap: 0; padding: 3px 0; }
     .obv-row-number {
       width: 22px; flex-shrink: 0; text-align: left; padding-right: 8px;
@@ -3141,14 +3143,16 @@ class ObviousFeedbackWidget {
         : "";
       return `
         <div class="obv-unified-panel">
-          <div class="obv-card-header">
-            <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
-          </div>
-          <div class="obv-success">
-            <div class="obv-success-message">${createIcon("check")} Sent to Autobuild</div>
-            ${linkHtml}
-            <div class="obv-success-action">
-              <button class="obv-button obv-button-secondary" type="button" data-new-feedback="true">${createIcon("plus")}New feedback</button>
+          <div class="obv-card-scroll">
+            <div class="obv-card-header">
+              <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
+            </div>
+            <div class="obv-success">
+              <div class="obv-success-message">${createIcon("check")} Sent to Autobuild</div>
+              ${linkHtml}
+              <div class="obv-success-action">
+                <button class="obv-button obv-button-secondary" type="button" data-new-feedback="true">${createIcon("plus")}New feedback</button>
+              </div>
             </div>
           </div>
         </div>
@@ -3157,14 +3161,16 @@ class ObviousFeedbackWidget {
 
     return `
       <div class="obv-unified-panel">
-        <div class="obv-card-header">
-          <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
-        </div>
-        ${this.config.previewOnly ? `<div class="obv-preview-note">${escapeHtml(this.config.previewOnlyReason)}</div>` : ""}
-        ${this.feedbackFormError ? `<div class="obv-form-error" role="alert">${escapeHtml(this.feedbackFormError)}</div>` : ""}
-        <div class="obv-list-body">
-          ${this.renderRoundItemList()}
-          ${this.visualSuggestions ? this.renderVisualSuggestionPalette() : ""}
+        <div class="obv-card-scroll">
+          <div class="obv-card-header">
+            <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
+          </div>
+          ${this.config.previewOnly ? `<div class="obv-preview-note">${escapeHtml(this.config.previewOnlyReason)}</div>` : ""}
+          ${this.feedbackFormError ? `<div class="obv-form-error" role="alert">${escapeHtml(this.feedbackFormError)}</div>` : ""}
+          <div class="obv-list-body">
+            ${this.renderRoundItemList()}
+            ${this.visualSuggestions ? this.renderVisualSuggestionPalette() : ""}
+          </div>
         </div>
         <div class="obv-list-footer">
           <div class="obv-footer-tools">
