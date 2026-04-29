@@ -739,13 +739,17 @@ interface FeedbackViewportBounds {
 }
 
 function getViewportBounds(): FeedbackViewportBounds {
+  // Use the layout viewport (clientWidth/clientHeight) for trigger positioning.
+  // Unlike visualViewport.width/height, layout viewport dimensions are stable across
+  // browser zoom levels (Ctrl+/Ctrl-), preventing the button from drifting on zoom.
+  // visualViewport offsets are preserved for mobile pinch-zoom scenarios.
   const visualViewport = window.visualViewport;
   const width = Math.max(
-    visualViewport?.width ?? window.innerWidth ?? 0,
+    document.documentElement?.clientWidth ?? window.innerWidth ?? 0,
     DEFAULT_TRIGGER_SIZE_PX + TRIGGER_VIEWPORT_MARGIN_PX * 2,
   );
   const height = Math.max(
-    visualViewport?.height ?? window.innerHeight ?? 0,
+    document.documentElement?.clientHeight ?? window.innerHeight ?? 0,
     DEFAULT_TRIGGER_SIZE_PX + TRIGGER_VIEWPORT_MARGIN_PX * 2,
   );
   return {
@@ -1250,6 +1254,12 @@ function createStyles(): string {
       opacity: 0; transition: opacity 100ms ease;
     }
     .obv-trigger:hover::after { opacity: 1; }
+    /* Bug fix: anchor tooltip to right edge when trigger is in a right-side corner to prevent viewport overflow */
+    .obv-trigger[data-trigger-corner$="-right"]::after { left: auto; right: 0; transform: none; }
+    /* Bug fix: anchor tooltip to left edge when trigger is in a left-side corner */
+    .obv-trigger[data-trigger-corner$="-left"]::after { left: 0; right: auto; transform: none; }
+    /* Bug fix: hide trigger tooltip when the feedback card is open */
+    .obv-trigger[data-card-open]::after { display: none; }
     .obv-issue-detail { margin-top: 10px; border: 1px solid var(--obv-feedback-border); border-radius: 14px; padding: 12px; background: var(--obv-feedback-bg-subtle); }
     .obv-issue-detail-header { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
     .obv-issue-detail-title { color: var(--obv-feedback-text); font-size: 14px; font-weight: 700; line-height: 1.3; }
@@ -1275,7 +1285,7 @@ function createStyles(): string {
     .obv-trigger[data-assistant-position="top-right"] { top: 96px; bottom: auto; }
     .obv-trigger[data-assistant-position="top-left"] { top: 96px; left: 20px; right: auto; bottom: auto; }
     .obv-card {
-      position: fixed; right: 20px; bottom: 150px; width: min(392px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; z-index: 2147483647;
+      position: fixed; right: 20px; bottom: 150px; width: min(392px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: visible; z-index: 2147483647; display: flex; flex-direction: column;
       background: var(--obv-feedback-bg); color: var(--obv-feedback-text); border: 1px solid var(--obv-feedback-border); border-radius: var(--obv-feedback-radius-card);
       box-shadow: var(--obv-feedback-shadow); padding: 18px; box-sizing: border-box;
     }
@@ -1465,12 +1475,12 @@ function createStyles(): string {
     .obv-row-pill-vs { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 72%, #3b82f6 28%); color: var(--obv-feedback-text); }
     .obv-row-pill-vs .obv-row-pill-label { color: var(--obv-feedback-text); }
     .obv-annotation-summary { margin-top: 6px; color: var(--obv-feedback-muted); font-size: 12px; }
-    .obv-unified-panel { display: flex; flex-direction: column; gap: 0; }
+    .obv-unified-panel { display: flex; flex-direction: column; gap: 0; flex: 1 1 0; min-height: 0; }
     .obv-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
     .obv-card-header .obv-kicker { margin-bottom: 0; }
     .obv-shortcut-hint { color: var(--obv-feedback-muted); font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.7; margin-left: 6px; }
     .obv-card-close { width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 999px; }
-    .obv-list-body { padding: 2px 0; min-height: 40px; }
+    .obv-list-body { padding: 2px 0; min-height: 40px; flex: 1 1 0; overflow-y: auto; }
     .obv-list-row { display: flex; align-items: baseline; gap: 0; padding: 3px 0; }
     .obv-row-number {
       width: 22px; flex-shrink: 0; text-align: left; padding-right: 8px;
@@ -2817,7 +2827,7 @@ class ObviousFeedbackWidget {
       draftCount > 0
         ? `<span class="obv-trigger-ring" data-status="draft" aria-hidden="true"></span><span class="obv-trigger-badge" aria-hidden="true">${draftCount}</span>`
         : "";
-    return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? "draft" : "idle"}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})" style="${createTriggerPositionStyle(this.triggerPosition)}"><span class="obv-trigger-icon" aria-hidden="true">${createIcon("compose")}</span>${badge}</button>`;
+    return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? "draft" : "idle"}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})"${this.isCardOpen() ? ' data-card-open="true"' : ""} style="${createTriggerPositionStyle(this.triggerPosition)}"><span class="obv-trigger-icon" aria-hidden="true">${createIcon("compose")}</span>${badge}</button>`;
   }
 
   private bindTrigger(onClick: () => void): void {
