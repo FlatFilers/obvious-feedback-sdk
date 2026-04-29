@@ -739,13 +739,17 @@ interface FeedbackViewportBounds {
 }
 
 function getViewportBounds(): FeedbackViewportBounds {
+  // Use the layout viewport (clientWidth/clientHeight) for trigger positioning.
+  // Unlike visualViewport.width/height, layout viewport dimensions are stable across
+  // browser zoom levels (Ctrl+/Ctrl-), preventing the button from drifting on zoom.
+  // visualViewport offsets are preserved for mobile pinch-zoom scenarios.
   const visualViewport = window.visualViewport;
   const width = Math.max(
-    visualViewport?.width ?? window.innerWidth ?? 0,
+    document.documentElement?.clientWidth ?? window.innerWidth ?? 0,
     DEFAULT_TRIGGER_SIZE_PX + TRIGGER_VIEWPORT_MARGIN_PX * 2,
   );
   const height = Math.max(
-    visualViewport?.height ?? window.innerHeight ?? 0,
+    document.documentElement?.clientHeight ?? window.innerHeight ?? 0,
     DEFAULT_TRIGGER_SIZE_PX + TRIGGER_VIEWPORT_MARGIN_PX * 2,
   );
   return {
@@ -1250,6 +1254,12 @@ function createStyles(): string {
       opacity: 0; transition: opacity 100ms ease;
     }
     .obv-trigger:hover::after { opacity: 1; }
+    /* Bug fix: anchor tooltip to right edge when trigger is in a right-side corner to prevent viewport overflow */
+    .obv-trigger[data-trigger-corner$="-right"]::after { left: auto; right: 0; transform: none; }
+    /* Bug fix: anchor tooltip to left edge when trigger is in a left-side corner */
+    .obv-trigger[data-trigger-corner$="-left"]::after { left: 0; right: auto; transform: none; }
+    /* Bug fix: hide trigger tooltip when the feedback card is open */
+    .obv-trigger[data-card-open]::after { display: none; }
     .obv-issue-detail { margin-top: 10px; border: 1px solid var(--obv-feedback-border); border-radius: 14px; padding: 12px; background: var(--obv-feedback-bg-subtle); }
     .obv-issue-detail-header { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
     .obv-issue-detail-title { color: var(--obv-feedback-text); font-size: 14px; font-weight: 700; line-height: 1.3; }
@@ -1275,10 +1285,12 @@ function createStyles(): string {
     .obv-trigger[data-assistant-position="top-right"] { top: 96px; bottom: auto; }
     .obv-trigger[data-assistant-position="top-left"] { top: 96px; left: 20px; right: auto; bottom: auto; }
     .obv-card {
-      position: fixed; right: 20px; bottom: 150px; width: min(392px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; z-index: 2147483647;
+      position: fixed; right: 20px; bottom: 150px; width: min(392px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: visible; z-index: 2147483647;
       background: var(--obv-feedback-bg); color: var(--obv-feedback-text); border: 1px solid var(--obv-feedback-border); border-radius: var(--obv-feedback-radius-card);
       box-shadow: var(--obv-feedback-shadow); padding: 18px; box-sizing: border-box;
     }
+    /* Inner scroll container: moves overflow out of .obv-card so footer tool ::after tooltips are not clipped */
+    .obv-card-scroll { overflow-y: auto; max-height: calc(100vh - 76px); }
     .obv-card[data-assistant-position="bottom-left"] { left: 20px; right: auto; }
     .obv-card[data-assistant-position="top-right"] { top: 150px; bottom: auto; }
     .obv-card[data-assistant-position="top-left"] { top: 150px; left: 20px; right: auto; bottom: auto; }
@@ -2817,7 +2829,7 @@ class ObviousFeedbackWidget {
       draftCount > 0
         ? `<span class="obv-trigger-ring" data-status="draft" aria-hidden="true"></span><span class="obv-trigger-badge" aria-hidden="true">${draftCount}</span>`
         : "";
-    return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? "draft" : "idle"}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})" style="${createTriggerPositionStyle(this.triggerPosition)}"><span class="obv-trigger-icon" aria-hidden="true">${createIcon("compose")}</span>${badge}</button>`;
+    return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? "draft" : "idle"}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})"${this.isCardOpen() ? ' data-card-open="true"' : ""} style="${createTriggerPositionStyle(this.triggerPosition)}"><span class="obv-trigger-icon" aria-hidden="true">${createIcon("compose")}</span>${badge}</button>`;
   }
 
   private bindTrigger(onClick: () => void): void {
@@ -3131,14 +3143,16 @@ class ObviousFeedbackWidget {
         : "";
       return `
         <div class="obv-unified-panel">
-          <div class="obv-card-header">
-            <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
-          </div>
-          <div class="obv-success">
-            <div class="obv-success-message">${createIcon("check")} Sent to Autobuild</div>
-            ${linkHtml}
-            <div class="obv-success-action">
-              <button class="obv-button obv-button-secondary" type="button" data-new-feedback="true">${createIcon("plus")}New feedback</button>
+          <div class="obv-card-scroll">
+            <div class="obv-card-header">
+              <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
+            </div>
+            <div class="obv-success">
+              <div class="obv-success-message">${createIcon("check")} Sent to Autobuild</div>
+              ${linkHtml}
+              <div class="obv-success-action">
+                <button class="obv-button obv-button-secondary" type="button" data-new-feedback="true">${createIcon("plus")}New feedback</button>
+              </div>
             </div>
           </div>
         </div>
@@ -3147,14 +3161,16 @@ class ObviousFeedbackWidget {
 
     return `
       <div class="obv-unified-panel">
-        <div class="obv-card-header">
-          <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
-        </div>
-        ${this.config.previewOnly ? `<div class="obv-preview-note">${escapeHtml(this.config.previewOnlyReason)}</div>` : ""}
-        ${this.feedbackFormError ? `<div class="obv-form-error" role="alert">${escapeHtml(this.feedbackFormError)}</div>` : ""}
-        <div class="obv-list-body">
-          ${this.renderRoundItemList()}
-          ${this.visualSuggestions ? this.renderVisualSuggestionPalette() : ""}
+        <div class="obv-card-scroll">
+          <div class="obv-card-header">
+            <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
+          </div>
+          ${this.config.previewOnly ? `<div class="obv-preview-note">${escapeHtml(this.config.previewOnlyReason)}</div>` : ""}
+          ${this.feedbackFormError ? `<div class="obv-form-error" role="alert">${escapeHtml(this.feedbackFormError)}</div>` : ""}
+          <div class="obv-list-body">
+            ${this.renderRoundItemList()}
+            ${this.visualSuggestions ? this.renderVisualSuggestionPalette() : ""}
+          </div>
         </div>
         <div class="obv-list-footer">
           <div class="obv-footer-tools">
