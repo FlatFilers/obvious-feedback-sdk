@@ -5,132 +5,132 @@ import {
   getDefaultScrubStart,
   getVisualSuggestionSliderConfig,
   isVisualSuggestionColorProperty,
+  isVisualSuggestionProperty,
   parseCssNumericValue,
   VISUAL_SUGGESTION_PROPERTIES,
   VISUAL_SUGGESTION_PROPERTY_LABELS,
 } from "./visual-suggestion-helpers";
 import {
+  serializeDomSnapshot,
+  type DomSnapshotNode,
+} from "./browser/dom-snapshot";
+import {
+  createConsoleBuffer,
+  createNetworkBuffer,
+  type ConsoleLogEntry,
+  type NetworkLogEntry,
+} from "./browser/log-capture";
+import {
+  currentTargetElement,
+  isClipboardEvent,
+  isDragEvent,
+  isKeyboardEvent,
+  isInputLikeElement,
+  isPointerEvent,
+  queryButtonElement,
+  queryHtmlElement,
+  queryInputElement,
+  queryInputElements,
+  targetElement,
+} from "./dom-utils";
+import {
+  DEFAULT_API_BASE_URL,
+  DEFAULT_ATTACHMENT_MIME_TYPE,
+  DEFAULT_ENV,
+  DEFAULT_FEEDBACK_ISSUE_SEVERITY,
+  DEFAULT_FEEDBACK_ISSUE_TYPE,
+  DEFAULT_TRIGGER_LABEL,
+  DEFAULT_TRIGGER_SIZE_PX,
+  DRAFT_ROUND_STORAGE_PREFIX,
+  FEEDBACK_ATTACHMENT_SESSION_PREFIX,
+  FEEDBACK_ATTACHMENT_UPLOAD_TIMEOUT_MS,
+  FEEDBACK_CARD_GAP_PX,
+  FEEDBACK_CARD_MAX_WIDTH_PX,
+  FEEDBACK_CARD_VIEWPORT_MARGIN_PX,
+  FEEDBACK_FORM_ESTIMATED_HEIGHT_PX,
+  FEEDBACK_STATUS_CARD_ESTIMATED_HEIGHT_PX,
+  HISTORY_REFRESH_STALE_MS,
+  ISSUE_HISTORY_STORAGE_PREFIX,
+  MARKUP_POINTER_MOVE_THRESHOLD_PX,
+  MAX_DRAFT_ROUND_STORAGE_BYTES,
+  MAX_ELEMENT_GRABS,
+  MAX_FEEDBACK_ATTACHMENTS,
+  MAX_FEEDBACK_ATTACHMENT_SIZE_BYTES,
+  MAX_HISTORY_REFRESH_PER_OPEN,
+  MAX_ISSUE_HISTORY_ENTRIES,
+  MAX_MARKUP_ITEMS,
+  MAX_MARKUP_POINTS_PER_ITEM,
+  MAX_ROUND_ITEMS,
+  MAX_TEXT_LENGTH,
+  MAX_VISUAL_SUGGESTION_SCOPE_DEPTH,
+  MAX_VISUAL_SUGGESTION_SCOPE_TARGETS,
+  SILLY_FEEDBACK_LOAD_PROBABILITY,
+  SILLY_FEEDBACK_MESSAGES,
+  TRIGGER_DRAG_THRESHOLD_PX,
+  TRIGGER_POSITION_STORAGE_KEY,
+  TRIGGER_VIEWPORT_MARGIN_PX,
+} from "./constants";
+import {
   type VisualSuggestionTargetInput,
   VisualSuggestionManager,
 } from "./visual-suggestion-manager";
-
-export type FeedbackIssueType = "bug" | "improvement" | "question";
-export type FeedbackIssueSeverity = "critical" | "high" | "medium" | "low";
-export type FeedbackClientStatus =
-  | "received"
-  | "under_review"
-  | "in_progress"
-  | "resolved"
-  | "no_action"
-  | "duplicate";
+import { escapeHtml, truncateText } from "./utils/html";
+import { createFeedbackApiUrl, redactUrl } from "./utils/url";
+import { SDK_VERSION } from "./version";
+import type {
+  ElementGrabHoverInfo,
+  ElementGrabItem,
+  ElementGrabRect,
+  ElementSourceInfo,
+  ElementSourceResolver,
+  ElementSourceStackFrame,
+  FeedbackAiSummary,
+  FeedbackClientStatus,
+  FeedbackIssueLinks,
+  FeedbackPullRequestLink,
+  FeedbackSdkConfig,
+  FeedbackSdkHandle,
+  FeedbackSdkTheme,
+  FeedbackSubmissionInput,
+  FeedbackVisualSuggestion,
+  FeedbackVisualSuggestionElementRef,
+  FeedbackVisualSuggestionProperty,
+  FeedbackVisualSuggestionScope,
+  FeedbackVisualSuggestionScopeKind,
+  FeedbackVisualSuggestionsPayload,
+  FeedbackWorkerThreadLink,
+} from "./public-types";
+export type {
+  ElementGrabHoverInfo,
+  ElementGrabItem,
+  ElementGrabRect,
+  ElementSourceInfo,
+  ElementSourceLocation,
+  ElementSourceResolver,
+  ElementSourceStackFrame,
+  FeedbackAiSummary,
+  FeedbackClientStatus,
+  FeedbackIssueLinks,
+  FeedbackIssueSeverity,
+  FeedbackIssueType,
+  FeedbackPullRequestLink,
+  FeedbackSdkConfig,
+  FeedbackSdkHandle,
+  FeedbackSdkTheme,
+  FeedbackStatusResponse,
+  FeedbackSubmissionInput,
+  FeedbackVisualSuggestion,
+  FeedbackVisualSuggestionElementRef,
+  FeedbackVisualSuggestionProperty,
+  FeedbackVisualSuggestionScope,
+  FeedbackVisualSuggestionScopeKind,
+  FeedbackVisualSuggestionsConfig,
+  FeedbackVisualSuggestionsPayload,
+  FeedbackWorkerThreadLink,
+  SessionReplayUrlResolver,
+} from "./public-types";
 
 const SESSION_REPLAY_URL_RESOLVER_TIMEOUT_MS = 250;
-
-export type SessionReplayUrlResolver = () =>
-  | string
-  | null
-  | Promise<string | null>;
-
-export type FeedbackSdkTheme = "light" | "dark" | "system";
-
-export interface FeedbackSdkHandle {
-  destroy: () => void;
-  open: () => void;
-  getOpenIssueCount: () => number;
-  subscribeToOpenIssueCount: (listener: (count: number) => void) => () => void;
-}
-
-export interface FeedbackSdkConfig {
-  publicKey?: string;
-  apiBaseUrl?: string;
-  identityToken?: string;
-  env?: string;
-  prNumber?: number;
-  redactSelectors?: string[];
-  triggerLabel?: string;
-  triggerLabels?: string[];
-  assistantPosition?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
-  capturePageContext?: boolean;
-  /** Optionally resolves a provider-neutral replay URL to include with feedback submissions. */
-  sessionReplayUrlResolver?: SessionReplayUrlResolver;
-  captureConsole?: boolean;
-  captureNetwork?: boolean;
-  previewOnly?: boolean;
-  previewOnlyReason?: string;
-  elementSourceResolver?: ElementSourceResolver;
-  /**
-   * Controls the widget color scheme.
-   * - `'light'` (default) — always light, safe for light-only host pages.
-   * - `'dark'` — always dark.
-   * - `'system'` — follows the browser `prefers-color-scheme` media query.
-   *
-   * Host pages can further customize colors via `--obv-feedback-*` CSS custom properties.
-   */
-  theme?: FeedbackSdkTheme;
-  /**
-   * Feedback SDK "Suggest visual change" flow (Budge-inspired). Disabled by default.
-   * When enabled, reporters can select a page element, nudge a safe CSS property,
-   * and attach the suggested change (original → suggested value + generated prompt)
-   * to their feedback report. The original page is never mutated permanently: any
-   * preview is restored before submit.
-   */
-  visualSuggestions?: FeedbackVisualSuggestionsConfig;
-}
-
-export interface FeedbackVisualSuggestionsConfig {
-  enabled?: boolean;
-}
-
-export interface FeedbackSubmissionInput {
-  type: FeedbackIssueType;
-  severity?: FeedbackIssueSeverity;
-  title?: string;
-  description: string;
-  sessionReplayUrl?: string;
-  /** When set (including empty), used instead of compose-state attachment tokens (e.g. round item submit). */
-  attachmentTokens?: string[];
-}
-
-export interface FeedbackStatusResponse {
-  issueId: string;
-  status: FeedbackClientStatus;
-  triageStatus: string;
-  title: string;
-  description: string | null;
-  resolvedNote: string | null;
-  aiSummary?: FeedbackAiSummary | null;
-  links?: FeedbackIssueLinks | null;
-  updatedAt: string;
-  reportedAt?: string;
-  workerThread?: FeedbackWorkerThreadLink;
-}
-
-interface FeedbackAiSummary {
-  headline?: string | null;
-  progress?: string | null;
-  updatedAt?: string | null;
-}
-
-interface FeedbackWorkerThreadLink {
-  id: string;
-  url: string;
-}
-
-interface FeedbackPullRequestLink {
-  id: string;
-  number: number;
-  title: string;
-  url: string;
-  status: string;
-  ciStatus: string;
-  reviewStatus: string;
-  isDraft: boolean;
-}
-
-interface FeedbackIssueLinks {
-  workerThread?: FeedbackWorkerThreadLink;
-  pullRequest?: FeedbackPullRequestLink;
-}
 
 type FeedbackIssueHistoryStatus = FeedbackClientStatus | "unavailable";
 
@@ -147,15 +147,6 @@ interface FeedbackIssueHistoryEntry {
   checkedAt?: string;
   workerThread?: FeedbackWorkerThreadLink;
   acknowledgedStatusVersions?: string[];
-}
-
-interface DomSnapshotNode {
-  tag: string;
-  text?: string;
-  attrs?: Record<string, string>;
-  children?: DomSnapshotNode[];
-  redacted?: boolean;
-  truncated?: boolean;
 }
 
 type FeedbackTriggerCorner =
@@ -179,121 +170,6 @@ interface FeedbackTriggerDragState {
   startLeft: number;
   startTop: number;
   moved: boolean;
-}
-
-interface ConsoleLogEntry {
-  level: "log" | "info" | "warn" | "error";
-  message: string;
-  timestamp: string;
-}
-
-interface NetworkLogEntry {
-  method: string;
-  url: string;
-  status: number | null;
-  durationMs: number;
-  timestamp: string;
-}
-
-export interface ElementSourceInfo {
-  componentName: string | null;
-  source: ElementSourceLocation | null;
-  stack: ElementSourceStackFrame[];
-}
-
-export interface ElementSourceLocation {
-  filePath: string;
-  lineNumber: number | null;
-  columnNumber: number | null;
-}
-
-export interface ElementSourceStackFrame {
-  filePath: string;
-  lineNumber: number | null;
-  componentName: string | null;
-}
-
-export interface ElementGrabItem {
-  id: string;
-  tagName: string;
-  cssSelector: string;
-  outerHtml: string;
-  textContent: string;
-  boundingRect: ElementGrabRect;
-  componentName: string | null;
-  sourceFile: string | null;
-  lineNumber: number | null;
-  componentStack: ElementSourceStackFrame[];
-}
-
-export interface ElementGrabRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface ElementGrabHoverInfo {
-  tagName: string;
-  componentName: string | null;
-  sourceFile: string | null;
-  lineNumber: number | null;
-}
-
-export type ElementSourceResolver = (
-  element: Element,
-) => Promise<ElementSourceInfo | null>;
-
-export type FeedbackVisualSuggestionProperty =
-  | "font-size"
-  | "border-radius"
-  | "padding"
-  | "gap"
-  | "color"
-  | "background-color";
-
-export interface FeedbackVisualSuggestionElementRef {
-  id: string;
-  tagName: string;
-  cssSelector: string;
-  boundingRect: ElementGrabRect;
-  componentName: string | null;
-  sourceFile: string | null;
-  lineNumber: number | null;
-}
-
-export type FeedbackVisualSuggestionScopeKind = "element" | "similar-siblings";
-
-export interface FeedbackVisualSuggestionScope {
-  kind: FeedbackVisualSuggestionScopeKind;
-  label: string;
-  matchedCount: number;
-  parentElement?: {
-    tagName: string;
-    cssSelector: string;
-  };
-  matchedElements?: Array<{
-    tagName: string;
-    cssSelector: string;
-    textContent: string;
-    componentName: string | null;
-  }>;
-}
-
-export interface FeedbackVisualSuggestion {
-  id: string;
-  property: FeedbackVisualSuggestionProperty;
-  originalValue: string;
-  suggestedValue: string;
-  prompt: string;
-  element: FeedbackVisualSuggestionElementRef;
-  scope?: FeedbackVisualSuggestionScope;
-  capturedAt: string;
-}
-
-export interface FeedbackVisualSuggestionsPayload {
-  version: 1;
-  suggestions: FeedbackVisualSuggestion[];
 }
 
 type FeedbackPanel = "unified";
@@ -345,13 +221,6 @@ interface FeedbackAttachmentUpload {
   status: FeedbackAttachmentUploadStatus;
   attachmentToken?: string;
   error?: string;
-}
-
-interface FeedbackAttachmentUploadResponse {
-  data?: {
-    uploadUrl?: string;
-    attachmentToken?: string;
-  };
 }
 
 interface FeedbackMeasurementRuler {
@@ -411,93 +280,7 @@ interface VisualSuggestionTargetOption {
   scopeOptions: VisualSuggestionScopeOption[];
 }
 
-const TRIGGER_POSITION_STORAGE_KEY = "obvious.feedback.triggerPosition";
-const ISSUE_HISTORY_STORAGE_PREFIX = "obvious.feedback.issueHistory";
-const DRAFT_ROUND_STORAGE_PREFIX = "obvious.feedback.draftRound";
-const MAX_ROUND_ITEMS = 15;
-const MAX_DRAFT_ROUND_STORAGE_BYTES = 512 * 1024;
-const MAX_ISSUE_HISTORY_ENTRIES = 5;
-const HISTORY_REFRESH_STALE_MS = 5 * 60 * 1000;
-const MAX_HISTORY_REFRESH_PER_OPEN = 2;
-const TRIGGER_DRAG_THRESHOLD_PX = 4;
-const TRIGGER_VIEWPORT_MARGIN_PX = 8;
-const DEFAULT_TRIGGER_SIZE_PX = 44;
-const FEEDBACK_CARD_GAP_PX = 12;
-const FEEDBACK_CARD_VIEWPORT_MARGIN_PX = 20;
-const FEEDBACK_CARD_MAX_WIDTH_PX = 392;
-const FEEDBACK_FORM_ESTIMATED_HEIGHT_PX = 420;
-const FEEDBACK_STATUS_CARD_ESTIMATED_HEIGHT_PX = 260;
-const MARKUP_POINTER_MOVE_THRESHOLD_PX = 3;
-const MAX_MARKUP_ITEMS = 40;
-const MAX_ELEMENT_GRABS = 10;
-const MAX_MARKUP_POINTS_PER_ITEM = 240;
-const MAX_FEEDBACK_ATTACHMENTS = 10;
-const MAX_FEEDBACK_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
-const FEEDBACK_ATTACHMENT_UPLOAD_TIMEOUT_MS = 30_000;
-const DEFAULT_ATTACHMENT_MIME_TYPE = "application/octet-stream";
-const FEEDBACK_ATTACHMENT_SESSION_PREFIX = "fas";
-
-const DEFAULT_API_BASE_URL = "https://api.app.obvious.ai";
-const API_ROUTE_PREFIX = "/prepare";
-
-const DEFAULT_ENV = "production";
-const MAX_DOM_NODES = 600;
-const MAX_TEXT_LENGTH = 300;
-const MAX_ATTR_LENGTH = 300;
-const MAX_LOG_ENTRIES = 100;
-const MAX_NETWORK_ENTRIES = 50;
-const SENSITIVE_ATTRS = new Set([
-  "value",
-  "placeholder",
-  "data-sensitive",
-  "aria-label",
-  "href",
-  "src",
-  "action",
-]);
-const DEFAULT_TRIGGER_LABEL = "Open feedback";
-
-const SECRET_QUERY_KEYS = new Set([
-  "token",
-  "access_token",
-  "refresh_token",
-  "id_token",
-  "code",
-  "secret",
-  "api_key",
-  "apikey",
-  "key",
-  "password",
-  "session",
-]);
-
-const DEFAULT_FEEDBACK_ISSUE_TYPE: FeedbackIssueType = "improvement";
-const DEFAULT_FEEDBACK_ISSUE_SEVERITY: FeedbackIssueSeverity = "medium";
 const MARKUP_TOOLS: FeedbackMarkupTool[] = ["rectangle", "point", "pen"];
-const MAX_VISUAL_SUGGESTION_SCOPE_TARGETS = 12;
-const MAX_VISUAL_SUGGESTION_SCOPE_DEPTH = 5;
-const SILLY_FEEDBACK_MESSAGES = [
-  "Feature request",
-  "Report a bug",
-  "Love something?",
-  "Hate something?",
-  "Sign the Guest Book",
-  "Something broken?",
-  "Quick thought?",
-  "Tell us anything",
-  "Make a wish",
-  "Found a typo?",
-  "Would you like a cookie?",
-  "I have a question",
-  "This could be better",
-  "Submission box",
-  "Needs more cowbell",
-  "Flag something",
-  "Feedback",
-  "Something’s off",
-  "Salt and Pepper",
-];
-const SILLY_FEEDBACK_LOAD_PROBABILITY = 0.05;
 
 function getRandomSillyFeedbackMessage(): string {
   return (
@@ -511,224 +294,88 @@ function shouldShowSillyFeedbackMessageOnLoad(): boolean {
   return Math.random() < SILLY_FEEDBACK_LOAD_PROBABILITY;
 }
 
-function truncateText(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+function getRecordField(
+  value: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | null {
+  const field = value[key];
+  return isRecord(field) ? field : null;
 }
 
-function redactUrl(rawUrl: string): string {
-  try {
-    const url = new URL(
-      rawUrl,
-      typeof window !== "undefined"
-        ? window.location.origin
-        : "https://example.invalid",
-    );
-    for (const key of Array.from(url.searchParams.keys())) {
-      if (
-        SECRET_QUERY_KEYS.has(key.toLowerCase()) ||
-        /token|secret|password|key|code/i.test(key)
-      ) {
-        url.searchParams.set(key, "[REDACTED]");
-      }
-    }
-    url.hash = "";
-    return truncateText(url.toString(), 500);
-  } catch {
-    return truncateText(rawUrl.split("?")[0] ?? rawUrl, 500);
-  }
+function getStringField(
+  value: Record<string, unknown> | null,
+  key: string,
+): string | undefined {
+  const field = value?.[key];
+  return typeof field === "string" ? field : undefined;
 }
 
-function isSensitiveElement(
-  element: Element,
-  redactSelectors: string[],
-): boolean {
-  const tagName = element.tagName.toLowerCase();
-  if (tagName === "input" || tagName === "textarea" || tagName === "select") {
-    return true;
-  }
+function getNullableStringField(
+  value: Record<string, unknown> | null,
+  key: string,
+): string | null | undefined {
+  const field = value?.[key];
+  if (field === null) return null;
+  return typeof field === "string" ? field : undefined;
+}
+
+function parseFeedbackTriggerCorner(
+  value: unknown,
+): FeedbackTriggerCorner | null {
   if (
-    element.getAttribute("type") === "password" ||
-    element.hasAttribute("data-sensitive")
+    value === "top-left" ||
+    value === "top-right" ||
+    value === "bottom-left" ||
+    value === "bottom-right"
   ) {
-    return true;
+    return value;
   }
-  return redactSelectors.some((selector) => {
-    try {
-      return element.matches(selector);
-    } catch {
-      return false;
-    }
-  });
+  return null;
 }
 
-function createFeedbackApiUrl(apiBaseUrl: string, path: string): string {
-  const normalizedBaseUrl = apiBaseUrl.replace(/\/+$/, "");
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  // API_ROUTE_PREFIX includes the leading slash so this only skips when the base URL already ends in a full `/prepare` path segment.
-  const routePrefix = normalizedBaseUrl.endsWith(API_ROUTE_PREFIX)
-    ? ""
-    : API_ROUTE_PREFIX;
-  return `${normalizedBaseUrl}${routePrefix}${normalizedPath}`;
+function createFeedbackTriggerCorner(
+  verticalCorner: "top" | "bottom",
+  horizontalCorner: "left" | "right",
+): FeedbackTriggerCorner {
+  if (verticalCorner === "top") {
+    return horizontalCorner === "left" ? "top-left" : "top-right";
+  }
+  return horizontalCorner === "left" ? "bottom-left" : "bottom-right";
 }
 
-function serializeDomSnapshot(
-  root: Element,
-  redactSelectors: string[],
-): DomSnapshotNode {
-  let visitedNodes = 0;
-
-  function walk(element: Element): DomSnapshotNode {
-    visitedNodes += 1;
-    if (visitedNodes > MAX_DOM_NODES) {
-      return { tag: element.tagName.toLowerCase(), truncated: true };
-    }
-
-    if (isSensitiveElement(element, redactSelectors)) {
-      return { tag: element.tagName.toLowerCase(), redacted: true };
-    }
-
-    const attrs: Record<string, string> = {};
-    for (const attr of Array.from(element.attributes).slice(0, 20)) {
-      if (SENSITIVE_ATTRS.has(attr.name.toLowerCase())) {
-        continue;
-      }
-      attrs[attr.name] = truncateText(attr.value, MAX_ATTR_LENGTH);
-    }
-
-    const children = Array.from(element.children)
-      .slice(0, 30)
-      .map((child) => walk(child));
-
-    const text = truncateText(
-      (element.textContent ?? "").trim().replace(/\s+/g, " "),
-      MAX_TEXT_LENGTH,
-    );
-
-    return {
-      tag: element.tagName.toLowerCase(),
-      ...(text ? { text } : {}),
-      ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
-      ...(children.length > 0 ? { children } : {}),
-    };
+function createFeedbackCardDirection(
+  opensDown: boolean,
+  opensRight: boolean,
+): FeedbackCardPlacement["direction"] {
+  if (opensDown) {
+    return opensRight ? "down-right" : "down-left";
   }
-
-  return walk(root);
+  return opensRight ? "up-right" : "up-left";
 }
 
-function createConsoleBuffer(): {
-  read: () => ConsoleLogEntry[];
-  restore: () => void;
-} {
-  const entries: ConsoleLogEntry[] = [];
-  const originals = {
-    log: console.log,
-    info: console.info,
-    warn: console.warn,
-    error: console.error,
-  };
-
-  function capture(level: ConsoleLogEntry["level"], args: unknown[]): void {
-    entries.push({
-      level,
-      message: truncateText(args.map((arg) => String(arg)).join(" "), 500),
-      timestamp: new Date().toISOString(),
-    });
-    if (entries.length > MAX_LOG_ENTRIES) {
-      entries.shift();
-    }
-  }
-
-  console.log = (...args: unknown[]) => {
-    capture("log", args);
-    originals.log(...args);
-  };
-  console.info = (...args: unknown[]) => {
-    capture("info", args);
-    originals.info(...args);
-  };
-  console.warn = (...args: unknown[]) => {
-    capture("warn", args);
-    originals.warn(...args);
-  };
-  console.error = (...args: unknown[]) => {
-    capture("error", args);
-    originals.error(...args);
-  };
-
-  return {
-    read: () => [...entries],
-    restore: () => {
-      console.log = originals.log;
-      console.info = originals.info;
-      console.warn = originals.warn;
-      console.error = originals.error;
-    },
-  };
+function parseVisualSuggestionScopeKind(
+  value: unknown,
+): FeedbackVisualSuggestionScopeKind | null {
+  return value === "element" || value === "similar-siblings" ? value : null;
 }
 
-function createNetworkBuffer(): {
-  read: () => NetworkLogEntry[];
-  restore: () => void;
-} {
-  const entries: NetworkLogEntry[] = [];
-  if (typeof window === "undefined" || typeof window.fetch !== "function") {
-    return { read: () => [], restore: () => {} };
+function parseSliderUnit(
+  value: string,
+): "px" | "rem" | "em" | "%" | "" {
+  if (
+    value === "px" ||
+    value === "rem" ||
+    value === "em" ||
+    value === "%" ||
+    value === ""
+  ) {
+    return value;
   }
-  const originalFetch = window.fetch.bind(window);
-
-  const wrappedFetch = async (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ): Promise<Response> => {
-    const startedAt = Date.now();
-    const method =
-      init?.method ?? (input instanceof Request ? input.method : "GET");
-    const url = input instanceof Request ? input.url : String(input);
-    try {
-      const response = await originalFetch(input, init);
-      entries.push({
-        method,
-        url: redactUrl(url),
-        status: response.status,
-        durationMs: Date.now() - startedAt,
-        timestamp: new Date().toISOString(),
-      });
-      if (entries.length > MAX_NETWORK_ENTRIES) {
-        entries.shift();
-      }
-      return response;
-    } catch (err) {
-      entries.push({
-        method,
-        url: redactUrl(url),
-        status: null,
-        durationMs: Date.now() - startedAt,
-        timestamp: new Date().toISOString(),
-      });
-      if (entries.length > MAX_NETWORK_ENTRIES) {
-        entries.shift();
-      }
-      throw err;
-    }
-  };
-
-  window.fetch = Object.assign(wrappedFetch, originalFetch);
-
-  return {
-    read: () => [...entries],
-    restore: () => {
-      window.fetch = originalFetch;
-    },
-  };
+  return "px";
 }
 
 interface FeedbackViewportBounds {
@@ -781,13 +428,12 @@ function parseStoredTriggerPosition(): FeedbackTriggerPosition | null {
     if (!rawValue) {
       return null;
     }
-    const parsed = JSON.parse(rawValue) as Partial<FeedbackTriggerPosition>;
-    if (
-      parsed.corner !== "top-left" &&
-      parsed.corner !== "top-right" &&
-      parsed.corner !== "bottom-left" &&
-      parsed.corner !== "bottom-right"
-    ) {
+    const parsed = JSON.parse(rawValue);
+    if (!isRecord(parsed)) {
+      return null;
+    }
+    const corner = parseFeedbackTriggerCorner(parsed.corner);
+    if (!corner) {
       return null;
     }
     const offsetX = Number(parsed.offsetX);
@@ -795,7 +441,7 @@ function parseStoredTriggerPosition(): FeedbackTriggerPosition | null {
     if (!Number.isFinite(offsetX) || !Number.isFinite(offsetY)) {
       return null;
     }
-    return { corner: parsed.corner, offsetX, offsetY };
+    return { corner, offsetX, offsetY };
   } catch {
     return null;
   }
@@ -1034,7 +680,7 @@ function viewportPointToNearestCorner(
       ? "top"
       : "bottom";
   return {
-    corner: `${verticalCorner}-${horizontalCorner}` as FeedbackTriggerCorner,
+    corner: createFeedbackTriggerCorner(verticalCorner, horizontalCorner),
     offsetX:
       horizontalCorner === "left"
         ? clampedLeft
@@ -1141,8 +787,7 @@ function createFeedbackCardPlacement(
   const maxTop = Math.max(viewportTop, viewportBottom - cardHeight);
   const left = clamp(rawLeft, viewportLeft, maxLeft);
   const top = clamp(rawTop, viewportTop, maxTop);
-  const direction =
-    `${opensDown ? "down" : "up"}-${opensRight ? "right" : "left"}` as FeedbackCardPlacement["direction"];
+  const direction = createFeedbackCardDirection(opensDown, opensRight);
 
   return {
     direction,
@@ -1664,61 +1309,62 @@ function getSafeExternalUrl(rawUrl?: string): string | undefined {
   }
 }
 
-function normalizeWorkerThreadLink(
-  workerThread?: FeedbackWorkerThreadLink,
-): FeedbackWorkerThreadLink | undefined {
-  const safeUrl = getSafeExternalUrl(workerThread?.url);
-  return workerThread?.id && safeUrl
-    ? { id: workerThread.id, url: safeUrl }
+function normalizeWorkerThreadLink(value: unknown): FeedbackWorkerThreadLink | undefined {
+  if (!isRecord(value) || typeof value.id !== "string") {
+    return undefined;
+  }
+  const safeUrl = getSafeExternalUrl(
+    typeof value.url === "string" ? value.url : undefined,
+  );
+  return safeUrl
+    ? { id: value.id, url: safeUrl }
     : undefined;
 }
 
 function normalizeFeedbackAiSummary(value: unknown): FeedbackAiSummary | null {
-  if (!value || typeof value !== "object") {
+  if (!isRecord(value)) {
     return null;
   }
-  const summary = value as Record<string, unknown>;
   return {
-    headline: typeof summary.headline === "string" ? summary.headline : null,
-    progress: typeof summary.progress === "string" ? summary.progress : null,
-    updatedAt: typeof summary.updatedAt === "string" ? summary.updatedAt : null,
+    headline: typeof value.headline === "string" ? value.headline : null,
+    progress: typeof value.progress === "string" ? value.progress : null,
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : null,
   };
 }
 
 function normalizePullRequestLink(
   value: unknown,
 ): FeedbackPullRequestLink | undefined {
-  if (!value || typeof value !== "object") {
+  if (!isRecord(value)) {
     return undefined;
   }
-  const pullRequest = value as Record<string, unknown>;
   const safeUrl = getSafeExternalUrl(
-    typeof pullRequest.url === "string" ? pullRequest.url : undefined,
+    typeof value.url === "string" ? value.url : undefined,
   );
-  return typeof pullRequest.id === "string" &&
-    typeof pullRequest.number === "number" &&
+  return typeof value.id === "string" &&
+    typeof value.number === "number" &&
     safeUrl
     ? {
-        id: pullRequest.id,
-        number: pullRequest.number,
+        id: value.id,
+        number: value.number,
         title:
-          typeof pullRequest.title === "string"
-            ? pullRequest.title
-            : `PR #${pullRequest.number}`,
+          typeof value.title === "string"
+            ? value.title
+            : `PR #${value.number}`,
         url: safeUrl,
         status:
-          typeof pullRequest.status === "string"
-            ? pullRequest.status
+          typeof value.status === "string"
+            ? value.status
             : "unknown",
         ciStatus:
-          typeof pullRequest.ciStatus === "string"
-            ? pullRequest.ciStatus
+          typeof value.ciStatus === "string"
+            ? value.ciStatus
             : "unknown",
         reviewStatus:
-          typeof pullRequest.reviewStatus === "string"
-            ? pullRequest.reviewStatus
+          typeof value.reviewStatus === "string"
+            ? value.reviewStatus
             : "unknown",
-        isDraft: pullRequest.isDraft === true,
+        isDraft: value.isDraft === true,
       }
     : undefined;
 }
@@ -1726,20 +1372,18 @@ function normalizePullRequestLink(
 function normalizeFeedbackIssueLinks(
   value: unknown,
 ): FeedbackIssueLinks | null {
-  if (!value || typeof value !== "object") {
+  if (!isRecord(value)) {
     return null;
   }
-  const links = value as Record<string, unknown>;
-  const workerThread = normalizeWorkerThreadLink(
-    links.workerThread as FeedbackWorkerThreadLink | undefined,
-  );
-  const pullRequest = normalizePullRequestLink(links.pullRequest);
+  const workerThread = normalizeWorkerThreadLink(value.workerThread);
+  const pullRequest = normalizePullRequestLink(value.pullRequest);
   return workerThread || pullRequest ? { workerThread, pullRequest } : null;
 }
 
-function getFeedbackIssueLinks(
-  response: FeedbackStatusResponse,
-): FeedbackIssueLinks | null {
+function getFeedbackIssueLinks(response: unknown): FeedbackIssueLinks | null {
+  if (!isRecord(response)) {
+    return null;
+  }
   return (
     normalizeFeedbackIssueLinks(response.links) ??
     normalizeFeedbackIssueLinks({ workerThread: response.workerThread })
@@ -2027,6 +1671,8 @@ function getVisualSuggestionTargetProperties(
 ): FeedbackVisualSuggestionProperty[] {
   const style = window.getComputedStyle(element);
   const isLayoutContainer = style.display === "flex" || style.display === "grid";
+  const layoutProperties: FeedbackVisualSuggestionProperty[] =
+    isLayoutContainer ? ["gap"] : [];
   const shapeProperties: FeedbackVisualSuggestionProperty[] =
     hasVisibleRoundedSurface(element) ? ["border-radius"] : [];
 
@@ -2041,7 +1687,7 @@ function getVisualSuggestionTargetProperties(
     return [
       ...shapeProperties,
       "padding",
-      ...(isLayoutContainer ? (["gap"] as const) : []),
+      ...layoutProperties,
       "background-color",
     ];
   }
@@ -2050,7 +1696,7 @@ function getVisualSuggestionTargetProperties(
     "font-size",
     ...shapeProperties,
     "padding",
-    ...(isLayoutContainer ? (["gap"] as const) : []),
+    ...layoutProperties,
     "color",
     "background-color",
   ];
@@ -2700,6 +2346,7 @@ class ObviousFeedbackWidget {
   private suppressNextMarkupCanvasClick = false;
   private destroyed = false;
   private systemThemeCleanup: (() => void) | null = null;
+  private useAdoptedStyleSheet = false;
 
   constructor(config: FeedbackSdkConfig) {
     this.config = {
@@ -2747,6 +2394,7 @@ class ObviousFeedbackWidget {
     );
     this.host = document.createElement("div");
     this.shadowRoot = this.host.attachShadow({ mode: "open" });
+    this.installConstructableStylesheet();
     this.applyTheme(config.theme ?? "light");
     document.body.appendChild(this.host);
     this.renderTrigger();
@@ -2820,17 +2468,47 @@ class ObviousFeedbackWidget {
     return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? "draft" : "idle"}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})" style="${createTriggerPositionStyle(this.triggerPosition)}"><span class="obv-trigger-icon" aria-hidden="true">${createIcon("compose")}</span>${badge}</button>`;
   }
 
+  private installConstructableStylesheet(): void {
+    if (
+      typeof CSSStyleSheet === "undefined" ||
+      !("adoptedStyleSheets" in this.shadowRoot)
+    ) {
+      return;
+    }
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(createStyles());
+      this.shadowRoot.adoptedStyleSheets = [
+        ...this.shadowRoot.adoptedStyleSheets,
+        sheet,
+      ];
+      this.useAdoptedStyleSheet = true;
+    } catch {
+      this.useAdoptedStyleSheet = false;
+    }
+  }
+
+  private renderStyleTag(): string {
+    return this.useAdoptedStyleSheet ? "" : `<style>${createStyles()}</style>`;
+  }
+
   private bindTrigger(onClick: () => void): void {
     const trigger = this.shadowRoot.querySelector(".obv-trigger");
-    trigger?.addEventListener("pointerdown", (event) =>
-      this.handleTriggerPointerDown(event as PointerEvent),
-    );
-    trigger?.addEventListener("pointermove", (event) =>
-      this.handleTriggerPointerMove(event as PointerEvent),
-    );
-    trigger?.addEventListener("pointerup", (event) =>
-      this.handleTriggerPointerUp(event as PointerEvent),
-    );
+    trigger?.addEventListener("pointerdown", (event) => {
+      if (isPointerEvent(event)) {
+        this.handleTriggerPointerDown(event);
+      }
+    });
+    trigger?.addEventListener("pointermove", (event) => {
+      if (isPointerEvent(event)) {
+        this.handleTriggerPointerMove(event);
+      }
+    });
+    trigger?.addEventListener("pointerup", (event) => {
+      if (isPointerEvent(event)) {
+        this.handleTriggerPointerUp(event);
+      }
+    });
     trigger?.addEventListener("pointercancel", () => this.cancelTriggerDrag());
     trigger?.addEventListener("click", (event) => {
       if (this.suppressNextTriggerClick) {
@@ -2844,9 +2522,7 @@ class ObviousFeedbackWidget {
 
   private handleTriggerPointerDown(event: PointerEvent): void {
     const point = positionToViewportPoint(this.triggerPosition);
-    (event.currentTarget as Element | null)?.setPointerCapture?.(
-      event.pointerId,
-    );
+    currentTargetElement(event)?.setPointerCapture?.(event.pointerId);
     this.triggerDragState = {
       pointerId: event.pointerId,
       startClientX: event.clientX,
@@ -2878,9 +2554,7 @@ class ObviousFeedbackWidget {
       this.triggerDragState.startLeft + deltaX,
       this.triggerDragState.startTop + deltaY,
     );
-    const trigger = this.shadowRoot.querySelector(
-      ".obv-trigger",
-    ) as HTMLElement | null;
+    const trigger = queryHtmlElement(this.shadowRoot, ".obv-trigger");
     if (trigger) {
       trigger.setAttribute("data-trigger-corner", this.triggerPosition.corner);
       trigger.setAttribute(
@@ -2910,9 +2584,7 @@ class ObviousFeedbackWidget {
   private cancelTriggerDrag(): void {
     if (this.triggerDragState?.moved) {
       this.triggerPosition = this.triggerDragState.initialPosition;
-      const trigger = this.shadowRoot.querySelector(
-        ".obv-trigger",
-      ) as HTMLElement | null;
+      const trigger = queryHtmlElement(this.shadowRoot, ".obv-trigger");
       if (trigger) {
         trigger.setAttribute(
           "data-trigger-corner",
@@ -2988,9 +2660,7 @@ class ObviousFeedbackWidget {
 
   private readonly handleViewportChange = (): void => {
     this.triggerPosition = clampTriggerPosition(this.triggerPosition);
-    const trigger = this.shadowRoot.querySelector(
-      ".obv-trigger",
-    ) as HTMLElement | null;
+    const trigger = queryHtmlElement(this.shadowRoot, ".obv-trigger");
     if (trigger) {
       trigger.setAttribute("data-trigger-corner", this.triggerPosition.corner);
       trigger.setAttribute(
@@ -3009,7 +2679,7 @@ class ObviousFeedbackWidget {
     this.selectedIssueId = null;
 
     this.markupOverlayOpen = false;
-    this.shadowRoot.innerHTML = `<style>${createStyles()}</style>${this.renderTriggerButton()}`;
+    this.shadowRoot.innerHTML = `${this.renderStyleTag()}${this.renderTriggerButton()}`;
     this.bindTrigger(() => this.openCard());
   }
 
@@ -3056,9 +2726,7 @@ class ObviousFeedbackWidget {
 
   private observeAnchoredFeedbackCard(): void {
     this.disconnectCardPlacementObserver();
-    const card = this.shadowRoot.querySelector(
-      ".obv-card",
-    ) as HTMLElement | null;
+    const card = queryHtmlElement(this.shadowRoot, ".obv-card");
     if (!card) {
       return;
     }
@@ -3072,9 +2740,7 @@ class ObviousFeedbackWidget {
   }
 
   private updateAnchoredFeedbackCard(): void {
-    const card = this.shadowRoot.querySelector(
-      ".obv-card",
-    ) as HTMLElement | null;
+    const card = queryHtmlElement(this.shadowRoot, ".obv-card");
     if (!card) {
       return;
     }
@@ -3101,7 +2767,7 @@ class ObviousFeedbackWidget {
     const feedbackCardPlacement = this.getFeedbackCardPlacement("form");
     const panelContent = this.renderUnifiedPanel();
     this.shadowRoot.innerHTML = `
-      <style>${createStyles()}</style>
+      ${this.renderStyleTag()}
       ${this.renderTriggerButton()}
       <div class="obv-card" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-dialog-direction="${escapeHtml(feedbackCardPlacement.direction)}" style="${escapeHtml(feedbackCardPlacement.style)}">
         ${panelContent}
@@ -3179,9 +2845,10 @@ class ObviousFeedbackWidget {
   }
 
   private updateRoundSubmitButtonState(): void {
-    const button = this.shadowRoot.querySelector(
+    const button = queryButtonElement(
+      this.shadowRoot,
       '[data-submit-round="true"]',
-    ) as HTMLButtonElement | null;
+    );
     if (!button) {
       return;
     }
@@ -3200,7 +2867,7 @@ class ObviousFeedbackWidget {
     this.shadowRoot
       .querySelector(".obv-card-header")
       ?.addEventListener("dblclick", (event) => {
-        if ((event.target as Element | null)?.closest(".obv-kicker")) {
+        if (targetElement(event)?.closest(".obv-kicker")) {
           this.showSillyFeedbackMessage();
         }
       });
@@ -3267,9 +2934,10 @@ class ObviousFeedbackWidget {
       });
 
     const targetId = this.focusedItemId ?? "__new";
-    const targetInput = this.shadowRoot.querySelector(
+    const targetInput = queryInputElement(
+      this.shadowRoot,
       `[data-item-input="${CSS.escape(targetId)}"]`,
-    ) as HTMLInputElement | null;
+    );
     if (targetInput) {
       targetInput.focus();
       const targetValue =
@@ -3282,24 +2950,25 @@ class ObviousFeedbackWidget {
 
   private syncAllInputsToRoundItems(): void {
     for (const item of this.roundItems) {
-      const input = this.shadowRoot.querySelector(
+      const input = queryInputElement(
+        this.shadowRoot,
         `[data-item-input="${CSS.escape(item.id)}"]`,
-      ) as HTMLInputElement | null;
+      );
       if (input && typeof input.value === "string") {
         item.description = input.value;
       }
     }
-    const newInput = this.shadowRoot.querySelector(
+    const newInput = queryInputElement(
+      this.shadowRoot,
       '[data-item-input="__new"]',
-    ) as HTMLInputElement | null;
+    );
     if (newInput && typeof newInput.value === "string") {
       this.newRowDraft = newInput.value;
     }
   }
 
   private bindListRows(): void {
-    this.shadowRoot.querySelectorAll("[data-item-input]").forEach((element) => {
-      const input = element as HTMLInputElement;
+    queryInputElements(this.shadowRoot, "[data-item-input]").forEach((input) => {
       const itemId = input.getAttribute("data-item-input") ?? "";
 
       input.addEventListener("focus", () => {
@@ -3322,10 +2991,12 @@ class ObviousFeedbackWidget {
       });
 
       input.addEventListener("keydown", (event) => {
-        const keyEvent = event as KeyboardEvent;
+        if (!isKeyboardEvent(event)) {
+          return;
+        }
 
-        if (keyEvent.key === "Enter") {
-          keyEvent.preventDefault();
+        if (event.key === "Enter") {
+          event.preventDefault();
           if (itemId === "__new") {
             const text = input.value.trim();
             if (!text) {
@@ -3391,8 +3062,8 @@ class ObviousFeedbackWidget {
           return;
         }
 
-        if (keyEvent.key === "Backspace" && input.value === "") {
-          keyEvent.preventDefault();
+        if (event.key === "Backspace" && input.value === "") {
+          event.preventDefault();
           if (itemId === "__new") {
             if (this.roundItems.length > 0) {
               const lastItem = this.roundItems[this.roundItems.length - 1];
@@ -3415,35 +3086,37 @@ class ObviousFeedbackWidget {
           return;
         }
 
-        if (keyEvent.key === "ArrowDown") {
-          keyEvent.preventDefault();
-          const allInputs = Array.from(
-            this.shadowRoot.querySelectorAll("[data-item-input]"),
-          ) as HTMLInputElement[];
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          const allInputs = queryInputElements(
+            this.shadowRoot,
+            "[data-item-input]",
+          );
           const currentIdx = allInputs.indexOf(input);
           const next = allInputs[currentIdx + 1];
           if (next) {
             next.focus();
-            next.setSelectionRange(next.value.length, next.value.length);
+            next.setSelectionRange?.(next.value.length, next.value.length);
           }
           return;
         }
 
-        if (keyEvent.key === "ArrowUp") {
-          keyEvent.preventDefault();
-          const allInputs = Array.from(
-            this.shadowRoot.querySelectorAll("[data-item-input]"),
-          ) as HTMLInputElement[];
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          const allInputs = queryInputElements(
+            this.shadowRoot,
+            "[data-item-input]",
+          );
           const currentIdx = allInputs.indexOf(input);
           const prev = allInputs[currentIdx - 1];
           if (prev) {
             prev.focus();
-            prev.setSelectionRange(prev.value.length, prev.value.length);
+            prev.setSelectionRange?.(prev.value.length, prev.value.length);
           }
           return;
         }
 
-        if (keyEvent.key === "Escape") {
+        if (event.key === "Escape") {
           input.blur();
           this.focusedItemId = null;
         }
@@ -3480,9 +3153,10 @@ class ObviousFeedbackWidget {
     this.shadowRoot
       .querySelector('[data-attach-trigger="true"]')
       ?.addEventListener("click", () => {
-        const fileInput = this.shadowRoot.querySelector(
+        const fileInput = queryInputElement(
+          this.shadowRoot,
           '[data-attachment-input="true"]',
-        ) as HTMLInputElement | null;
+        );
         fileInput?.click();
       });
     this.shadowRoot
@@ -3491,9 +3165,10 @@ class ObviousFeedbackWidget {
         this.syncAllInputsToRoundItems();
         this.renderRulerOverlay();
       });
-    const fileInput = this.shadowRoot.querySelector(
+    const fileInput = queryInputElement(
+      this.shadowRoot,
       '[data-attachment-input="true"]',
-    ) as HTMLInputElement | null;
+    );
     fileInput?.addEventListener("click", (event) => {
       event.stopPropagation();
     });
@@ -3506,9 +3181,11 @@ class ObviousFeedbackWidget {
     this.shadowRoot
       .querySelector(".obv-list-body")
       ?.addEventListener("paste", (event) => {
-        const clipboardEvent = event as ClipboardEvent;
-        const files = Array.from(clipboardEvent.clipboardData?.files ?? []);
-        const itemFiles = Array.from(clipboardEvent.clipboardData?.items ?? [])
+        if (!isClipboardEvent(event)) {
+          return;
+        }
+        const files = Array.from(event.clipboardData?.files ?? []);
+        const itemFiles = Array.from(event.clipboardData?.items ?? [])
           .filter((item) => item.kind === "file")
           .map((item) => item.getAsFile())
           .filter((file): file is File => file !== null);
@@ -3519,7 +3196,7 @@ class ObviousFeedbackWidget {
       .querySelectorAll("[data-attachment-remove]")
       .forEach((button) => {
         button.addEventListener("click", () => {
-          const id = (button as HTMLElement).getAttribute(
+          const id = button.getAttribute(
             "data-attachment-remove",
           );
           if (id) {
@@ -3536,7 +3213,7 @@ class ObviousFeedbackWidget {
       });
     this.shadowRoot.querySelectorAll("[data-remove-grab]").forEach((button) => {
       button.addEventListener("click", () => {
-        const id = (button as HTMLElement).getAttribute("data-remove-grab");
+        const id = button.getAttribute("data-remove-grab");
         if (id) {
           this.syncAllInputsToRoundItems();
           this.elementGrabItems = this.elementGrabItems.filter(
@@ -3550,7 +3227,7 @@ class ObviousFeedbackWidget {
       .querySelectorAll("[data-remove-attachment]")
       .forEach((button) => {
         button.addEventListener("click", () => {
-          const id = (button as HTMLElement).getAttribute(
+          const id = button.getAttribute(
             "data-remove-attachment",
           );
           if (id) {
@@ -3566,7 +3243,7 @@ class ObviousFeedbackWidget {
       .querySelectorAll("[data-remove-measurement]")
       .forEach((button) => {
         button.addEventListener("click", () => {
-          const id = (button as HTMLElement).getAttribute(
+          const id = button.getAttribute(
             "data-remove-measurement",
           );
           if (id) {
@@ -3583,7 +3260,7 @@ class ObviousFeedbackWidget {
       .forEach((button) => {
         button.addEventListener("click", (event) => {
           event.stopPropagation();
-          const id = (button as HTMLElement).getAttribute(
+          const id = button.getAttribute(
             "data-remove-vs-element",
           );
           if (id && this.visualSuggestions) {
@@ -3596,7 +3273,7 @@ class ObviousFeedbackWidget {
       .querySelectorAll("[data-item-remove-markup]")
       .forEach((button) => {
         button.addEventListener("click", () => {
-          const itemId = (button as HTMLElement).getAttribute(
+          const itemId = button.getAttribute(
             "data-item-remove-markup",
           );
           if (itemId) {
@@ -3614,7 +3291,7 @@ class ObviousFeedbackWidget {
       .querySelectorAll("[data-item-remove-grab]")
       .forEach((button) => {
         button.addEventListener("click", () => {
-          const value = (button as HTMLElement).getAttribute(
+          const value = button.getAttribute(
             "data-item-remove-grab",
           );
           if (value) {
@@ -3638,7 +3315,7 @@ class ObviousFeedbackWidget {
       .querySelectorAll("[data-item-remove-file]")
       .forEach((button) => {
         button.addEventListener("click", () => {
-          const value = (button as HTMLElement).getAttribute(
+          const value = button.getAttribute(
             "data-item-remove-file",
           );
           if (value) {
@@ -3663,7 +3340,7 @@ class ObviousFeedbackWidget {
       .querySelectorAll("[data-item-remove-measurement]")
       .forEach((button) => {
         button.addEventListener("click", () => {
-          const value = (button as HTMLElement).getAttribute(
+          const value = button.getAttribute(
             "data-item-remove-measurement",
           );
           if (value) {
@@ -3688,7 +3365,7 @@ class ObviousFeedbackWidget {
       .forEach((button) => {
         button.addEventListener("click", (event) => {
           event.stopPropagation();
-          const value = (button as HTMLElement).getAttribute(
+          const value = button.getAttribute(
             "data-item-remove-vs",
           );
           if (value) {
@@ -3723,7 +3400,7 @@ class ObviousFeedbackWidget {
       .querySelectorAll("[data-item-vs-activate]")
       .forEach((pill) => {
         pill.addEventListener("click", () => {
-          const value = (pill as HTMLElement).getAttribute(
+          const value = pill.getAttribute(
             "data-item-vs-activate",
           );
           if (!value) return;
@@ -3820,7 +3497,7 @@ class ObviousFeedbackWidget {
           env: this.config.env,
           prNumber: this.config.prNumber,
           sourceUrl: redactUrl(window.location.href),
-          sdkVersion: "0.0.1",
+          sdkVersion: SDK_VERSION,
           items: roundPayloadItems,
           domSnapshot: this.config.capturePageContext
             ? serializeDomSnapshot(document.body, this.config.redactSelectors)
@@ -3836,29 +3513,22 @@ class ObviousFeedbackWidget {
       throw new Error(`Feedback submission failed (${response.status})`);
     }
 
-    const payload = (await response.json()) as {
-      data?: {
-        issueId?: string;
-        status?: FeedbackClientStatus;
-        title?: string;
-        reportedAt?: string;
-        issueUrl?: string;
-        workerThread?: FeedbackWorkerThreadLink;
-      };
-    };
+    const payload = await response.json();
+    const data = isRecord(payload) ? getRecordField(payload, "data") : null;
+    const status = data?.status;
     if (this.destroyed) {
       return;
     }
-    this.issueId = payload.data?.issueId ?? null;
+    this.issueId = getStringField(data, "issueId") ?? null;
     this.statusPollIndex = 0;
     this.clearStatusTimer();
     if (this.issueId) {
       this.rememberIssueHistoryEntry({
         issueId: this.issueId,
-        status: payload.data?.status ?? "received",
-        title: payload.data?.title,
-        reportedAt: payload.data?.reportedAt,
-        workerThread: normalizeWorkerThreadLink(payload.data?.workerThread),
+        status: isFeedbackClientStatus(status) ? status : "received",
+        title: getStringField(data, "title"),
+        reportedAt: getStringField(data, "reportedAt"),
+        workerThread: normalizeWorkerThreadLink(data?.workerThread),
       });
     }
     this.roundItems = [];
@@ -3866,7 +3536,7 @@ class ObviousFeedbackWidget {
     this.clearSubmissionDraftState();
     this.visualSuggestions?.restoreAll();
     this.feedbackFormError = null;
-    this.submittedIssueUrl = payload.data?.issueUrl ?? null;
+    this.submittedIssueUrl = getStringField(data, "issueUrl") ?? null;
     this.persistDraftRound();
     this.emitOpenIssueCountChange();
     this.openCard();
@@ -3950,41 +3620,39 @@ class ObviousFeedbackWidget {
   }
 
   private readonly guardGlobalFileDragEvent = (event: Event): void => {
-    const dragEvent = event as DragEvent;
-    if (!this.isFileDragEvent(dragEvent)) {
+    if (!isDragEvent(event) || !this.isFileDragEvent(event)) {
       return;
     }
-    dragEvent.preventDefault();
-    if (!this.eventTargetsFeedbackWidget(dragEvent)) {
-      dragEvent.stopImmediatePropagation?.();
-      dragEvent.stopPropagation();
+    event.preventDefault();
+    if (!this.eventTargetsFeedbackWidget(event)) {
+      event.stopImmediatePropagation?.();
+      event.stopPropagation();
     }
   };
 
   private readonly guardGlobalFileDragLeaveEvent = (event: Event): void => {
-    const dragEvent = event as DragEvent;
     if (
-      !this.isFileDragEvent(dragEvent) ||
-      this.eventTargetsFeedbackWidget(dragEvent)
+      !isDragEvent(event) ||
+      !this.isFileDragEvent(event) ||
+      this.eventTargetsFeedbackWidget(event)
     ) {
       return;
     }
-    dragEvent.stopImmediatePropagation?.();
-    dragEvent.stopPropagation();
+    event.stopImmediatePropagation?.();
+    event.stopPropagation();
   };
 
   private readonly guardGlobalFileDropEvent = (event: Event): void => {
-    const dragEvent = event as DragEvent;
-    if (!this.isFileDragEvent(dragEvent)) {
+    if (!isDragEvent(event) || !this.isFileDragEvent(event)) {
       return;
     }
-    dragEvent.preventDefault();
-    if (!this.eventTargetsFeedbackWidget(dragEvent)) {
+    event.preventDefault();
+    if (!this.eventTargetsFeedbackWidget(event)) {
       return;
     }
-    dragEvent.stopImmediatePropagation?.();
-    dragEvent.stopPropagation();
-    const files = Array.from(dragEvent.dataTransfer?.files ?? []);
+    event.stopImmediatePropagation?.();
+    event.stopPropagation();
+    const files = Array.from(event.dataTransfer?.files ?? []);
     if (files.length > 0) {
       this.addAttachmentFiles(files);
     }
@@ -4047,24 +3715,21 @@ class ObviousFeedbackWidget {
 
   private bindAttachmentControls(): void {
     const form = this.shadowRoot.querySelector("form");
-    const dropzone = this.shadowRoot.querySelector(
-      "[data-attachment-dropzone]",
-    ) as HTMLElement | null;
-    const fileInput = this.shadowRoot.querySelector(
-      "[data-attachment-input]",
-    ) as HTMLInputElement | null;
+    const dropzone = queryHtmlElement(this.shadowRoot, "[data-attachment-dropzone]");
+    const fileInput = queryInputElement(this.shadowRoot, "[data-attachment-input]");
     const stopAttachmentDropEvent = (event: Event): void => {
       event.preventDefault();
       event.stopPropagation();
     };
     const addDroppedFiles = (event: Event): void => {
-      const files = Array.from((event as DragEvent).dataTransfer?.files ?? []);
+      if (!isDragEvent(event)) return;
+      const files = Array.from(event.dataTransfer?.files ?? []);
       if (files.length === 0) return;
       stopAttachmentDropEvent(event);
       this.addAttachmentFiles(files);
     };
     form?.addEventListener("dragover", (event) => {
-      if ((event as DragEvent).dataTransfer?.types.includes("Files")) {
+      if (isDragEvent(event) && event.dataTransfer?.types.includes("Files")) {
         stopAttachmentDropEvent(event);
       }
     });
@@ -4073,16 +3738,16 @@ class ObviousFeedbackWidget {
     dropzone?.addEventListener("dragover", stopAttachmentDropEvent);
     dropzone?.addEventListener("drop", addDroppedFiles);
     dropzone?.addEventListener("click", (event) => {
-      if (
-        (event.target as Element | null)?.closest("[data-attachment-remove]")
-      ) {
+      if (targetElement(event)?.closest("[data-attachment-remove]")) {
         return;
       }
       fileInput?.click();
     });
     dropzone?.addEventListener("keydown", (event) => {
-      const keyboardEvent = event as KeyboardEvent;
-      if (keyboardEvent.key !== "Enter" && keyboardEvent.key !== " ") {
+      if (!isKeyboardEvent(event)) {
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== " ") {
         return;
       }
       event.preventDefault();
@@ -4096,9 +3761,11 @@ class ObviousFeedbackWidget {
       fileInput.value = "";
     });
     form?.addEventListener("paste", (event) => {
-      const clipboardEvent = event as ClipboardEvent;
-      const files = Array.from(clipboardEvent.clipboardData?.files ?? []);
-      const itemFiles = Array.from(clipboardEvent.clipboardData?.items ?? [])
+      if (!isClipboardEvent(event)) {
+        return;
+      }
+      const files = Array.from(event.clipboardData?.files ?? []);
+      const itemFiles = Array.from(event.clipboardData?.items ?? [])
         .filter((item) => item.kind === "file")
         .map((item) => item.getAsFile())
         .filter((file): file is File => file !== null);
@@ -4108,7 +3775,7 @@ class ObviousFeedbackWidget {
       .querySelectorAll("[data-attachment-remove]")
       .forEach((button) => {
         button.addEventListener("click", () => {
-          const id = (button as HTMLElement).getAttribute(
+          const id = button.getAttribute(
             "data-attachment-remove",
           );
           if (id) {
@@ -4484,20 +4151,17 @@ class ObviousFeedbackWidget {
             !!activeElement &&
             detailElementBeforeRefresh?.contains(activeElement);
           this.openCard();
-          const detailElement = this.shadowRoot.querySelector(
+          const detailElement = queryHtmlElement(
+            this.shadowRoot,
             '[data-issue-detail="true"]',
-          ) as HTMLElement | null;
+          );
           if (hadDetailFocus) {
             detailElement?.focus();
           }
         }
       });
     this.openCard();
-    (
-      this.shadowRoot.querySelector(
-        '[data-issue-detail="true"]',
-      ) as HTMLElement | null
-    )?.focus();
+    queryHtmlElement(this.shadowRoot, '[data-issue-detail="true"]')?.focus();
   }
 
   private bindIssueStatusTray(): void {
@@ -4556,7 +4220,7 @@ class ObviousFeedbackWidget {
     this.cancelMarkupSvgRender();
     this.markupOverlayOpen = true;
     this.shadowRoot.innerHTML = `
-      <style>${createStyles()}</style>
+      ${this.renderStyleTag()}
       ${this.renderMarkupOverlayContent()}
     `;
     this.bindMarkupOverlay();
@@ -4629,19 +4293,26 @@ class ObviousFeedbackWidget {
   }
 
   private bindMarkupOverlay(): void {
-    const overlay = this.shadowRoot.querySelector(
+    const overlay = queryHtmlElement(
+      this.shadowRoot,
       ".obv-markup-overlay",
-    ) as HTMLElement | null;
+    );
     this.installMarkupKeydownListener();
-    overlay?.addEventListener("pointerdown", (event) =>
-      this.handleMarkupPointerDown(event as PointerEvent),
-    );
-    overlay?.addEventListener("pointermove", (event) =>
-      this.handleMarkupPointerMove(event as PointerEvent),
-    );
-    overlay?.addEventListener("pointerup", (event) =>
-      this.handleMarkupPointerUp(event as PointerEvent),
-    );
+    overlay?.addEventListener("pointerdown", (event) => {
+      if (isPointerEvent(event)) {
+        this.handleMarkupPointerDown(event);
+      }
+    });
+    overlay?.addEventListener("pointermove", (event) => {
+      if (isPointerEvent(event)) {
+        this.handleMarkupPointerMove(event);
+      }
+    });
+    overlay?.addEventListener("pointerup", (event) => {
+      if (isPointerEvent(event)) {
+        this.handleMarkupPointerUp(event);
+      }
+    });
     overlay?.addEventListener("pointercancel", (event) => {
       event.stopPropagation?.();
       this.suppressNextMarkupCanvasClick = false;
@@ -4913,7 +4584,7 @@ class ObviousFeedbackWidget {
     this.elementPickerOpen = true;
     this.markupOverlayOpen = false;
     this.shadowRoot.innerHTML = `
-      <style>${createStyles()}</style>
+      ${this.renderStyleTag()}
       <div class="obv-element-picker-overlay" role="application" aria-label="Select an element on the page. Click to attach it, press Escape to cancel." tabindex="0">
         <div class="obv-element-grab-highlight" hidden></div>
         <div class="obv-element-grab-label" hidden></div>
@@ -5258,9 +4929,9 @@ class ObviousFeedbackWidget {
 
     this.shadowRoot.querySelectorAll("[data-vs-scope]").forEach((button) => {
       button.addEventListener("click", () => {
-        const kind = (button as HTMLElement).getAttribute(
-          "data-vs-scope",
-        ) as FeedbackVisualSuggestionScopeKind | null;
+        const kind = parseVisualSuggestionScopeKind(
+          button.getAttribute("data-vs-scope"),
+        );
         const active = mgr.getActiveElement();
         if (!kind || !active || kind === active.scope.kind) {
           return;
@@ -5285,14 +4956,9 @@ class ObviousFeedbackWidget {
     this.shadowRoot.querySelectorAll("[data-vs-revert]").forEach((btn) => {
       btn.addEventListener("click", (event) => {
         event.stopPropagation();
-        const prop = (btn as HTMLElement).getAttribute("data-vs-revert");
-        if (
-          prop &&
-          VISUAL_SUGGESTION_PROPERTIES.includes(
-            prop as FeedbackVisualSuggestionProperty,
-          )
-        ) {
-          mgr.clearPropertyOverride(prop as FeedbackVisualSuggestionProperty);
+        const prop = btn.getAttribute("data-vs-revert");
+        if (isVisualSuggestionProperty(prop)) {
+          mgr.clearPropertyOverride(prop);
           this.syncActiveVisualSuggestionItem();
           this.openCard();
         }
@@ -5300,16 +4966,17 @@ class ObviousFeedbackWidget {
     });
 
     this.shadowRoot.querySelectorAll("[data-vs-scrub]").forEach((el) => {
-      this.bindScrubInteraction(el as HTMLElement, mgr);
+      if (el instanceof HTMLElement) {
+        this.bindScrubInteraction(el, mgr);
+      }
     });
 
     this.shadowRoot.querySelectorAll("[data-vs-color]").forEach((el) => {
-      const prop = (el as HTMLElement).getAttribute(
-        "data-vs-color",
-      ) as FeedbackVisualSuggestionProperty | null;
-      if (!prop) return;
+      const prop = el.getAttribute("data-vs-color");
+      if (!isVisualSuggestionProperty(prop)) return;
       el.addEventListener("input", () => {
-        const value = (el as HTMLInputElement).value;
+        if (!isInputLikeElement(el)) return;
+        const value = el.value;
         mgr.setPropertyOverride(prop, value);
         this.syncActiveVisualSuggestionItem();
         const textEl = this.shadowRoot.querySelector(
@@ -5323,14 +4990,14 @@ class ObviousFeedbackWidget {
     });
 
     this.shadowRoot.querySelectorAll("[data-vs-slider]").forEach((el) => {
-      const prop = (el as HTMLElement).getAttribute(
-        "data-vs-slider",
-      ) as FeedbackVisualSuggestionProperty | null;
-      if (!prop) return;
-      const sliderUnit =
-        (el as HTMLElement).getAttribute("data-vs-slider-unit") ?? "px";
+      const prop = el.getAttribute("data-vs-slider");
+      if (!isVisualSuggestionProperty(prop)) return;
+      const sliderUnit = parseSliderUnit(
+        el.getAttribute("data-vs-slider-unit") ?? "px",
+      );
       el.addEventListener("input", () => {
-        const input = el as HTMLInputElement;
+        if (!isInputLikeElement(el)) return;
+        const input = el;
         const next = `${input.value}${sliderUnit}`;
         const min = Number(input.min);
         const max = Number(input.max);
@@ -5359,7 +5026,7 @@ class ObviousFeedbackWidget {
       .querySelectorAll("[data-vs-activate]")
       .forEach((el) => {
         el.addEventListener("click", () => {
-          const id = (el as HTMLElement).getAttribute("data-vs-activate");
+          const id = el.getAttribute("data-vs-activate");
           if (!id) return;
           const groups = mgr.getElementsWithOverrides();
           const group = groups.find((g) => g.ref.id === id);
@@ -5373,15 +5040,13 @@ class ObviousFeedbackWidget {
     el: HTMLElement,
     mgr: VisualSuggestionManager,
   ): void {
-    const prop = el.getAttribute(
-      "data-vs-scrub",
-    ) as FeedbackVisualSuggestionProperty | null;
-    if (!prop) return;
+    const prop = el.getAttribute("data-vs-scrub");
+    if (!isVisualSuggestionProperty(prop)) return;
     const isColor = el.hasAttribute("data-vs-color-text");
     let startX = 0;
     let startValue = 0;
     let dragging = false;
-    let unit = "";
+    let unit: "px" | "rem" | "em" | "%" | "" = "";
     let step = 1;
 
     el.addEventListener("pointerdown", (event) => {
@@ -5414,10 +5079,7 @@ class ObviousFeedbackWidget {
       if (event.altKey) multiplier = 0.1;
       const delta = Math.round(dx * multiplier * step);
       const next = startValue + delta;
-      const formatted = formatCssNumericValue(
-        next,
-        unit as "px" | "rem" | "em" | "%" | "",
-      );
+      const formatted = formatCssNumericValue(next, unit);
       mgr.setPropertyOverride(prop, formatted);
       this.syncActiveVisualSuggestionItem();
       el.textContent = formatted;
@@ -5504,7 +5166,7 @@ class ObviousFeedbackWidget {
     this.draggingRulerId = null;
     this.rulerShiftHeld = false;
     this.shadowRoot.innerHTML = `
-      <style>${createStyles()}</style>
+      ${this.renderStyleTag()}
       <div class="obv-ruler-overlay" role="application" aria-label="Click to place rulers. Shift+click for vertical. Press Escape to cancel." tabindex="0">
         <div class="obv-ruler-snap-highlight" hidden></div>
         <svg class="obv-ruler-svg"></svg>
@@ -5519,9 +5181,10 @@ class ObviousFeedbackWidget {
   }
 
   private updateRulerSnapHighlight(snap: SnapResult | null): void {
-    const highlight = this.shadowRoot.querySelector(
+    const highlight = queryHtmlElement(
+      this.shadowRoot,
       ".obv-ruler-snap-highlight",
-    ) as HTMLElement | null;
+    );
     if (!highlight) {
       return;
     }
@@ -5556,15 +5219,16 @@ class ObviousFeedbackWidget {
       .querySelectorAll("[data-ruler-handle]")
       .forEach((handle) => {
         handle.addEventListener("pointerdown", (event) => {
+          if (!isPointerEvent(event)) {
+            return;
+          }
           event.stopPropagation();
           event.preventDefault();
-          const id = (handle as Element).getAttribute("data-ruler-handle");
+          const id = handle.getAttribute("data-ruler-handle");
           if (id) {
             this.selectedRulerId = id;
             this.draggingRulerId = id;
-            (handle as Element).setPointerCapture?.(
-              (event as PointerEvent).pointerId,
-            );
+            handle.setPointerCapture?.(event.pointerId);
           }
         });
       });
@@ -5578,7 +5242,9 @@ class ObviousFeedbackWidget {
     overlay.focus();
 
     overlay.addEventListener("pointermove", (event) => {
-      const pointerEvent = event as PointerEvent;
+      if (!isPointerEvent(event)) {
+        return;
+      }
       if (this.draggingRulerId) {
         const ruler = this.rulerLines.find(
           (r) => r.id === this.draggingRulerId,
@@ -5586,13 +5252,13 @@ class ObviousFeedbackWidget {
         if (ruler) {
           const rawPos =
             ruler.orientation === "horizontal"
-              ? pointerEvent.clientY
-              : pointerEvent.clientX;
+              ? event.clientY
+              : event.clientX;
           const snap = findSnapPosition(
             rawPos,
             ruler.orientation,
-            pointerEvent.clientX,
-            pointerEvent.clientY,
+            event.clientX,
+            event.clientY,
           );
           ruler.position = snap ? snap.position : Math.round(rawPos);
           ruler.snappedTo = snap ? snap.selector : null;
@@ -5601,7 +5267,7 @@ class ObviousFeedbackWidget {
           this.updateRulerSnapHighlight(snap);
           this.updateRulerSvg();
         }
-        pointerEvent.preventDefault();
+        event.preventDefault();
         return;
       }
       const orientation: "horizontal" | "vertical" = this.rulerShiftHeld
@@ -5609,13 +5275,13 @@ class ObviousFeedbackWidget {
         : "horizontal";
       const rawPos =
         orientation === "horizontal"
-          ? pointerEvent.clientY
-          : pointerEvent.clientX;
+          ? event.clientY
+          : event.clientX;
       const snap = findSnapPosition(
         rawPos,
         orientation,
-        pointerEvent.clientX,
-        pointerEvent.clientY,
+        event.clientX,
+        event.clientY,
       );
       this.rulerPreview = {
         orientation,
@@ -5623,29 +5289,31 @@ class ObviousFeedbackWidget {
       };
       this.updateRulerSnapHighlight(snap);
       this.updateRulerSvg();
-      pointerEvent.preventDefault();
+      event.preventDefault();
     });
 
     overlay.addEventListener("pointerup", (event) => {
+      if (!isPointerEvent(event)) {
+        return;
+      }
       if (this.draggingRulerId) {
         this.draggingRulerId = null;
         this.updateRulerSnapHighlight(null);
         event.preventDefault();
         return;
       }
-      const pointerEvent = event as PointerEvent;
       const orientation: "horizontal" | "vertical" = this.rulerShiftHeld
         ? "vertical"
         : "horizontal";
       const rawPos =
         orientation === "horizontal"
-          ? pointerEvent.clientY
-          : pointerEvent.clientX;
+          ? event.clientY
+          : event.clientX;
       const snap = findSnapPosition(
         rawPos,
         orientation,
-        pointerEvent.clientX,
-        pointerEvent.clientY,
+        event.clientX,
+        event.clientY,
       );
       const position = snap ? snap.position : Math.round(rawPos);
       const newRuler: RulerLine = {
@@ -5660,7 +5328,7 @@ class ObviousFeedbackWidget {
       this.selectedRulerId = newRuler.id;
       this.updateRulerSnapHighlight(null);
       this.updateRulerSvg();
-      pointerEvent.preventDefault();
+      event.preventDefault();
     });
 
     overlay.addEventListener("pointercancel", () => {
@@ -5669,17 +5337,19 @@ class ObviousFeedbackWidget {
     });
 
     overlay.addEventListener("keydown", (event) => {
-      const keyEvent = event as KeyboardEvent;
-      if (keyEvent.key === "Escape") {
-        keyEvent.preventDefault();
+      if (!isKeyboardEvent(event)) {
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
         this.cancelMeasurement();
         return;
       }
       if (
-        (keyEvent.key === "Backspace" || keyEvent.key === "Delete") &&
+        (event.key === "Backspace" || event.key === "Delete") &&
         this.selectedRulerId
       ) {
-        keyEvent.preventDefault();
+        event.preventDefault();
         this.rulerLines = this.rulerLines.filter(
           (r) => r.id !== this.selectedRulerId,
         );
@@ -5687,7 +5357,7 @@ class ObviousFeedbackWidget {
         this.updateRulerSvg();
         return;
       }
-      if (keyEvent.key === "Shift") {
+      if (event.key === "Shift") {
         this.rulerShiftHeld = true;
         if (this.rulerPreview) {
           this.rulerPreview = { ...this.rulerPreview, orientation: "vertical" };
@@ -5697,7 +5367,7 @@ class ObviousFeedbackWidget {
     });
 
     overlay.addEventListener("keyup", (event) => {
-      if ((event as KeyboardEvent).key === "Shift") {
+      if (isKeyboardEvent(event) && event.key === "Shift") {
         this.rulerShiftHeld = false;
         if (this.rulerPreview) {
           this.rulerPreview = {
@@ -5980,14 +5650,16 @@ class ObviousFeedbackWidget {
       acceptedFiles.length < files.length
         ? `Only ${acceptedFiles.length} of ${files.length} files accepted (limit: ${MAX_FEEDBACK_ATTACHMENTS} attachments)`
         : null;
-    const newAttachments = acceptedFiles.map((file) => ({
-      id: createFeedbackAttachmentId(),
-      file,
-      name: file.name || "attachment",
-      mimeType: normalizeAttachmentMimeType(file),
-      sizeBytes: file.size,
-      status: "uploading" as const,
-    }));
+    const newAttachments: FeedbackAttachmentUpload[] = acceptedFiles.map(
+      (file) => ({
+        id: createFeedbackAttachmentId(),
+        file,
+        name: file.name || "attachment",
+        mimeType: normalizeAttachmentMimeType(file),
+        sizeBytes: file.size,
+        status: "uploading",
+      }),
+    );
     this.feedbackAttachments = [...this.feedbackAttachments, ...newAttachments];
     this.openCard({ error: partialWarning });
     for (const attachment of newAttachments) {
@@ -6077,10 +5749,10 @@ class ObviousFeedbackWidget {
         throw new Error(
           `Attachment upload setup failed (${presignResponse.status})`,
         );
-      const payload =
-        (await presignResponse.json()) as FeedbackAttachmentUploadResponse;
-      const uploadUrl = payload.data?.uploadUrl;
-      const attachmentToken = payload.data?.attachmentToken;
+      const payload = await presignResponse.json();
+      const data = isRecord(payload) ? getRecordField(payload, "data") : null;
+      const uploadUrl = getStringField(data, "uploadUrl");
+      const attachmentToken = getStringField(data, "attachmentToken");
       if (!uploadUrl || !attachmentToken)
         throw new Error("Attachment upload setup response was incomplete");
       const putResponse = await fetch(uploadUrl, {
@@ -6215,7 +5887,7 @@ class ObviousFeedbackWidget {
           env: this.config.env,
           prNumber: this.config.prNumber,
           sourceUrl: redactUrl(window.location.href),
-          sdkVersion: "0.0.1",
+          sdkVersion: SDK_VERSION,
           type: input.type,
           severity: input.severity,
           title: input.title,
@@ -6248,29 +5920,22 @@ class ObviousFeedbackWidget {
       throw new Error(`Feedback submission failed (${response.status})`);
     }
 
-    const payload = (await response.json()) as {
-      data?: {
-        issueId?: string;
-        status?: FeedbackClientStatus;
-        title?: string;
-        reportedAt?: string;
-        issueUrl?: string;
-        workerThread?: FeedbackWorkerThreadLink;
-      };
-    };
+    const payload = await response.json();
+    const data = isRecord(payload) ? getRecordField(payload, "data") : null;
+    const status = data?.status;
     if (this.destroyed) {
       return;
     }
-    this.issueId = payload.data?.issueId ?? null;
+    this.issueId = getStringField(data, "issueId") ?? null;
     this.statusPollIndex = 0;
     this.clearStatusTimer();
     if (this.issueId) {
       this.rememberIssueHistoryEntry({
         issueId: this.issueId,
-        status: payload.data?.status ?? "received",
-        title: payload.data?.title,
-        reportedAt: payload.data?.reportedAt,
-        workerThread: normalizeWorkerThreadLink(payload.data?.workerThread),
+        status: isFeedbackClientStatus(status) ? status : "received",
+        title: getStringField(data, "title"),
+        reportedAt: getStringField(data, "reportedAt"),
+        workerThread: normalizeWorkerThreadLink(data?.workerThread),
       });
     }
     this.roundItems = [];
@@ -6278,7 +5943,7 @@ class ObviousFeedbackWidget {
     this.clearSubmissionDraftState();
     this.visualSuggestions?.restoreAll();
     this.feedbackFormError = null;
-    this.submittedIssueUrl = payload.data?.issueUrl ?? null;
+    this.submittedIssueUrl = getStringField(data, "issueUrl") ?? null;
     this.persistDraftRound();
     this.emitOpenIssueCountChange();
     this.openCard();
@@ -6421,13 +6086,22 @@ class ObviousFeedbackWidget {
         });
         return;
       }
-      const payload = (await response.json()) as {
-        data?: FeedbackStatusResponse;
-      };
+      const payload = await response.json();
+      const data = isRecord(payload) ? getRecordField(payload, "data") : null;
       if (!this.issueHistory.some((entry) => entry.issueId === issueId)) {
         return;
       }
-      if (!payload.data) {
+      const responseIssueId = getStringField(data, "issueId");
+      const responseStatus = data?.status;
+      const title = getStringField(data, "title");
+      const updatedAt = getStringField(data, "updatedAt");
+      if (
+        !data ||
+        !responseIssueId ||
+        !isFeedbackClientStatus(responseStatus) ||
+        !title ||
+        !updatedAt
+      ) {
         this.updateIssueHistoryEntry({
           issueId,
           status: "unavailable",
@@ -6436,17 +6110,17 @@ class ObviousFeedbackWidget {
         return;
       }
       this.updateIssueHistoryEntry({
-        issueId: payload.data.issueId,
-        status: payload.data.status,
-        title: payload.data.title,
-        description: payload.data.description,
-        resolvedNote: payload.data.resolvedNote,
-        aiSummary: normalizeFeedbackAiSummary(payload.data.aiSummary),
-        links: getFeedbackIssueLinks(payload.data),
-        reportedAt: payload.data.reportedAt,
-        updatedAt: payload.data.updatedAt,
+        issueId: responseIssueId,
+        status: responseStatus,
+        title,
+        description: getNullableStringField(data, "description") ?? null,
+        resolvedNote: getNullableStringField(data, "resolvedNote") ?? null,
+        aiSummary: normalizeFeedbackAiSummary(data.aiSummary),
+        links: getFeedbackIssueLinks(data),
+        reportedAt: getStringField(data, "reportedAt"),
+        updatedAt,
         checkedAt,
-        workerThread: normalizeWorkerThreadLink(payload.data.workerThread),
+        workerThread: normalizeWorkerThreadLink(data.workerThread),
       });
     } catch {
       this.updateIssueHistoryEntry({
@@ -6484,7 +6158,7 @@ class ObviousFeedbackWidget {
           ? `Autobuild has started addressing your issues.${linkSentence}`
           : "Autobuild has started addressing your issues.";
     this.shadowRoot.innerHTML = `
-      <style>${createStyles()}</style>
+      ${this.renderStyleTag()}
       ${this.renderTriggerButton()}
       <div class="obv-card" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-dialog-direction="${escapeHtml(feedbackCardPlacement.direction)}" style="${escapeHtml(feedbackCardPlacement.style)}">
         <div class="obv-kicker">Feedback state</div>
@@ -6565,25 +6239,29 @@ class ObviousFeedbackWidget {
       this.scheduleStatusPoll(issueId);
       return;
     }
-    const payload = (await response.json()) as {
-      data?: FeedbackStatusResponse;
-    };
+    const payload = await response.json();
+    const data = isRecord(payload) ? getRecordField(payload, "data") : null;
     if (this.destroyed || !this.issueId || issueId !== this.issueId) {
       return;
     }
-    const status = payload.data?.status ?? "received";
-    if (payload.data) {
+    const parsedStatus = data?.status;
+    const status = isFeedbackClientStatus(parsedStatus)
+      ? parsedStatus
+      : "received";
+    const responseIssueId = getStringField(data, "issueId");
+    const title = getStringField(data, "title");
+    if (data && responseIssueId && title) {
       this.rememberIssueHistoryEntry({
-        issueId: payload.data.issueId,
+        issueId: responseIssueId,
         status,
-        title: payload.data.title,
-        description: payload.data.description,
-        resolvedNote: payload.data.resolvedNote,
-        aiSummary: normalizeFeedbackAiSummary(payload.data.aiSummary),
-        links: getFeedbackIssueLinks(payload.data),
-        reportedAt: payload.data.reportedAt,
-        updatedAt: payload.data.updatedAt,
-        workerThread: normalizeWorkerThreadLink(payload.data.workerThread),
+        title,
+        description: getNullableStringField(data, "description") ?? null,
+        resolvedNote: getNullableStringField(data, "resolvedNote") ?? null,
+        aiSummary: normalizeFeedbackAiSummary(data.aiSummary),
+        links: getFeedbackIssueLinks(data),
+        reportedAt: getStringField(data, "reportedAt"),
+        updatedAt: getStringField(data, "updatedAt"),
+        workerThread: normalizeWorkerThreadLink(data.workerThread),
       });
     }
 

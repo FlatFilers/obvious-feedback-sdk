@@ -34,6 +34,12 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Typecheck
+        run: bun run test:typecheck
+
+      - name: Unit tests
+        run: bun run test
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20

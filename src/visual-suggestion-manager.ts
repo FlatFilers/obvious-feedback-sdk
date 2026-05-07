@@ -5,7 +5,7 @@ import type {
   FeedbackVisualSuggestionProperty,
   FeedbackVisualSuggestionScope,
   FeedbackVisualSuggestionsPayload,
-} from "./index";
+} from "./public-types";
 import {
   buildVisualSuggestionPrompt,
   createVisualSuggestionElementRef,
@@ -16,7 +16,7 @@ import {
 } from "./visual-suggestion-helpers";
 
 const MAX_VISUAL_SUGGESTIONS_PER_SUBMISSION = 10;
-const VISUAL_SUGGESTION_PAYLOAD_VERSION = 1 as const;
+const VISUAL_SUGGESTION_PAYLOAD_VERSION: 1 = 1;
 
 export interface ActiveElement {
   element: HTMLElement;

@@ -26,11 +26,13 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
-    "test": "bun test src/",
+    "test": "bun test tests/unit/",
     "test:unit": "bun test tests/unit/",
+    "test:src": "bun test src/",
+    "test:typecheck": "bunx tsc --noEmit",
     "test:e2e": "bunx playwright test --config tests/e2e/playwright.config.ts",
     "test:e2e:live": "bunx playwright test --config tests/e2e/playwright.config.ts tests/e2e/specs/live-obvious.spec.ts",
-    "test:all": "bun run test:unit && bun run build && bun run test:e2e",
+    "test:all": "bun run test:typecheck && bun run test:unit && bun run build && bun run test:e2e",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
