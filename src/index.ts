@@ -67,6 +67,8 @@ import {
   SILLY_FEEDBACK_LOAD_PROBABILITY,
   SILLY_FEEDBACK_MESSAGES,
   TRIGGER_DRAG_THRESHOLD_PX,
+  TRIGGER_HIDDEN_PEEK_PX,
+  TRIGGER_HIDE_ZONE_PX,
   TRIGGER_POSITION_STORAGE_KEY,
   TRIGGER_VIEWPORT_MARGIN_PX,
 } from "./constants";
@@ -159,6 +161,7 @@ interface FeedbackTriggerPosition {
   corner: FeedbackTriggerCorner;
   offsetX: number;
   offsetY: number;
+  hidden?: boolean;
 }
 
 interface FeedbackTriggerDragState {
@@ -445,7 +448,7 @@ function parseStoredTriggerPosition(): FeedbackTriggerPosition | null {
     if (!Number.isFinite(offsetX) || !Number.isFinite(offsetY)) {
       return null;
     }
-    return { corner, offsetX, offsetY };
+    return { corner, offsetX, offsetY, hidden: parsed.hidden === true };
   } catch {
     return null;
   }
@@ -641,6 +644,7 @@ function clampTriggerPosition(
       TRIGGER_VIEWPORT_MARGIN_PX,
       viewport.height - DEFAULT_TRIGGER_SIZE_PX - TRIGGER_VIEWPORT_MARGIN_PX,
     ),
+    hidden: position.hidden,
   };
 }
 
@@ -694,6 +698,32 @@ function viewportPointToNearestCorner(
         ? clampedTop
         : viewport.height - DEFAULT_TRIGGER_SIZE_PX - clampedTop,
   };
+}
+
+function isTriggerPointInHideZone(left: number, top: number): boolean {
+  const viewport = getViewportSize();
+  const nearLeft = left <= TRIGGER_HIDE_ZONE_PX;
+  const nearRight =
+    viewport.width - (left + DEFAULT_TRIGGER_SIZE_PX) <= TRIGGER_HIDE_ZONE_PX;
+  const nearTop = top <= TRIGGER_HIDE_ZONE_PX;
+  const nearBottom =
+    viewport.height - (top + DEFAULT_TRIGGER_SIZE_PX) <= TRIGGER_HIDE_ZONE_PX;
+  return (nearLeft || nearRight) && (nearTop || nearBottom);
+}
+
+function isPointerInTriggerPeekZone(
+  point: { x: number; y: number },
+  corner: FeedbackTriggerCorner,
+): boolean {
+  const viewport = getViewportSize();
+  const size = DEFAULT_TRIGGER_SIZE_PX * 2;
+  const inHorizontalZone = corner.endsWith("left")
+    ? point.x <= size
+    : point.x >= viewport.width - size;
+  const inVerticalZone = corner.startsWith("top")
+    ? point.y <= size
+    : point.y >= viewport.height - size;
+  return inHorizontalZone && inVerticalZone;
 }
 
 interface FeedbackAnchorRect {
@@ -800,6 +830,16 @@ function createFeedbackCardPlacement(
 }
 
 function createTriggerPositionStyle(position: FeedbackTriggerPosition): string {
+  if (position.hidden) {
+    const viewport = getViewportSize();
+    const left = position.corner.endsWith("left")
+      ? TRIGGER_HIDDEN_PEEK_PX - DEFAULT_TRIGGER_SIZE_PX
+      : viewport.width - TRIGGER_HIDDEN_PEEK_PX;
+    const top = position.corner.startsWith("top")
+      ? TRIGGER_HIDDEN_PEEK_PX - DEFAULT_TRIGGER_SIZE_PX
+      : viewport.height - TRIGGER_HIDDEN_PEEK_PX;
+    return `left: ${Math.round(left)}px; top: ${Math.round(top)}px; right: auto; bottom: auto;`;
+  }
   const point = positionToViewportPoint(position);
   return `left: ${Math.round(point.left)}px; top: ${Math.round(point.top)}px; right: auto; bottom: auto;`;
 }
@@ -890,6 +930,41 @@ function createStyles(): string {
       background: var(--obv-feedback-bg-subtle);
       transform: translateY(-1px);
     }
+    .obv-trigger[data-trigger-hidden] {
+      transition: left 160ms cubic-bezier(0.2, 0.8, 0.2, 1), top 160ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 120ms ease, box-shadow 120ms ease, background 120ms ease, color 120ms ease, transform 120ms ease;
+    }
+    .obv-trigger[data-trigger-hidden][data-trigger-corner$="-right"][data-trigger-peeking],
+    .obv-trigger[data-trigger-hidden][data-trigger-corner$="-right"]:focus-visible {
+      transform: translateX(-${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px);
+    }
+    .obv-trigger[data-trigger-hidden][data-trigger-corner$="-left"][data-trigger-peeking],
+    .obv-trigger[data-trigger-hidden][data-trigger-corner$="-left"]:focus-visible {
+      transform: translateX(${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px);
+    }
+    .obv-trigger[data-trigger-hidden][data-trigger-corner^="top"][data-trigger-peeking],
+    .obv-trigger[data-trigger-hidden][data-trigger-corner^="top"]:focus-visible {
+      transform: translateY(${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px);
+    }
+    .obv-trigger[data-trigger-hidden][data-trigger-corner^="bottom"][data-trigger-peeking],
+    .obv-trigger[data-trigger-hidden][data-trigger-corner^="bottom"]:focus-visible {
+      transform: translateY(-${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px);
+    }
+    .obv-trigger[data-trigger-hidden][data-trigger-corner="top-right"][data-trigger-peeking],
+    .obv-trigger[data-trigger-hidden][data-trigger-corner="top-right"]:focus-visible {
+      transform: translate(-${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px, ${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px);
+    }
+    .obv-trigger[data-trigger-hidden][data-trigger-corner="bottom-right"][data-trigger-peeking],
+    .obv-trigger[data-trigger-hidden][data-trigger-corner="bottom-right"]:focus-visible {
+      transform: translate(-${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px, -${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px);
+    }
+    .obv-trigger[data-trigger-hidden][data-trigger-corner="top-left"][data-trigger-peeking],
+    .obv-trigger[data-trigger-hidden][data-trigger-corner="top-left"]:focus-visible {
+      transform: translate(${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px, ${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px);
+    }
+    .obv-trigger[data-trigger-hidden][data-trigger-corner="bottom-left"][data-trigger-peeking],
+    .obv-trigger[data-trigger-hidden][data-trigger-corner="bottom-left"]:focus-visible {
+      transform: translate(${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px, -${DEFAULT_TRIGGER_SIZE_PX - TRIGGER_HIDDEN_PEEK_PX + TRIGGER_VIEWPORT_MARGIN_PX}px);
+    }
     .obv-trigger::after {
       content: attr(data-tooltip); pointer-events: none;
       position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
@@ -923,8 +998,18 @@ function createStyles(): string {
     }
     .obv-trigger-icon { display: inline-flex; align-items: center; justify-content: center; color: currentColor; }
     .obv-trigger-icon .obv-icon { width: 18px; height: 18px; }
-    .obv-trigger-ring { position: absolute; inset: -4px; border: 2px solid var(--obv-feedback-primary); border-radius: 999px; box-shadow: 0 0 0 2px color-mix(in srgb, var(--obv-feedback-primary) 14%, transparent); }
+    .obv-trigger-ring {
+      position: absolute; inset: -4px; border-radius: 999px; pointer-events: none;
+      border: 1.5px solid color-mix(in srgb, var(--obv-feedback-primary) 55%, transparent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--obv-feedback-primary) 8%, transparent);
+    }
+    :host([data-theme="dark"]) .obv-trigger-ring {
+      border-color: color-mix(in srgb, var(--obv-feedback-primary) 32%, transparent);
+      box-shadow: 0 0 14px 1px color-mix(in srgb, var(--obv-feedback-primary) 12%, transparent);
+    }
     .obv-trigger-badge { position: absolute; top: -7px; right: -7px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; border: 1px solid var(--obv-feedback-bg); background: var(--obv-feedback-primary); color: var(--obv-feedback-primary-foreground); font-size: 11px; line-height: 18px; font-weight: 700; box-sizing: border-box; }
+    .obv-trigger[data-trigger-hidden][data-trigger-corner^="top"] .obv-trigger-badge { top: auto; bottom: -7px; }
+    .obv-trigger[data-trigger-hidden][data-trigger-corner$="-left"] .obv-trigger-badge { right: auto; left: -7px; }
     .obv-trigger[data-issue-status="open"] .obv-trigger-icon { transform: scale(0.92); }
     .obv-trigger[data-assistant-position="bottom-left"] { left: 20px; right: auto; }
     .obv-trigger[data-assistant-position="top-right"] { top: 96px; bottom: auto; }
@@ -1122,7 +1207,7 @@ function createStyles(): string {
     .obv-row-pill-vs { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 72%, #3b82f6 28%); color: var(--obv-feedback-text); }
     .obv-row-pill-vs .obv-row-pill-label { color: var(--obv-feedback-text); }
     .obv-annotation-summary { margin-top: 6px; color: var(--obv-feedback-muted); font-size: 12px; }
-    .obv-unified-panel { display: flex; flex-direction: column; gap: 0; }
+    .obv-unified-panel { display: flex; flex-direction: column; gap: 0; position: relative; }
     .obv-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; }
     .obv-card-header .obv-kicker { margin-bottom: 0; }
     .obv-icon-button.obv-card-close { position: relative; width: 26px; height: 26px; }
@@ -2325,6 +2410,7 @@ class ObviousFeedbackWidget {
   private selectedIssueId: string | null = null;
   private triggerPosition: FeedbackTriggerPosition;
   private triggerDragState: FeedbackTriggerDragState | null = null;
+  private hiddenTriggerPeeking = false;
   private suppressNextTriggerClick = false;
   private markupTool: FeedbackMarkupTool = "rectangle";
   private markupItems: FeedbackMarkupItem[] = [];
@@ -2424,6 +2510,7 @@ class ObviousFeedbackWidget {
     document.body.appendChild(this.host);
     this.renderTrigger();
     window.addEventListener("keydown", this.handleShortcut);
+    window.addEventListener("pointermove", this.handleTriggerPeekPointerMove);
     window.addEventListener("resize", this.handleViewportChange);
     window.addEventListener("orientationchange", this.handleViewportChange);
     window.visualViewport?.addEventListener(
@@ -2433,7 +2520,7 @@ class ObviousFeedbackWidget {
   }
 
   getOpenIssueCount(): number {
-    return this.roundItems.length + this.getOpenIssueHistoryEntries().length;
+    return this.getDraftItemCount() + this.getOpenIssueHistoryEntries().length;
   }
 
   subscribeToOpenIssueCount(listener: (count: number) => void): () => void {
@@ -2470,14 +2557,24 @@ class ObviousFeedbackWidget {
   }
 
   private getShortcutLabel(): string {
-    const isMac =
+    return this.isMacPlatform() ? "⌘⇧." : "Ctrl+Shift+.";
+  }
+
+  private getDraftItemCount(): number {
+    return this.roundItems.filter(
+      (item) => item.description.trim().length > 0,
+    ).length;
+  }
+
+  private isMacPlatform(): boolean {
+    return (
       typeof navigator !== "undefined" &&
-      /Mac|iPhone|iPad/.test(navigator.userAgent);
-    return isMac ? "⌘⇧." : "Ctrl+Shift+.";
+      /Mac|iPhone|iPad/.test(navigator.userAgent)
+    );
   }
 
   private getTriggerStatusLabel(): string {
-    const draftCount = this.roundItems.length;
+    const draftCount = this.getDraftItemCount();
     if (draftCount > 0) {
       return `${this.config.triggerLabel} — ${draftCount} draft item${draftCount === 1 ? "" : "s"}`;
     }
@@ -2485,12 +2582,32 @@ class ObviousFeedbackWidget {
   }
 
   private renderTriggerButton(): string {
-    const draftCount = this.roundItems.length;
+    const draftCount = this.getDraftItemCount();
+    const isHidden = this.triggerPosition.hidden === true && !this.isCardOpen();
+    const triggerPosition = isHidden
+      ? this.triggerPosition
+      : { ...this.triggerPosition, hidden: false };
     const badge =
       draftCount > 0
         ? `<span class="obv-trigger-ring" data-status="draft" aria-hidden="true"></span><span class="obv-trigger-badge" aria-hidden="true">${draftCount}</span>`
         : "";
-    return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? "draft" : "idle"}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})"${this.isCardOpen() ? ' data-card-open="true"' : ""} style="${createTriggerPositionStyle(this.triggerPosition)}"><span class="obv-trigger-icon" aria-hidden="true">${createIcon("compose")}</span>${badge}</button>`;
+    return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? "draft" : "idle"}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})"${this.isCardOpen() ? ' data-card-open="true"' : ""}${isHidden ? ' data-trigger-hidden="true"' : ""} style="${createTriggerPositionStyle(triggerPosition)}"><span class="obv-trigger-icon" aria-hidden="true">${createIcon("compose")}</span>${badge}</button>`;
+  }
+
+  private updateTriggerPeekState(nextPeeking: boolean): void {
+    if (this.hiddenTriggerPeeking === nextPeeking) {
+      return;
+    }
+    this.hiddenTriggerPeeking = nextPeeking;
+    const trigger = queryHtmlElement(this.shadowRoot, ".obv-trigger");
+    if (!trigger) {
+      return;
+    }
+    if (nextPeeking) {
+      trigger.setAttribute("data-trigger-peeking", "true");
+    } else {
+      trigger.removeAttribute("data-trigger-peeking");
+    }
   }
 
   private installConstructableStylesheet(): void {
@@ -2546,8 +2663,13 @@ class ObviousFeedbackWidget {
   }
 
   private handleTriggerPointerDown(event: PointerEvent): void {
-    const point = positionToViewportPoint(this.triggerPosition);
-    currentTargetElement(event)?.setPointerCapture?.(event.pointerId);
+    const trigger = currentTargetElement(event);
+    const rect = trigger?.getBoundingClientRect();
+    const point =
+      this.triggerPosition.hidden === true && rect
+        ? { left: rect.left, top: rect.top }
+        : positionToViewportPoint(this.triggerPosition);
+    trigger?.setPointerCapture?.(event.pointerId);
     this.triggerDragState = {
       pointerId: event.pointerId,
       startClientX: event.clientX,
@@ -2582,6 +2704,8 @@ class ObviousFeedbackWidget {
     const trigger = queryHtmlElement(this.shadowRoot, ".obv-trigger");
     if (trigger) {
       trigger.setAttribute("data-trigger-corner", this.triggerPosition.corner);
+      trigger.removeAttribute("data-trigger-hidden");
+      trigger.removeAttribute("data-trigger-peeking");
       trigger.setAttribute(
         "style",
         createTriggerPositionStyle(this.triggerPosition),
@@ -2599,6 +2723,25 @@ class ObviousFeedbackWidget {
       return;
     }
     if (this.triggerDragState.moved) {
+      const deltaX = event.clientX - this.triggerDragState.startClientX;
+      const deltaY = event.clientY - this.triggerDragState.startClientY;
+      const releaseLeft = this.triggerDragState.startLeft + deltaX;
+      const releaseTop = this.triggerDragState.startTop + deltaY;
+      const shouldHide = isTriggerPointInHideZone(releaseLeft, releaseTop);
+      if (shouldHide) {
+        this.triggerPosition = { ...this.triggerPosition, hidden: true };
+        const trigger = queryHtmlElement(this.shadowRoot, ".obv-trigger");
+        if (trigger) {
+          trigger.setAttribute("data-trigger-hidden", "true");
+          if (this.hiddenTriggerPeeking) {
+            trigger.setAttribute("data-trigger-peeking", "true");
+          }
+          trigger.setAttribute(
+            "style",
+            createTriggerPositionStyle(this.triggerPosition),
+          );
+        }
+      }
       this.suppressNextTriggerClick = true;
       persistTriggerPosition(this.triggerPosition);
       event.preventDefault();
@@ -2615,6 +2758,15 @@ class ObviousFeedbackWidget {
           "data-trigger-corner",
           this.triggerPosition.corner,
         );
+        if (this.triggerPosition.hidden === true) {
+          trigger.setAttribute("data-trigger-hidden", "true");
+          if (this.hiddenTriggerPeeking) {
+            trigger.setAttribute("data-trigger-peeking", "true");
+          }
+        } else {
+          trigger.removeAttribute("data-trigger-hidden");
+          trigger.removeAttribute("data-trigger-peeking");
+        }
         trigger.setAttribute(
           "style",
           createTriggerPositionStyle(this.triggerPosition),
@@ -2634,6 +2786,7 @@ class ObviousFeedbackWidget {
     this.consoleBuffer.restore();
     this.networkBuffer.restore();
     window.removeEventListener("keydown", this.handleShortcut);
+    window.removeEventListener("pointermove", this.handleTriggerPeekPointerMove);
     window.removeEventListener("resize", this.handleViewportChange);
     window.removeEventListener("orientationchange", this.handleViewportChange);
     this.uninstallMarkupKeydownListener();
@@ -2681,6 +2834,22 @@ class ObviousFeedbackWidget {
         this.openCard();
       }
     }
+  };
+
+  private readonly handleTriggerPeekPointerMove = (event: PointerEvent): void => {
+    if (
+      this.triggerPosition.hidden !== true ||
+      this.isCardOpen() ||
+      this.triggerDragState
+    ) {
+      this.updateTriggerPeekState(false);
+      return;
+    }
+    const nextPeeking = isPointerInTriggerPeekZone(
+      { x: event.clientX, y: event.clientY },
+      this.triggerPosition.corner,
+    );
+    this.updateTriggerPeekState(nextPeeking);
   };
 
   private readonly handleViewportChange = (): void => {
@@ -2865,7 +3034,7 @@ class ObviousFeedbackWidget {
             ${this.visualSuggestions ? `<button class="obv-icon-button obv-footer-tool-btn" type="button" data-visual-suggest-start="true" data-tooltip="Suggest visual change" aria-label="Suggest visual change">${createIcon("dial")}<span class="obv-visual-suggest-flag-dot" aria-hidden="true"></span></button>` : ""}
             <input class="obv-attachment-input" data-attachment-input="true" type="file" multiple tabindex="-1" aria-hidden="true" style="display:none" />
           </div>
-          <button class="obv-button" type="button" data-submit-round="true" ${isSubmitDisabled ? 'disabled aria-disabled="true"' : ""}>${submitLabel}</button>
+          <button class="obv-button" type="button" data-submit-round="true" ${isSubmitDisabled ? 'disabled aria-disabled="true"' : ""} aria-keyshortcuts="${this.isMacPlatform() ? "Meta+Enter" : "Control+Enter"}">${submitLabel}</button>
         </div>
       </div>
     `;
@@ -2895,6 +3064,52 @@ class ObviousFeedbackWidget {
       button.removeAttribute("disabled");
       button.removeAttribute("aria-disabled");
     }
+  }
+
+  private updateDraftIndicators(): void {
+    this.updateRoundSubmitButtonState();
+    this.updateTriggerDraftIndicator();
+    this.emitOpenIssueCountChange();
+  }
+
+  private updateTriggerDraftIndicator(): void {
+    const trigger = queryHtmlElement(this.shadowRoot, ".obv-trigger");
+    if (!trigger) {
+      return;
+    }
+    const draftCount = this.getDraftItemCount();
+    trigger.setAttribute(
+      "data-issue-status",
+      draftCount > 0 ? "draft" : "idle",
+    );
+    trigger.setAttribute("aria-label", this.getTriggerStatusLabel());
+
+    const existingRing = trigger.querySelector(".obv-trigger-ring");
+    const existingBadge = trigger.querySelector(".obv-trigger-badge");
+    if (draftCount === 0) {
+      existingRing?.remove();
+      existingBadge?.remove();
+      return;
+    }
+
+    if (!existingRing) {
+      const ring = document.createElement("span");
+      ring.className = "obv-trigger-ring";
+      ring.setAttribute("data-status", "draft");
+      ring.setAttribute("aria-hidden", "true");
+      trigger.appendChild(ring);
+    }
+
+    if (existingBadge instanceof HTMLElement) {
+      existingBadge.textContent = String(draftCount);
+      return;
+    }
+
+    const badge = document.createElement("span");
+    badge.className = "obv-trigger-badge";
+    badge.setAttribute("aria-hidden", "true");
+    badge.textContent = String(draftCount);
+    trigger.appendChild(badge);
   }
 
   private bindUnifiedPanel(): void {
@@ -3015,6 +3230,37 @@ class ObviousFeedbackWidget {
         this.focusedItemId = itemId === "__new" ? "__new" : itemId;
       });
 
+      input.addEventListener("blur", (event) => {
+        if (itemId === "__new") {
+          return;
+        }
+        if (typeof input.value === "string" && input.value.trim() !== "") {
+          return;
+        }
+        const next =
+          event instanceof FocusEvent ? event.relatedTarget : null;
+        if (!(next instanceof HTMLElement)) {
+          return;
+        }
+        if (!next.closest(".obv-unified-panel")) {
+          return;
+        }
+        const stillExists = this.roundItems.some(
+          (candidate) => candidate.id === itemId,
+        );
+        if (!stillExists) {
+          return;
+        }
+        this.roundItems = this.roundItems.filter(
+          (candidate) => candidate.id !== itemId,
+        );
+        const nextItemId = next.getAttribute("data-item-input");
+        this.focusedItemId = nextItemId ?? null;
+        this.persistDraftRound();
+        this.emitOpenIssueCountChange();
+        this.openCard();
+      });
+
       input.addEventListener("input", () => {
         if (itemId === "__new") {
           this.newRowDraft = input.value;
@@ -3027,11 +3273,28 @@ class ObviousFeedbackWidget {
         if (item) {
           item.description = input.value;
         }
-        this.updateRoundSubmitButtonState();
+        this.updateDraftIndicators();
       });
 
       input.addEventListener("keydown", (event) => {
         if (!isKeyboardEvent(event)) {
+          return;
+        }
+
+        if (
+          event.key === "Enter" &&
+          (event.metaKey || event.ctrlKey) &&
+          !event.shiftKey &&
+          !event.altKey
+        ) {
+          event.preventDefault();
+          const submitButton = queryHtmlElement(
+            this.shadowRoot,
+            '[data-submit-round="true"]',
+          );
+          if (submitButton instanceof HTMLButtonElement && !submitButton.disabled) {
+            submitButton.click();
+          }
           return;
         }
 
@@ -4051,9 +4314,15 @@ class ObviousFeedbackWidget {
       return `<div class="obv-list-row" data-item-id="${escapeHtml(item.id)}"><span class="obv-row-number">${num}</span><input class="obv-row-input" type="text" value="${escapeHtml(item.description)}" data-item-input="${escapeHtml(item.id)}" /></div>${pillsRow}`;
     });
 
-    const newNum = this.roundItems.length + 1;
-    const newRow = `<div class="obv-list-row" data-item-id="__new"><span class="obv-row-number">${newNum}</span><input class="obv-row-input" type="text" value="${escapeHtml(this.newRowDraft)}" placeholder="What's wrong? (Enter for new line)" data-item-input="__new" /></div>`;
     const composePills = this.renderComposePills();
+    const shouldRenderNewRow =
+      this.roundItems.length === 0 ||
+      this.focusedItemId === "__new" ||
+      this.newRowDraft.trim().length > 0 ||
+      composePills.length > 0;
+    const newRow = shouldRenderNewRow
+      ? `<div class="obv-list-row" data-item-id="__new"><span class="obv-row-number">${this.roundItems.length + 1}</span><input class="obv-row-input" type="text" value="${escapeHtml(this.newRowDraft)}" placeholder="What's wrong? (Enter for new line)" data-item-input="__new" /></div>`
+      : "";
 
     return `${rows.join("")}${newRow}${composePills}`;
   }

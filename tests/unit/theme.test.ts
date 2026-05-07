@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test'
+import {
+  DEFAULT_ENV,
+  DRAFT_ROUND_STORAGE_PREFIX,
+  TRIGGER_POSITION_STORAGE_KEY,
+} from '../../src/constants'
 import { installDom, restoreGlobals } from './test-dom'
 
 afterEach(restoreGlobals)
@@ -93,6 +98,58 @@ describe('theme', () => {
     // Widget should initialize — if it uses document.documentElement?.clientWidth safely, no error thrown
     const trigger = host.shadowRoot?.querySelector('.obv-trigger')
     expect(trigger).not.toBeNull()
+  })
+
+  it('loads stored trigger positions without hidden state as visible', async () => {
+    const { body, storage } = installDom()
+    storage.set(
+      TRIGGER_POSITION_STORAGE_KEY,
+      JSON.stringify({ corner: 'top-left', offsetX: 24, offsetY: 32 })
+    )
+    const { ObviousFeedback } = await import(`../../src/index?stored-visible-trigger=${Date.now()}`)
+    ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
+    const host = body.children[1]
+    const trigger = host.shadowRoot?.querySelector('.obv-trigger')
+    expect(trigger?.getAttribute('data-trigger-hidden')).toBeNull()
+    expect(trigger?.getAttribute('data-trigger-corner')).toBe('top-left')
+  })
+
+  it('renders stored hidden trigger positions as a corner peek', async () => {
+    const { body, storage } = installDom()
+    storage.set(
+      TRIGGER_POSITION_STORAGE_KEY,
+      JSON.stringify({ corner: 'bottom-right', offsetX: 8, offsetY: 8, hidden: true })
+    )
+    const { ObviousFeedback } = await import(`../../src/index?stored-hidden-trigger=${Date.now()}`)
+    ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
+    const host = body.children[1]
+    const trigger = host.shadowRoot?.querySelector('.obv-trigger')
+    expect(trigger?.getAttribute('data-trigger-hidden')).toBe('true')
+    expect(trigger?.getAttribute('style')).toContain('left: 788px; top: 588px')
+  })
+
+  it('keeps the draft badge rendered when the trigger is hidden', async () => {
+    const { body, storage } = installDom()
+    storage.set(
+      TRIGGER_POSITION_STORAGE_KEY,
+      JSON.stringify({ corner: 'bottom-right', offsetX: 8, offsetY: 8, hidden: true })
+    )
+    const draftKey = [
+      DRAFT_ROUND_STORAGE_PREFIX,
+      'fsk_pub_test',
+      DEFAULT_ENV,
+      'https://example.com',
+    ]
+      .map((part) => encodeURIComponent(part))
+      .join(':')
+    storage.set(draftKey, JSON.stringify([{ id: 'draft_1', description: 'Need to fix this' }]))
+    const { ObviousFeedback } = await import(`../../src/index?hidden-trigger-badge=${Date.now()}`)
+    ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
+    const host = body.children[1]
+    const trigger = host.shadowRoot?.querySelector('.obv-trigger')
+    expect(trigger?.getAttribute('data-trigger-hidden')).toBe('true')
+    expect(host.shadowRoot?.innerHTML).toContain('class="obv-trigger-badge"')
+    expect(host.shadowRoot?.innerHTML).toContain('>1</span>')
   })
 
 })
