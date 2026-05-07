@@ -1123,10 +1123,21 @@ function createStyles(): string {
     .obv-row-pill-vs .obv-row-pill-label { color: var(--obv-feedback-text); }
     .obv-annotation-summary { margin-top: 6px; color: var(--obv-feedback-muted); font-size: 12px; }
     .obv-unified-panel { display: flex; flex-direction: column; gap: 0; }
-    .obv-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .obv-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; }
     .obv-card-header .obv-kicker { margin-bottom: 0; }
+    .obv-icon-button.obv-card-close { position: relative; width: 26px; height: 26px; }
+    .obv-card-close .obv-icon { width: 12px; height: 12px; }
+    .obv-icon-button.obv-card-close:hover:not(:disabled) { transform: none; }
+    .obv-card-close::after {
+      content: attr(data-tooltip); pointer-events: none;
+      position: absolute; top: calc(100% + 6px); right: 0;
+      padding: 4px 8px; border-radius: 6px;
+      background: var(--obv-feedback-primary); color: var(--obv-feedback-primary-foreground);
+      font-size: 11px; font-weight: 500; white-space: nowrap;
+      opacity: 0; transition: opacity 100ms ease;
+    }
+    .obv-card-close:hover::after { opacity: 1; }
     .obv-shortcut-hint { color: var(--obv-feedback-muted); font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.7; margin-left: 6px; }
-    .obv-card-close { width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 999px; }
     .obv-list-body { padding: 2px 0; min-height: 40px; }
     .obv-list-row { display: flex; align-items: baseline; gap: 0; padding: 3px 0; }
     .obv-row-number {
@@ -1197,7 +1208,9 @@ function createStyles(): string {
     .obv-success-sub a:hover { text-decoration: underline; }
     .obv-success-action {
       margin-top: 12px;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
     }
+    .obv-success-action .obv-shortcut-hint { margin-left: 0; }
     .obv-footer-tool-btn { position: relative; }
     .obv-footer-tool-btn::after {
       content: attr(data-tooltip); pointer-events: none;
@@ -1218,15 +1231,15 @@ function createStyles(): string {
     .obv-markup-tool[aria-pressed="true"] { background: var(--obv-feedback-primary); color: var(--obv-feedback-primary-foreground); border-color: var(--obv-feedback-primary); }
     .obv-actions { display: flex; justify-content: space-between; gap: 8px; }
     .obv-button, .obv-icon-button {
-      border: 1px solid transparent; border-radius: var(--obv-feedback-radius); min-height: 34px; box-sizing: border-box;
+      border: 1px solid transparent; border-radius: var(--obv-feedback-radius); box-sizing: border-box;
       display: inline-flex; align-items: center; justify-content: center; gap: 7px;
       cursor: pointer; background: var(--obv-feedback-primary); color: var(--obv-feedback-primary-foreground);
       font-size: var(--obv-feedback-button-font-size); font-weight: var(--obv-feedback-button-font-weight); line-height: var(--obv-feedback-button-line-height); letter-spacing: normal;
       box-shadow: var(--obv-feedback-shadow-sm);
       transition: opacity 140ms ease, transform 140ms ease, box-shadow 140ms ease, background 140ms ease, color 140ms ease, border-color 140ms ease;
     }
-    .obv-button { padding: 8px 12px; }
-    .obv-icon-button { padding: 0; border-color: var(--obv-feedback-border); background: transparent; color: var(--obv-feedback-muted); }
+    .obv-button { padding: 8px 12px; min-height: 34px; }
+    .obv-icon-button { padding: 0; width: 34px; height: 34px; aspect-ratio: 1; flex-shrink: 0; border-color: var(--obv-feedback-border); background: transparent; color: var(--obv-feedback-muted); }
     .obv-button:hover:not(:disabled), .obv-icon-button:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--obv-feedback-border-strong); }
     .obv-button-secondary { background: var(--obv-feedback-bg); color: var(--obv-feedback-text); border-color: var(--obv-feedback-border); }
     .obv-button-secondary:hover:not(:disabled), .obv-icon-button:hover:not(:disabled) { background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-text); }
@@ -2807,17 +2820,20 @@ class ObviousFeedbackWidget {
       const linkHtml = safeUrl
         ? `<div class="obv-success-sub">You can track progress <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer">here</a>.</div>`
         : "";
+      const closeShortcut = this.getShortcutLabel();
       return `
         <div class="obv-unified-panel">
           <div class="obv-card-scroll">
             <div class="obv-card-header">
               <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
+              <button class="obv-icon-button obv-card-close" type="button" data-close-panel="true" data-tooltip="Close · ${escapeHtml(closeShortcut)}" aria-label="Close feedback (${escapeHtml(closeShortcut)})">${createIcon("close")}</button>
             </div>
             <div class="obv-success">
               <div class="obv-success-message">${createIcon("check")} Sent to Autobuild</div>
               ${linkHtml}
               <div class="obv-success-action">
                 <button class="obv-button obv-button-secondary" type="button" data-new-feedback="true">${createIcon("plus")}New feedback</button>
+                <span class="obv-shortcut-hint">${escapeHtml(closeShortcut)} to close</span>
               </div>
             </div>
           </div>
@@ -2825,11 +2841,13 @@ class ObviousFeedbackWidget {
       `;
     }
 
+    const closeShortcut = this.getShortcutLabel();
     return `
       <div class="obv-unified-panel">
         <div class="obv-card-scroll">
           <div class="obv-card-header">
             <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
+            <button class="obv-icon-button obv-card-close" type="button" data-close-panel="true" data-tooltip="Close · ${escapeHtml(closeShortcut)}" aria-label="Close feedback (${escapeHtml(closeShortcut)})">${createIcon("close")}</button>
           </div>
           ${this.config.previewOnly ? `<div class="obv-preview-note">${escapeHtml(this.config.previewOnlyReason)}</div>` : ""}
           ${this.feedbackFormError ? `<div class="obv-form-error" role="alert">${escapeHtml(this.feedbackFormError)}</div>` : ""}
@@ -2886,6 +2904,12 @@ class ObviousFeedbackWidget {
         if (targetElement(event)?.closest(".obv-kicker")) {
           this.showSillyFeedbackMessage();
         }
+      });
+
+    this.shadowRoot
+      .querySelector('[data-close-panel="true"]')
+      ?.addEventListener("click", () => {
+        this.renderTrigger();
       });
 
     this.shadowRoot
