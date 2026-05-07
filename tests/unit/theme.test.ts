@@ -114,7 +114,7 @@ describe('theme', () => {
     expect(trigger?.getAttribute('data-trigger-corner')).toBe('top-left')
   })
 
-  it('renders stored hidden trigger positions as a corner peek', async () => {
+  it('converts legacy hidden trigger positions to an edge dock', async () => {
     const { body, storage } = installDom()
     storage.set(
       TRIGGER_POSITION_STORAGE_KEY,
@@ -125,14 +125,30 @@ describe('theme', () => {
     const host = body.children[1]
     const trigger = host.shadowRoot?.querySelector('.obv-trigger')
     expect(trigger?.getAttribute('data-trigger-hidden')).toBe('true')
-    expect(trigger?.getAttribute('style')).toContain('left: 788px; top: 588px')
+    expect(trigger?.getAttribute('data-trigger-dock-side')).toBe('right')
+    expect(trigger?.getAttribute('style')).toContain('left: 788px; top: 8px')
   })
 
-  it('keeps the draft badge rendered when the trigger is hidden', async () => {
+  it('renders stored docked trigger positions as an edge peek', async () => {
     const { body, storage } = installDom()
     storage.set(
       TRIGGER_POSITION_STORAGE_KEY,
-      JSON.stringify({ corner: 'bottom-right', offsetX: 8, offsetY: 8, hidden: true })
+      JSON.stringify({ corner: 'top-left', offsetX: 8, offsetY: 8, hidden: true, dockSide: 'bottom', dockOffset: 120 })
+    )
+    const { ObviousFeedback } = await import(`../../src/index?stored-edge-docked-trigger=${Date.now()}`)
+    ObviousFeedback.init({ publicKey: 'fsk_pub_test' })
+    const host = body.children[1]
+    const trigger = host.shadowRoot?.querySelector('.obv-trigger')
+    expect(trigger?.getAttribute('data-trigger-hidden')).toBe('true')
+    expect(trigger?.getAttribute('data-trigger-dock-side')).toBe('bottom')
+    expect(trigger?.getAttribute('style')).toContain('left: 120px; top: 588px')
+  })
+
+  it('keeps the draft ring rendered without a badge when the trigger is hidden', async () => {
+    const { body, storage } = installDom()
+    storage.set(
+      TRIGGER_POSITION_STORAGE_KEY,
+      JSON.stringify({ corner: 'top-left', offsetX: 8, offsetY: 8, hidden: true, dockSide: 'left', dockOffset: 90 })
     )
     const draftKey = [
       DRAFT_ROUND_STORAGE_PREFIX,
@@ -148,8 +164,9 @@ describe('theme', () => {
     const host = body.children[1]
     const trigger = host.shadowRoot?.querySelector('.obv-trigger')
     expect(trigger?.getAttribute('data-trigger-hidden')).toBe('true')
-    expect(host.shadowRoot?.innerHTML).toContain('class="obv-trigger-badge"')
-    expect(host.shadowRoot?.innerHTML).toContain('>1</span>')
+    expect(trigger?.getAttribute('data-trigger-dock-side')).toBe('left')
+    expect(host.shadowRoot?.innerHTML).toContain('class="obv-trigger-ring"')
+    expect(host.shadowRoot?.innerHTML).not.toContain('class="obv-trigger-badge"')
   })
 
 })
