@@ -59,22 +59,23 @@ const widget = ObviousFeedback.init({
 
 Pass options to `ObviousFeedback.init()` or use `data-*` attributes on the script tag.
 
-| Option                     | `data-*` attribute    | Type                    | Default                      | Description                                                |
-| -------------------------- | --------------------- | ----------------------- | ---------------------------- | ---------------------------------------------------------- | --------------------------------------------------------- | -------------------- | -------------------------------- |
-| `publicKey`                | `data-pub-key`        | `string`                | —                            | **Required.** Your workspace feedback key.                 |
-| `apiBaseUrl`               | `data-api-base-url`   | `string`                | `https://api.app.obvious.ai` | Base URL for the Obvious API.                              |
-| `identityToken`            | `data-identity-token` | `string`                | —                            | Signed JWT for verified identity (see below).              |
-| `env`                      | `data-env`            | `string`                | `production`                 | Environment label attached to submissions.                 |
-| `prNumber`                 | `data-pr-number`      | `number`                | —                            | PR number for preview environment routing.                 |
-| `theme`                    | `data-theme`          | `'light'                | 'dark'                       | 'system'`                                                  | `light`                                                   | Widget color scheme. |
-| `triggerLabel`             | `data-trigger-label`  | `string`                | `Open feedback`              | Tooltip text on the trigger button.                        |
-| `assistantPosition`        | —                     | `'bottom-right'         | 'bottom-left'                | 'top-right'                                                | 'top-left'`                                               | `bottom-right`       | Corner for the floating trigger. |
-| `redactSelectors`          | —                     | `string[]`              | `[]`                         | CSS selectors for elements to redact from DOM snapshots.   |
-| `captureConsole`           | —                     | `boolean`               | `false`                      | Include recent console logs with submissions.              |
-| `captureNetwork`           | —                     | `boolean`               | `false`                      | Include recent network requests with submissions.          |
-| `sessionReplayUrlResolver` | —                     | `() => string           | null`                        | —                                                          | Returns a session replay URL (e.g. FullStory, LogRocket). |
-| `visualSuggestions`        | —                     | `{ enabled?: boolean }` | `{ enabled: false }`         | Let reporters preview narrow visual changes before submit. |
-| `previewOnly`              | —                     | `boolean`               | `false`                      | Show the widget in read-only mode without submitting.      |
+| Option | `data-*` attribute | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `publicKey` | `data-pub-key` | `string` | Required | Your workspace feedback key. |
+| `apiBaseUrl` | `data-api-base-url` | `string` | `https://api.app.obvious.ai` | Base URL for the Obvious API. |
+| `identityToken` | `data-identity-token` | `string` | n/a | Signed JWT for verified identity (see below). |
+| `env` | `data-env` | `string` | `production` | Environment label attached to submissions. |
+| `prNumber` | `data-pr-number` | `number` | n/a | PR number for preview environment routing. |
+| `theme` | `data-theme` | `'light' \| 'dark' \| 'system'` | `light` | Widget color scheme. |
+| `triggerLabel` | `data-trigger-label` | `string` | `Open feedback` | Tooltip text on the trigger button. |
+| `assistantPosition` | n/a | `'bottom-right' \| 'bottom-left' \| 'top-right' \| 'top-left'` | `bottom-right` | Corner for the floating trigger. |
+| `redactSelectors` | n/a | `string[]` | `[]` | CSS selectors for elements to redact from DOM snapshots. |
+| `capturePageContext` | n/a | `boolean` | `false` | Include a redacted DOM snapshot with submissions. |
+| `captureConsole` | n/a | `boolean` | `false` | Include recent console logs with submissions. |
+| `captureNetwork` | n/a | `boolean` | `false` | Include recent network requests with submissions. |
+| `sessionReplayUrlResolver` | n/a | `() => string \| null \| Promise<string \| null>` | n/a | Returns a session replay URL (e.g. FullStory, LogRocket). |
+| `visualSuggestions` | n/a | `{ enabled?: boolean }` | `{ enabled: false }` | Let reporters preview narrow visual changes before submit. |
+| `previewOnly` | n/a | `boolean` | `false` | Show the widget in read-only mode without submitting. |
 
 ## Setup
 
@@ -213,7 +214,7 @@ If the widget trigger blends into the page background:
 
 ### Content Security Policy (CSP)
 
-The widget injects inline styles via Shadow DOM. If your CSP blocks inline styles, add `'unsafe-inline'` to `style-src`, or use a nonce-based policy.
+In browsers that support constructable stylesheets, the widget applies its Shadow DOM CSS with `adoptedStyleSheets`, which avoids an inline `<style>` tag. Older browsers fall back to injecting a Shadow DOM `<style>` tag. If your CSP blocks inline styles in those fallback browsers, add `'unsafe-inline'` to `style-src` for pages that load the widget.
 
 ### Submissions rejected with 403
 

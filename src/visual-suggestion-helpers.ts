@@ -2,7 +2,7 @@ import type {
   ElementGrabItem,
   FeedbackVisualSuggestionElementRef,
   FeedbackVisualSuggestionProperty,
-} from "./index";
+} from "./public-types";
 
 export const VISUAL_SUGGESTION_PROPERTIES: FeedbackVisualSuggestionProperty[] =
   ["font-size", "border-radius", "padding", "gap", "color", "background-color"];
@@ -52,6 +52,13 @@ export interface ParsedCssValue {
   unit: "px" | "rem" | "em" | "%" | "";
 }
 
+function parseCssUnit(value: string): ParsedCssValue["unit"] | null {
+  if (value === "" || value === "px" || value === "rem" || value === "em" || value === "%") {
+    return value;
+  }
+  return null;
+}
+
 export function parseCssNumericValue(raw: string): ParsedCssValue | null {
   if (!raw) return null;
   const first = raw.trim().split(/\s+/)[0] ?? "";
@@ -59,8 +66,9 @@ export function parseCssNumericValue(raw: string): ParsedCssValue | null {
   if (!match) return null;
   const value = Number.parseFloat(match[1]);
   if (!Number.isFinite(value)) return null;
-  const unit = (match[2] ?? "").toLowerCase() as ParsedCssValue["unit"];
-  return { value, unit: unit === "" ? "" : unit };
+  const unit = parseCssUnit((match[2] ?? "").toLowerCase());
+  if (unit === null) return null;
+  return { value, unit };
 }
 
 export function formatCssNumericValue(
@@ -102,7 +110,7 @@ export function isVisualSuggestionProperty(
 ): value is FeedbackVisualSuggestionProperty {
   return (
     typeof value === "string" &&
-    (VISUAL_SUGGESTION_PROPERTIES as string[]).includes(value)
+    VISUAL_SUGGESTION_PROPERTIES.some((property) => property === value)
   );
 }
 
