@@ -84,10 +84,12 @@ import {
 } from "./element-grab";
 import {
   computeRulerDistances,
+  createElementEdgeCache,
   createMeasurementId,
   createRulerId,
   findSnapPosition,
   renderRulerSvg,
+  type ElementEdgeCache,
   type RulerLine,
   type SnapResult,
 } from "./measurements";
@@ -103,12 +105,16 @@ import {
   pluralizeVisualSuggestionTargetLabel,
   normalizeVisualSuggestionTarget,
   supportsVisualSuggestionSiblingScope,
+  type VisualSuggestionTargetKind,
 } from "../visual-suggestion-dom";
 import {
   createRoundItemId,
   getDraftRoundStorageKey,
   parseStoredDraftRound,
   persistDraftRound,
+  type FeedbackMeasurement,
+  type FeedbackMeasurementDistance,
+  type FeedbackMeasurementRuler,
   type FeedbackRoundItem,
 } from "./draft-rounds";
 import {
@@ -157,7 +163,6 @@ import {
 import type {
   ElementGrabHoverInfo,
   ElementGrabItem,
-  ElementGrabRect,
   ElementSourceInfo,
   ElementSourceResolver,
   ElementSourceStackFrame,
@@ -194,43 +199,12 @@ interface FeedbackAttachmentUpload {
   error?: string;
 }
 
-interface FeedbackMeasurementRuler {
-  orientation: "horizontal" | "vertical";
-  position: number;
-  edge: "top" | "bottom" | "left" | "right" | null;
-  snappedElement: {
-    cssSelector: string;
-    tagName: string;
-    componentName: string | null;
-    sourceFile: string | null;
-    lineNumber: number | null;
-    boundingRect: ElementGrabRect;
-  } | null;
-}
-
-interface FeedbackMeasurementDistance {
-  pixelDistance: number;
-  orientation: "horizontal" | "vertical";
-  rulerA: FeedbackMeasurementRuler;
-  rulerB: FeedbackMeasurementRuler;
-}
-
-interface FeedbackMeasurement {
-  id: string;
-  description: string;
-  rulers: FeedbackMeasurementRuler[];
-  distances: FeedbackMeasurementDistance[];
-  viewport: { width: number; height: number };
-}
-
 interface VisualSuggestionScopeOption {
   kind: FeedbackVisualSuggestionScopeKind;
   label: string;
   targets: VisualSuggestionTargetInput[];
   scope: FeedbackVisualSuggestionScope;
 }
-
-type VisualSuggestionTargetKind = "text" | "control" | "field" | "container";
 
 interface VisualSuggestionTargetOption {
   id: string;
@@ -457,6 +431,7 @@ export class ObviousFeedbackWidget {
   private measurementItems: FeedbackMeasurement[] = [];
   private newRowDraft = "";
   private rulerLines: RulerLine[] = [];
+  private readonly elementEdgeCache: ElementEdgeCache = createElementEdgeCache();
   private selectedRulerId: string | null = null;
   private rulerPreview: {
     orientation: "horizontal" | "vertical";
@@ -3296,6 +3271,7 @@ export class ObviousFeedbackWidget {
             ruler.orientation,
             event.clientX,
             event.clientY,
+            this.elementEdgeCache,
           );
           ruler.position = snap ? snap.position : Math.round(rawPos);
           ruler.snappedTo = snap ? snap.selector : null;
@@ -3319,6 +3295,7 @@ export class ObviousFeedbackWidget {
         orientation,
         event.clientX,
         event.clientY,
+        this.elementEdgeCache,
       );
       this.rulerPreview = {
         orientation,
@@ -3351,6 +3328,7 @@ export class ObviousFeedbackWidget {
         orientation,
         event.clientX,
         event.clientY,
+        this.elementEdgeCache,
       );
       const position = snap ? snap.position : Math.round(rawPos);
       const newRuler: RulerLine = {

@@ -1,9 +1,15 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import {
   createFeedbackStatusRequest,
   createFeedbackRoundSubmitUrl,
   createAttachmentUploadUrl,
 } from "../../src/widget/transport";
+import {
+  getDraftRoundStorageKey,
+  parseStoredDraftRound,
+  persistDraftRound,
+  type FeedbackMeasurement,
+} from "../../src/widget/draft-rounds";
 import {
   getSafeExternalUrl,
   normalizeWorkerThreadLink,
@@ -12,6 +18,9 @@ import {
   computeRulerDistances,
   type RulerLine,
 } from "../../src/widget/measurements";
+import { installDom, restoreGlobals } from "./test-dom";
+
+afterEach(restoreGlobals);
 
 describe("widget transport helpers", () => {
   it("builds route-prefixed submit, upload, and status URLs", () => {
@@ -93,6 +102,48 @@ describe("measurement helpers", () => {
     expect(computeRulerDistances(rulers)).toMatchObject([
       { rulerAId: "h1", rulerBId: "h2", distance: 24 },
       { rulerAId: "v1", rulerBId: "v2", distance: 12 },
+    ]);
+  });
+});
+
+describe("draft round helpers", () => {
+  it("restores persisted measurements", () => {
+    installDom();
+    const key = getDraftRoundStorageKey("fsk_pub_test", "local");
+    const measurement: FeedbackMeasurement = {
+      id: "fbm_1",
+      description: "24px gap",
+      viewport: { width: 1200, height: 800 },
+      rulers: [
+        {
+          orientation: "horizontal",
+          position: 10,
+          edge: null,
+          snappedElement: null,
+        },
+        {
+          orientation: "horizontal",
+          position: 34,
+          edge: null,
+          snappedElement: null,
+        },
+      ],
+      distances: [],
+    };
+
+    persistDraftRound(key, [
+      {
+        id: "ri_1",
+        description: "Measure this gap",
+        measurements: [measurement],
+      },
+    ]);
+
+    expect(parseStoredDraftRound(key)).toMatchObject([
+      {
+        id: "ri_1",
+        measurements: [{ id: "fbm_1", description: "24px gap" }],
+      },
     ]);
   });
 });

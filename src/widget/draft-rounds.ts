@@ -92,6 +92,9 @@ export function parseStoredDraftRound(storageKey: string | null): FeedbackRoundI
         elementGrabs: Array.isArray(item.elementGrabs)
           ? item.elementGrabs
           : undefined,
+        measurements: Array.isArray(item.measurements)
+          ? item.measurements
+          : undefined,
         visualSuggestions: Array.isArray(item.visualSuggestions)
           ? item.visualSuggestions
           : undefined,

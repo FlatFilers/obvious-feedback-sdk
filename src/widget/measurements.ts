@@ -35,18 +35,30 @@ export interface SnapResult {
   rect: DOMRect;
 }
 
-let cachedEdges: { horizontal: ElementEdge[]; vertical: ElementEdge[] } | null =
-  null;
-let cachedEdgesFrame = -1;
-
-export function collectElementEdges(): {
+export interface ElementEdgeCollection {
   horizontal: ElementEdge[];
   vertical: ElementEdge[];
-} {
-  const frame =
-    typeof requestAnimationFrame !== "undefined" ? performance.now() : 0;
-  if (cachedEdges && Math.abs(frame - cachedEdgesFrame) < 16) {
-    return cachedEdges;
+}
+
+export interface ElementEdgeCache {
+  edges: ElementEdgeCollection | null;
+  collectedAt: number;
+}
+
+export function createElementEdgeCache(): ElementEdgeCache {
+  return { edges: null, collectedAt: -Infinity };
+}
+
+export function collectElementEdges(
+  cache?: ElementEdgeCache,
+): ElementEdgeCollection {
+  const collectedAt =
+    typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
+  if (cache?.edges && Math.abs(collectedAt - cache.collectedAt) < 16) {
+    return cache.edges;
   }
   const horizontal: ElementEdge[] = [];
   const vertical: ElementEdge[] = [];
@@ -94,9 +106,12 @@ export function collectElementEdges(): {
       rect,
     });
   }
-  cachedEdges = { horizontal, vertical };
-  cachedEdgesFrame = frame;
-  return cachedEdges;
+  const edges = { horizontal, vertical };
+  if (cache) {
+    cache.edges = edges;
+    cache.collectedAt = collectedAt;
+  }
+  return edges;
 }
 
 export function findSnapPosition(
@@ -104,8 +119,9 @@ export function findSnapPosition(
   orientation: "horizontal" | "vertical",
   cursorX: number,
   cursorY: number,
+  cache?: ElementEdgeCache,
 ): SnapResult | null {
-  const edges = collectElementEdges();
+  const edges = collectElementEdges(cache);
   const edgeList =
     orientation === "horizontal" ? edges.horizontal : edges.vertical;
   let bestDist = RULER_SNAP_THRESHOLD_PX + 1;
