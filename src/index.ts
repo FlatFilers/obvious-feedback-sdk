@@ -1033,8 +1033,13 @@ function createIcon(
   return `<svg class="obv-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name]}</svg>`;
 }
 
+let cachedStyles: string | null = null;
+
 function createStyles(): string {
-  return `
+  if (cachedStyles !== null) {
+    return cachedStyles;
+  }
+  cachedStyles = `
     :host {
       all: initial;
       color-scheme: light;
@@ -1481,6 +1486,7 @@ function createStyles(): string {
     :host([data-theme="dark"]) .obv-vs-scrub[data-has-override="true"] { color: #93c5fd; }
     :host([data-theme="dark"]) .obv-visual-suggest-flag-dot { background: #60a5fa; }
   `;
+  return cachedStyles;
 }
 
 function historyStatusLabel(status: FeedbackIssueHistoryStatus): string {
@@ -2582,6 +2588,7 @@ class ObviousFeedbackWidget {
   private markupKeydownListenerInstalled = false;
   private suppressNextMarkupCanvasClick = false;
   private destroyed = false;
+  private persistDraftScheduled = false;
   private systemThemeCleanup: (() => void) | null = null;
   private useAdoptedStyleSheet = false;
 
@@ -2638,6 +2645,7 @@ class ObviousFeedbackWidget {
     window.addEventListener("keydown", this.handleShortcut);
     window.addEventListener("pointermove", this.handleTriggerPeekPointerMove);
     window.addEventListener("resize", this.handleViewportChange);
+    window.addEventListener("beforeunload", this.handleBeforeUnload);
     window.addEventListener("orientationchange", this.handleViewportChange);
     window.visualViewport?.addEventListener(
       "resize",
@@ -2959,6 +2967,7 @@ class ObviousFeedbackWidget {
     if (this.destroyed) {
       return;
     }
+    this.flushPersistDraftRound();
     this.destroyed = true;
     this.issueId = null;
     this.visualSuggestions?.restoreAll();
@@ -2968,6 +2977,7 @@ class ObviousFeedbackWidget {
     window.removeEventListener("pointermove", this.handleTriggerPeekPointerMove);
     window.removeEventListener("resize", this.handleViewportChange);
     window.removeEventListener("orientationchange", this.handleViewportChange);
+    window.removeEventListener("beforeunload", this.handleBeforeUnload);
     this.uninstallMarkupKeydownListener();
     window.removeEventListener("click", this.handleMarkupCanvasClick, true);
     window.visualViewport?.removeEventListener(
@@ -2982,6 +2992,10 @@ class ObviousFeedbackWidget {
     this.systemThemeCleanup = null;
     this.host.remove();
   }
+
+  private readonly handleBeforeUnload = (): void => {
+    this.flushPersistDraftRound();
+  };
 
   private applyTheme(theme: FeedbackSdkTheme): void {
     this.systemThemeCleanup?.();
@@ -4032,12 +4046,41 @@ class ObviousFeedbackWidget {
     this.feedbackFormError = null;
     this.submittedIssueUrl = getStringField(data, "issueUrl") ?? null;
     this.persistDraftRound();
+    this.flushPersistDraftRound();
     this.emitOpenIssueCountChange();
     this.openCard();
     this.scheduleStatusPoll(this.issueId);
   }
 
+  /**
+   * Coalesce rapid persist requests into a single localStorage write at the
+   * end of the current task. Most user actions can tolerate this latency, and
+   * the savings are real on burst paths (typing, dragging, scrolling).
+   * Call {@link flushPersistDraftRound} from teardown / submit-success / before
+   * the page unloads to guarantee the latest state is written synchronously.
+   */
   private persistDraftRound(): void {
+    if (this.persistDraftScheduled || this.destroyed) {
+      return;
+    }
+    this.persistDraftScheduled = true;
+    queueMicrotask(() => {
+      if (!this.persistDraftScheduled) {
+        return;
+      }
+      this.persistDraftScheduled = false;
+      if (this.destroyed) {
+        return;
+      }
+      persistDraftRound(this.draftRoundStorageKey, this.roundItems);
+    });
+  }
+
+  private flushPersistDraftRound(): void {
+    if (!this.persistDraftScheduled) {
+      return;
+    }
+    this.persistDraftScheduled = false;
     persistDraftRound(this.draftRoundStorageKey, this.roundItems);
   }
 
@@ -6445,6 +6488,7 @@ class ObviousFeedbackWidget {
     this.feedbackFormError = null;
     this.submittedIssueUrl = getStringField(data, "issueUrl") ?? null;
     this.persistDraftRound();
+    this.flushPersistDraftRound();
     this.emitOpenIssueCountChange();
     this.openCard();
     this.scheduleStatusPoll(this.issueId);
@@ -6690,6 +6734,7 @@ class ObviousFeedbackWidget {
     this.roundItems = [];
     this.focusedItemId = null;
     this.persistDraftRound();
+    this.flushPersistDraftRound();
 
     this.clearSubmissionDraftState();
     this.visualSuggestions?.restoreAll();
