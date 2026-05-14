@@ -57,6 +57,19 @@ export interface FeedbackSdkConfig {
    * preview is restored before submit.
    */
   visualSuggestions?: FeedbackVisualSuggestionsConfig;
+  /**
+   * Inline pin annotations (agentation-style). Disabled by default for backwards
+   * compatibility. When enabled, clicking the trigger from an empty draft round
+   * activates a sticky annotation mode where clicking any element on the host
+   * page opens an inline comment popup anchored to that element. Submitting the
+   * popup creates a numbered pin marker on the page; pins remain visible until
+   * the round is submitted.
+   */
+  inlineAnnotations?: FeedbackInlineAnnotationsConfig;
+}
+
+export interface FeedbackInlineAnnotationsConfig {
+  enabled?: boolean;
 }
 
 export interface FeedbackVisualSuggestionsConfig {
@@ -213,4 +226,36 @@ export interface FeedbackVisualSuggestion {
 export interface FeedbackVisualSuggestionsPayload {
   version: 1;
   suggestions: FeedbackVisualSuggestion[];
+}
+
+/**
+ * On-page draft annotation pin. Anchors a feedback round item to a point on
+ * the host page so the SDK can render a numbered marker next to the element
+ * the user is commenting on.
+ *
+ * Pins are client-side UI state only — the linked element data is already
+ * captured in `FeedbackRoundItem.elementGrabs`, so pin coordinates are NOT
+ * sent to the backend. They live in the persisted draft round to survive
+ * page reloads while the user is collecting feedback.
+ */
+export interface FeedbackPin {
+  /** Horizontal anchor as a percentage of viewport width (0-100). */
+  xPct: number;
+  /**
+   * Vertical anchor in pixels. Doc-space (relative to top of `<body>`) when
+   * `isFixed` is false; viewport-space (relative to top of viewport) when
+   * `isFixed` is true.
+   */
+  yPx: number;
+  /**
+   * True when the linked element is rendered via `position: fixed` (or any
+   * fixed-ancestor). The marker is rendered in a fixed-position layer so it
+   * stays glued to the viewport, mirroring the element it points at.
+   */
+  isFixed: boolean;
+  /**
+   * Links this pin to one of the `elementGrabs` on the same round item,
+   * used for live re-anchoring via the grab's `cssSelector`.
+   */
+  elementGrabId: string;
 }

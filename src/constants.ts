@@ -69,6 +69,15 @@ export const DEFAULT_FEEDBACK_ISSUE_TYPE: FeedbackIssueType = "improvement";
 export const DEFAULT_FEEDBACK_ISSUE_SEVERITY: FeedbackIssueSeverity = "medium";
 export const MAX_VISUAL_SUGGESTION_SCOPE_TARGETS = 12;
 export const MAX_VISUAL_SUGGESTION_SCOPE_DEPTH = 5;
+
+export const PIN_SIZE_PX = 24;
+export const PIN_LAYER_Z_INDEX = 2147483646;
+export const INLINE_POPUP_WIDTH_PX = 296;
+export const INLINE_POPUP_ESTIMATED_HEIGHT_PX = 168;
+export const INLINE_POPUP_VIEWPORT_MARGIN_PX = 12;
+export const INLINE_POPUP_ELEMENT_GAP_PX = 10;
+export const PIN_REANCHOR_THRESHOLD_PX = 2;
+export const PIN_TICKER_INTERVAL_MS = 120;
 export const SILLY_FEEDBACK_MESSAGES = [
   "Feature request",
   "Report a bug",
