@@ -66,12 +66,16 @@ Visible reproduction details for testing.</textarea
     <script>
       try {
         var sdk = ObviousFeedback.ObviousFeedback || ObviousFeedback;
+        var params = new URLSearchParams(window.location.search);
         var widget = sdk.init({
           publicKey: "fsk_pub_test",
           apiBaseUrl: "http://localhost:4444",
           theme: "light",
           redactSelectors: ["[data-sensitive]"],
           visualSuggestions: { enabled: true },
+          inlineAnnotations: {
+            enabled: params.get("inlineAnnotations") === "true",
+          },
         });
         document.getElementById("status").textContent =
           "SDK initialized successfully.";

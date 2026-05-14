@@ -146,4 +146,49 @@ describe("draft round helpers", () => {
       },
     ]);
   });
+
+  it("restores persisted pin and drops malformed pin payloads", () => {
+    installDom();
+    const key = getDraftRoundStorageKey("fsk_pub_test", "local");
+
+    persistDraftRound(key, [
+      {
+        id: "ri_pin_ok",
+        description: "Pinned annotation",
+        pin: {
+          xPct: 42.5,
+          yPx: 1234,
+          isFixed: false,
+          elementGrabId: "eg_1",
+        },
+      },
+      {
+        id: "ri_pin_bad",
+        description: "Bad pin payload",
+        pin: {
+          xPct: 50,
+          yPx: 100,
+          isFixed: false,
+          elementGrabId: "",
+        },
+      },
+    ]);
+
+    const restored = parseStoredDraftRound(key);
+    expect(restored).toMatchObject([
+      {
+        id: "ri_pin_ok",
+        pin: {
+          xPct: 42.5,
+          yPx: 1234,
+          isFixed: false,
+          elementGrabId: "eg_1",
+        },
+      },
+      {
+        id: "ri_pin_bad",
+      },
+    ]);
+    expect(restored[1]?.pin).toBeUndefined();
+  });
 });
