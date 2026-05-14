@@ -230,7 +230,6 @@ export function createStyles(): string {
     }
     .obv-element-grab-chip-name .obv-icon { flex-shrink: 0; }
     .obv-element-grab-remove { width: 22px; height: 22px; min-height: 22px; padding: 0; }
-    .obv-visual-suggest-flag-dot { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 999px; background: #3b82f6; }
     .obv-vs-palette { --obv-vs-accent: #3b82f6; --obv-vs-slider-track: color-mix(in srgb, var(--obv-feedback-border-strong) 58%, transparent); margin-top: 10px; padding: 10px 10px 6px; border-radius: 10px; background: var(--obv-feedback-bg-subtle); border: 1px solid color-mix(in srgb, var(--obv-feedback-border) 78%, #3b82f6 22%); display: flex; flex-direction: column; gap: 2px; }
     .obv-vs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--obv-feedback-border); }
     .obv-vs-target { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--obv-feedback-text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -446,7 +445,6 @@ export function createStyles(): string {
     :host([data-theme="dark"]) .obv-vs-palette { --obv-vs-accent: #60a5fa; --obv-vs-slider-track: rgba(255, 255, 255, 0.26); background: #242424; border-color: rgba(255, 255, 255, 0.16); }
     :host([data-theme="dark"]) .obv-vs-row:hover { background: rgba(255, 255, 255, 0.05); }
     :host([data-theme="dark"]) .obv-vs-scrub[data-has-override="true"] { color: #93c5fd; }
-    :host([data-theme="dark"]) .obv-visual-suggest-flag-dot { background: #60a5fa; }
   `;
 }
 

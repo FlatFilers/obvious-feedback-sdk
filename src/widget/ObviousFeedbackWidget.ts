@@ -1182,7 +1182,7 @@ export class ObviousFeedbackWidget {
             <button class="obv-icon-button obv-footer-tool-btn" type="button" data-element-select-start="true" data-tooltip="Select element" aria-label="Select element">${createIcon("element")}</button>
             <button class="obv-icon-button obv-footer-tool-btn" type="button" data-attach-trigger="true" data-tooltip="Attach file" aria-label="Attach file">${createIcon("paperclip")}</button>
             <button class="obv-icon-button obv-footer-tool-btn" type="button" data-measure-start="true" data-tooltip="Measure spacing" aria-label="Measure spacing">${createIcon("ruler")}</button>
-            ${this.visualSuggestions ? `<button class="obv-icon-button obv-footer-tool-btn" type="button" data-visual-suggest-start="true" data-tooltip="Suggest visual change" aria-label="Suggest visual change">${createIcon("dial")}<span class="obv-visual-suggest-flag-dot" aria-hidden="true"></span></button>` : ""}
+            ${this.visualSuggestions ? `<button class="obv-icon-button obv-footer-tool-btn" type="button" data-visual-suggest-start="true" data-tooltip="Suggest visual change" aria-label="Suggest visual change">${createIcon("dial")}</button>` : ""}
             <input class="obv-attachment-input" data-attachment-input="true" type="file" multiple tabindex="-1" aria-hidden="true" style="display:none" />
           </div>
           <button class="obv-button" type="button" data-submit-round="true" ${isSubmitDisabled ? 'disabled aria-disabled="true"' : ""} aria-keyshortcuts="${this.isMacPlatform() ? "Meta+Enter" : "Control+Enter"}">${submitLabel}</button>
