@@ -146,14 +146,6 @@ export class MiniShadowRoot {
   }
 
   querySelectorAll(selector: string): MiniElement[] {
-    if (selector === '[data-markup-tool]') {
-      return ['rectangle', 'point', 'pen'].map((tool) => {
-        const key = `[data-markup-tool="${tool}"]`
-        const node = this.querySelector(key)!
-        node.setAttribute('data-markup-tool', tool)
-        return node
-      })
-    }
     if (selector === '[data-attachment-remove]') {
       const ids = Array.from(this.html.matchAll(/data-attachment-remove="([^"]+)"/g)).map((match) => match[1])
       return ids.map((id) => {

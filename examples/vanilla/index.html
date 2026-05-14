@@ -180,7 +180,7 @@
         <h1>Feedback SDK local QA harness</h1>
         <p class="hint">
           This sample host app validates script/npm init config, signed and invalid identity flows,
-          domain whitelist rejection, DOM snapshot redaction, annotation payload submission, status
+          domain whitelist rejection, DOM snapshot redaction, manual payload submission, status
           polling, and PR/control-project fallback behavior. Press <kbd>Cmd/Ctrl</kbd> +
           <kbd>Shift</kbd> + <kbd>.</kbd> or use the floating SDK trigger after initializing.
         </p>
@@ -228,7 +228,7 @@
         </article>
 
         <article class="panel">
-          <h2>Host app state + annotation fixture</h2>
+          <h2>Host app state + redaction fixture</h2>
           <label>
             Sensitive customer token (must be redacted)
             <input data-sensitive="true" value="sk_live_should_not_leave_browser" />
@@ -377,11 +377,6 @@
             severity: severityField.value,
             title: titleField.value,
             description: descriptionField.value,
-            annotationPayload: {
-              mode: 'manual-harness',
-              screenshotRequested: true,
-              marker: { x: 0.42, y: 0.24, label: 'Export button failure' },
-            },
             context: {
               url: window.location.href,
               viewport: { width: window.innerWidth, height: window.innerHeight },
