@@ -25,7 +25,7 @@ export function createStyles(): string {
       --obv-feedback-radius-card: 18px;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    .obv-trigger, .obv-card button, .obv-card textarea, .obv-markup-toolbar button { font-family: inherit; }
+    .obv-trigger, .obv-card button, .obv-card textarea { font-family: inherit; }
     .obv-trigger {
       position: fixed; right: 20px; bottom: 96px; z-index: 2147483647;
       touch-action: none; user-select: none;
@@ -165,17 +165,6 @@ export function createStyles(): string {
     .obv-attachment-meta { display: block; margin-top: 3px; color: var(--obv-feedback-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .obv-attachment-chip[data-status="error"] .obv-attachment-meta { color: #b91c1c; }
     .obv-attachment-remove { width: 28px; height: 28px; }
-    .obv-markup-summary {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      margin: 10px 0 0; padding: 9px 10px; border: 1px solid var(--obv-feedback-border); border-radius: 12px;
-      background: var(--obv-feedback-bg-subtle); color: var(--obv-feedback-muted); font-size: 12px; line-height: 1.35;
-    }
-    .obv-markup-overlay {
-      position: fixed; inset: 0; z-index: 2147483646; cursor: crosshair; touch-action: none;
-      background: rgba(0, 0, 0, 0.08);
-    }
-    .obv-markup-overlay:focus { outline: 3px solid var(--obv-feedback-focus); outline-offset: -6px; }
-    .obv-markup-svg { width: 100%; height: 100%; display: block; }
     .obv-element-picker-overlay {
       position: fixed; inset: 0; z-index: 2147483646; cursor: pointer; touch-action: none;
       background: rgba(0, 0, 0, 0.08);
@@ -298,7 +287,6 @@ export function createStyles(): string {
     .obv-vs-row[data-has-override="true"] .obv-vs-revert { visibility: visible; }
     .obv-row-pill-vs { background: color-mix(in srgb, var(--obv-feedback-bg-subtle) 72%, #3b82f6 28%); color: var(--obv-feedback-text); }
     .obv-row-pill-vs .obv-row-pill-label { color: var(--obv-feedback-text); }
-    .obv-annotation-summary { margin-top: 6px; color: var(--obv-feedback-muted); font-size: 12px; }
     .obv-unified-panel { display: flex; flex-direction: column; gap: 0; position: relative; }
     .obv-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; }
     .obv-card-header .obv-kicker { margin-bottom: 0; }
@@ -400,12 +388,6 @@ export function createStyles(): string {
     .obv-footer-tool-btn:first-of-type::after { left: 0; transform: none; }
     .obv-footer-tool-btn:last-of-type::after { left: auto; right: 0; transform: none; }
     .obv-footer-tool-btn:hover::after { opacity: 1; }
-    .obv-markup-toolbar {
-      position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483647;
-      display: flex; align-items: center; gap: 6px; padding: 7px; border: 1px solid var(--obv-feedback-border); border-radius: 999px;
-      background: var(--obv-feedback-bg); box-shadow: var(--obv-feedback-shadow); color: var(--obv-feedback-text);
-    }
-    .obv-markup-tool[aria-pressed="true"] { background: var(--obv-feedback-primary); color: var(--obv-feedback-primary-foreground); border-color: var(--obv-feedback-primary); }
     .obv-actions { display: flex; justify-content: space-between; gap: 8px; }
     .obv-button, .obv-icon-button {
       border: 1px solid transparent; border-radius: var(--obv-feedback-radius); box-sizing: border-box;

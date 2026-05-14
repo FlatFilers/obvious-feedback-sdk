@@ -10,10 +10,7 @@ import {
   VISUAL_SUGGESTION_PROPERTIES,
   VISUAL_SUGGESTION_PROPERTY_LABELS,
 } from "../visual-suggestion-helpers";
-import {
-  serializeDomSnapshot,
-  type DomSnapshotNode,
-} from "../browser/dom-snapshot";
+import { serializeDomSnapshot } from "../browser/dom-snapshot";
 import {
   createConsoleBuffer,
   createNetworkBuffer,
@@ -51,15 +48,12 @@ import {
   FEEDBACK_STATUS_CARD_ESTIMATED_HEIGHT_PX,
   HISTORY_REFRESH_STALE_MS,
   ISSUE_HISTORY_STORAGE_PREFIX,
-  MARKUP_POINTER_MOVE_THRESHOLD_PX,
   MAX_DRAFT_ROUND_STORAGE_BYTES,
   MAX_ELEMENT_GRABS,
   MAX_FEEDBACK_ATTACHMENTS,
   MAX_FEEDBACK_ATTACHMENT_SIZE_BYTES,
   MAX_HISTORY_REFRESH_PER_OPEN,
   MAX_ISSUE_HISTORY_ENTRIES,
-  MAX_MARKUP_ITEMS,
-  MAX_MARKUP_POINTS_PER_ITEM,
   MAX_ROUND_ITEMS,
   MAX_TEXT_LENGTH,
   MAX_VISUAL_SUGGESTION_SCOPE_DEPTH,
@@ -97,15 +91,7 @@ import {
   type RulerLine,
   type SnapResult,
 } from "./measurements";
-import {
-  MARKUP_TOOLS,
-  createMarkupId,
-  distanceBetweenPoints,
-  getDevicePixelRatio,
-  getMarkupPoint,
-  normalizeMarkupItem,
-  resolveMarkupTool,
-} from "./markup";
+import { getPointerPoint, type FeedbackPointerPoint } from "./pointer";
 import {
   findSimilarSiblingScope,
   getVisualSuggestionElementLabel,
@@ -194,42 +180,6 @@ import type {
 const SESSION_REPLAY_URL_RESOLVER_TIMEOUT_MS = 250;
 
 type FeedbackPanel = "unified";
-
-type FeedbackMarkupTool = "rectangle" | "point" | "pen";
-
-interface FeedbackMarkupPoint {
-  x: number;
-  y: number;
-}
-
-interface FeedbackMarkupItem {
-  id: string;
-  tool: FeedbackMarkupTool;
-  points: FeedbackMarkupPoint[];
-}
-
-interface FeedbackMarkupPayload {
-  items: FeedbackMarkupItem[];
-  viewport: { width: number; height: number };
-  scroll: { x: number; y: number };
-  devicePixelRatio: number;
-  domSnapshot?: DomSnapshotNode;
-  capturedAt: string;
-}
-
-type FeedbackMarkupContext = Omit<FeedbackMarkupPayload, "items">;
-
-interface FeedbackMarkupDraft {
-  id: string;
-  tool: FeedbackMarkupTool;
-  start: FeedbackMarkupPoint;
-  points: FeedbackMarkupPoint[];
-}
-
-interface FeedbackMarkupSessionSnapshot {
-  items: FeedbackMarkupItem[];
-  context: FeedbackMarkupContext | null;
-}
 
 type FeedbackAttachmentUploadStatus = "uploading" | "ready" | "error";
 
@@ -488,23 +438,16 @@ export class ObviousFeedbackWidget {
   private triggerDragState: FeedbackTriggerDragState | null = null;
   private hiddenTriggerPeeking = false;
   private suppressNextTriggerClick = false;
-  private markupTool: FeedbackMarkupTool = "rectangle";
-  private markupItems: FeedbackMarkupItem[] = [];
   private elementGrabItems: ElementGrabItem[] = [];
   private activePanel: FeedbackPanel | null = null;
   private historyRefreshInFlight = false;
   private openIssueCountListeners = new Set<(count: number) => void>();
   private lastEmittedOpenIssueCount = -1;
-  private markupDraft: FeedbackMarkupDraft | null = null;
-  private markupContext: FeedbackMarkupContext | null = null;
   private elementGrabHoverTarget: Element | null = null;
   private elementGrabHoverInfo: ElementGrabHoverInfo | null = null;
   private elementGrabResolveTimer: number | null = null;
   private activeSillyFeedbackMessage: string | null = null;
 
-  private markupSessionSnapshot: FeedbackMarkupSessionSnapshot | null = null;
-  private markupRenderFrame: number | null = null;
-  private markupOverlayOpen = false;
   private elementPickerOpen = false;
   private elementPickerOnPick: ((target: HTMLElement) => void) | null = null;
   private readonly visualSuggestions: VisualSuggestionManager | null;
@@ -529,8 +472,6 @@ export class ObviousFeedbackWidget {
   private cardResizeObserver: ResizeObserver | null = null;
   private placementFrame: number | null = null;
   private globalFileDropGuardsInstalled = false;
-  private markupKeydownListenerInstalled = false;
-  private suppressNextMarkupCanvasClick = false;
   private destroyed = false;
   private systemThemeCleanup: (() => void) | null = null;
   private useAdoptedStyleSheet = false;
@@ -918,14 +859,11 @@ export class ObviousFeedbackWidget {
     window.removeEventListener("pointermove", this.handleTriggerPeekPointerMove);
     window.removeEventListener("resize", this.handleViewportChange);
     window.removeEventListener("orientationchange", this.handleViewportChange);
-    this.uninstallMarkupKeydownListener();
-    window.removeEventListener("click", this.handleMarkupCanvasClick, true);
     window.visualViewport?.removeEventListener(
       "resize",
       this.handleViewportChange,
     );
     this.clearStatusTimer();
-    this.cancelMarkupSvgRender();
     this.uninstallGlobalFileDropGuards();
     this.disconnectCardPlacementObserver();
     this.systemThemeCleanup?.();
@@ -1023,7 +961,6 @@ export class ObviousFeedbackWidget {
     this.focusedItemId = null;
     this.selectedIssueId = null;
 
-    this.markupOverlayOpen = false;
     this.shadowRoot.innerHTML = `${this.renderStyleTag()}${this.renderTriggerButton()}`;
     this.bindTrigger(() => this.openCard());
   }
@@ -1107,7 +1044,6 @@ export class ObviousFeedbackWidget {
         : null;
     }
     this.activePanel = "unified";
-    this.markupOverlayOpen = false;
     this.elementPickerOpen = false;
     const feedbackCardPlacement = this.getFeedbackCardPlacement("form");
     const panelContent = this.renderUnifiedPanel();
@@ -1178,7 +1114,6 @@ export class ObviousFeedbackWidget {
         </div>
         <div class="obv-list-footer">
           <div class="obv-footer-tools">
-            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-screenshot-start="true" data-tooltip="Screenshot" aria-label="Annotate screenshot">${createIcon("pen")}</button>
             <button class="obv-icon-button obv-footer-tool-btn" type="button" data-element-select-start="true" data-tooltip="Select element" aria-label="Select element">${createIcon("element")}</button>
             <button class="obv-icon-button obv-footer-tool-btn" type="button" data-attach-trigger="true" data-tooltip="Attach file" aria-label="Attach file">${createIcon("paperclip")}</button>
             <button class="obv-icon-button obv-footer-tool-btn" type="button" data-measure-start="true" data-tooltip="Measure spacing" aria-label="Measure spacing">${createIcon("ruler")}</button>
@@ -1303,7 +1238,6 @@ export class ObviousFeedbackWidget {
             {
               id: createRoundItemId(),
               description: newText,
-              markupPayload: this.createAnnotationPayload(),
               elementGrabs:
                 this.elementGrabItems.length > 0
                   ? [...this.elementGrabItems]
@@ -1458,7 +1392,6 @@ export class ObviousFeedbackWidget {
             const newItem: FeedbackRoundItem = {
               id: createRoundItemId(),
               description: text,
-              markupPayload: this.createAnnotationPayload(),
               elementGrabs:
                 this.elementGrabItems.length > 0
                   ? [...this.elementGrabItems]
@@ -1569,25 +1502,6 @@ export class ObviousFeedbackWidget {
   }
 
   private bindFooterTools(): void {
-    const screenshotStartButton = this.shadowRoot.querySelector(
-      '[data-screenshot-start="true"]',
-    );
-    const preservePageStateForScreenshotStart = (event: Event): void => {
-      event.stopPropagation?.();
-    };
-    screenshotStartButton?.addEventListener(
-      "pointerdown",
-      preservePageStateForScreenshotStart,
-    );
-    screenshotStartButton?.addEventListener(
-      "mousedown",
-      preservePageStateForScreenshotStart,
-    );
-    screenshotStartButton?.addEventListener("click", (event) => {
-      preservePageStateForScreenshotStart(event);
-      this.syncAllInputsToRoundItems();
-      this.beginMarkupEditSession();
-    });
     this.shadowRoot
       .querySelector('[data-element-select-start="true"]')
       ?.addEventListener("click", () => {
@@ -1648,13 +1562,6 @@ export class ObviousFeedbackWidget {
           }
         });
       });
-    this.shadowRoot
-      .querySelector('[data-remove-markup="true"]')
-      ?.addEventListener("click", () => {
-        this.syncAllInputsToRoundItems();
-        this.clearMarkupState();
-        this.openCard();
-      });
     this.shadowRoot.querySelectorAll("[data-remove-grab]").forEach((button) => {
       button.addEventListener("click", () => {
         const id = button.getAttribute("data-remove-grab");
@@ -1709,24 +1616,6 @@ export class ObviousFeedbackWidget {
           );
           if (id && this.visualSuggestions) {
             this.visualSuggestions.removeElement(id);
-            this.openCard();
-          }
-        });
-      });
-    this.shadowRoot
-      .querySelectorAll("[data-item-remove-markup]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          const itemId = button.getAttribute(
-            "data-item-remove-markup",
-          );
-          if (itemId) {
-            this.syncAllInputsToRoundItems();
-            const item = this.roundItems.find((r) => r.id === itemId);
-            if (item) {
-              item.markupPayload = undefined;
-            }
-            this.persistDraftRound();
             this.openCard();
           }
         });
@@ -1888,16 +1777,6 @@ export class ObviousFeedbackWidget {
         description: singleItem.description,
         attachmentTokens: singleItem.attachmentTokens,
       };
-      this.markupItems = singleItem.markupPayload?.items ?? this.markupItems;
-      this.markupContext = singleItem.markupPayload
-        ? {
-            viewport: singleItem.markupPayload.viewport,
-            scroll: singleItem.markupPayload.scroll,
-            devicePixelRatio: singleItem.markupPayload.devicePixelRatio,
-            domSnapshot: singleItem.markupPayload.domSnapshot,
-            capturedAt: singleItem.markupPayload.capturedAt,
-          }
-        : this.markupContext;
       this.elementGrabItems = singleItem.elementGrabs ?? this.elementGrabItems;
       this.measurementItems = singleItem.measurements ?? this.measurementItems;
       this.submitFeedback(input).catch((err: unknown) => {
@@ -1924,7 +1803,6 @@ export class ObviousFeedbackWidget {
     });
     const roundPayloadItems = items.map((item) => ({
       description: item.description,
-      annotationPayload: item.markupPayload ?? undefined,
       elementGrabs: item.elementGrabs ?? undefined,
       measurements: item.measurements ?? undefined,
       attachmentTokens: item.attachmentTokens ?? undefined,
@@ -2019,13 +1897,6 @@ export class ObviousFeedbackWidget {
       })
       .join("");
     return `<div class="obv-element-grab-list">${chips}</div>`;
-  }
-
-  private renderAnnotationSummary(): string {
-    if (this.markupItems.length === 0) {
-      return "";
-    }
-    return `<div class="obv-annotation-summary">${this.markupItems.length} annotation${this.markupItems.length === 1 ? "" : "s"} attached</div>`;
   }
 
   private renderAttachmentsDropzone(): string {
@@ -2357,11 +2228,6 @@ export class ObviousFeedbackWidget {
 
   private renderItemPills(item: FeedbackRoundItem): string {
     const pills: string[] = [];
-    if (item.markupPayload && item.markupPayload.items.length > 0) {
-      pills.push(
-        `<span class="obv-row-pill">${createIcon("pen")}<span class="obv-row-pill-label">${item.markupPayload.items.length} annotation${item.markupPayload.items.length === 1 ? "" : "s"}</span><button class="obv-row-pill-x" type="button" data-item-remove-markup="${escapeHtml(item.id)}" aria-label="Remove annotations">${createIcon("close")}</button></span>`,
-      );
-    }
     if (item.elementGrabs) {
       for (const grab of item.elementGrabs) {
         pills.push(
@@ -2406,11 +2272,6 @@ export class ObviousFeedbackWidget {
 
   private renderComposePills(): string {
     const pills: string[] = [];
-    if (this.markupItems.length > 0) {
-      pills.push(
-        `<span class="obv-row-pill">${createIcon("pen")}<span class="obv-row-pill-label">${this.markupItems.length} annotation${this.markupItems.length === 1 ? "" : "s"}</span><button class="obv-row-pill-x" type="button" data-remove-markup="true" aria-label="Remove annotations">${createIcon("close")}</button></span>`,
-      );
-    }
     for (const grab of this.elementGrabItems) {
       pills.push(
         `<span class="obv-row-pill">${createIcon("element")}<span class="obv-row-pill-label">${escapeHtml(getElementGrabDisplayName(grab))}</span><button class="obv-row-pill-x" type="button" data-remove-grab="${escapeHtml(grab.id)}" aria-label="Remove ${escapeHtml(getElementGrabDisplayName(grab))}">${createIcon("close")}</button></span>`,
@@ -2509,7 +2370,7 @@ export class ObviousFeedbackWidget {
     index: number,
   ): string {
     const title = entry.title?.trim() || `Issue ${entry.issueId.slice(0, 8)}`;
-    const titleMarkup = `<button class="obv-issue-title obv-button obv-button-secondary" type="button" data-history-detail-index="${index}" aria-label="Open status details for ${escapeHtml(title)}">${escapeHtml(title)}</button>`;
+    const titleButton = `<button class="obv-issue-title obv-button obv-button-secondary" type="button" data-history-detail-index="${index}" aria-label="Open status details for ${escapeHtml(title)}">${escapeHtml(title)}</button>`;
     const icon =
       entry.status === "resolved" ? createIcon("check") : createIcon("status");
     const meta = [
@@ -2524,7 +2385,7 @@ export class ObviousFeedbackWidget {
     return `
       <div class="obv-issue-row" data-terminal="${isTerminal ? "true" : "false"}">
         <span class="obv-issue-status-icon" aria-hidden="true">${icon}</span>
-        ${titleMarkup}
+        ${titleButton}
         <span class="obv-issue-meta">${escapeHtml(meta)}</span>
         <button class="obv-icon-button obv-issue-dismiss" type="button" aria-label="Dismiss ${escapeHtml(title)}" data-history-dismiss-index="${index}">${createIcon("close")}</button>
       </div>
@@ -2590,8 +2451,7 @@ export class ObviousFeedbackWidget {
         if (
           !this.destroyed &&
           this.selectedIssueId === issueId &&
-          this.isCardOpen() &&
-          !this.markupOverlayOpen
+          this.isCardOpen()
         ) {
           const activeElement = document.activeElement;
           const detailElementBeforeRefresh = this.shadowRoot.querySelector(
@@ -2644,256 +2504,7 @@ export class ObviousFeedbackWidget {
       });
   }
 
-  private captureMarkupContext(): FeedbackMarkupContext {
-    return {
-      viewport: { width: window.innerWidth, height: window.innerHeight },
-      scroll: { x: window.scrollX, y: window.scrollY },
-      devicePixelRatio: getDevicePixelRatio(),
-      domSnapshot: this.config.capturePageContext
-        ? serializeDomSnapshot(document.body, this.config.redactSelectors)
-        : undefined,
-      capturedAt: new Date().toISOString(),
-    };
-  }
-
-  private createAnnotationPayload(): FeedbackMarkupPayload | undefined {
-    if (this.markupItems.length === 0 || !this.markupContext) {
-      return undefined;
-    }
-    return {
-      ...this.markupContext,
-      items: this.markupItems,
-    };
-  }
-
-  private renderMarkupOverlay(): void {
-    this.cancelMarkupSvgRender();
-    this.markupOverlayOpen = true;
-    this.shadowRoot.innerHTML = `
-      ${this.renderStyleTag()}
-      ${this.renderMarkupOverlayContent()}
-    `;
-    this.bindMarkupOverlay();
-  }
-
-  private renderMarkupOverlayContent(): string {
-    return `
-      <div class="obv-markup-overlay" role="application" aria-label="Feedback markup canvas. Drag to add a ${escapeHtml(this.markupTool)} callout. Press Escape to cancel this edit." tabindex="0">
-        <svg class="obv-markup-svg" aria-hidden="true">${this.renderMarkupSvg()}</svg>
-      </div>
-      <div class="obv-markup-toolbar" role="toolbar" aria-label="Feedback markup tools">
-        ${MARKUP_TOOLS.map((tool) => this.renderMarkupToolButton(tool)).join("")}
-        <button class="obv-icon-button obv-toolbar-button" type="button" aria-label="Undo last markup" data-markup-undo="true" ${this.markupItems.length === 0 ? 'disabled aria-disabled="true"' : ""}>${createIcon("undo")}</button>
-        <button class="obv-icon-button obv-toolbar-button" type="button" aria-label="Cancel markup" data-markup-cancel="true">${createIcon("close")}</button>
-        <button class="obv-button" type="button" data-markup-done="true">${createIcon("check")}Done</button>
-      </div>
-    `;
-  }
-
-  private renderMarkupSvg(): string {
-    return [
-      ...this.markupItems,
-      ...(this.markupDraft ? [this.markupDraft] : []),
-    ]
-      .map((item) => this.renderMarkupItem(item))
-      .join("");
-  }
-
-  private renderMarkupToolButton(tool: FeedbackMarkupTool): string {
-    const label =
-      tool === "point"
-        ? "Point marker"
-        : tool === "pen"
-          ? "Pen tool"
-          : "Rectangle tool";
-    const iconName =
-      tool === "point" ? "point" : tool === "pen" ? "pen" : "rectangle";
-    return `<button class="obv-icon-button obv-toolbar-button obv-markup-tool" type="button" data-markup-tool="${tool}" aria-label="${label}" aria-pressed="${String(this.markupTool === tool)}">${createIcon(iconName)}</button>`;
-  }
-
-  private renderMarkupItem(
-    item: FeedbackMarkupItem | FeedbackMarkupDraft,
-  ): string {
-    const points = item.points;
-    const tool = item.tool;
-    const first = points[0] ?? ("start" in item ? item.start : { x: 0, y: 0 });
-    const last = points[points.length - 1] ?? first;
-    if (tool === "rectangle") {
-      const x = Math.min(first.x, last.x);
-      const y = Math.min(first.y, last.y);
-      const width = Math.abs(last.x - first.x);
-      const height = Math.abs(last.y - first.y);
-      return `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="rgba(196,181,253,0.16)" stroke="#7c3aed" stroke-width="3" rx="6" />`;
-    }
-    if (tool === "pen") {
-      return `<polyline points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="none" stroke="#7c3aed" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />`;
-    }
-    const angle = Math.atan2(last.y - first.y, last.x - first.x);
-    const arrowLength = 18;
-    const arrowAngle = Math.PI / 6;
-    const leftPoint = {
-      x: Math.round(last.x - arrowLength * Math.cos(angle - arrowAngle)),
-      y: Math.round(last.y - arrowLength * Math.sin(angle - arrowAngle)),
-    };
-    const rightPoint = {
-      x: Math.round(last.x - arrowLength * Math.cos(angle + arrowAngle)),
-      y: Math.round(last.y - arrowLength * Math.sin(angle + arrowAngle)),
-    };
-    return `<line x1="${first.x}" y1="${first.y}" x2="${last.x}" y2="${last.y}" stroke="#7c3aed" stroke-width="3" stroke-linecap="round" /><polyline points="${leftPoint.x},${leftPoint.y} ${last.x},${last.y} ${rightPoint.x},${rightPoint.y}" fill="none" stroke="#7c3aed" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />`;
-  }
-
-  private bindMarkupOverlay(): void {
-    const overlay = queryHtmlElement(
-      this.shadowRoot,
-      ".obv-markup-overlay",
-    );
-    this.installMarkupKeydownListener();
-    overlay?.addEventListener("pointerdown", (event) => {
-      if (isPointerEvent(event)) {
-        this.handleMarkupPointerDown(event);
-      }
-    });
-    overlay?.addEventListener("pointermove", (event) => {
-      if (isPointerEvent(event)) {
-        this.handleMarkupPointerMove(event);
-      }
-    });
-    overlay?.addEventListener("pointerup", (event) => {
-      if (isPointerEvent(event)) {
-        this.handleMarkupPointerUp(event);
-      }
-    });
-    overlay?.addEventListener("pointercancel", (event) => {
-      event.stopPropagation?.();
-      this.suppressNextMarkupCanvasClick = false;
-      this.markupDraft = null;
-      this.renderMarkupOverlay();
-    });
-    overlay?.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation?.();
-    });
-    this.shadowRoot.querySelectorAll("[data-markup-tool]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const markupTool = resolveMarkupTool(
-          button.getAttribute("data-markup-tool"),
-        );
-        if (markupTool) {
-          this.markupTool = markupTool;
-        }
-        this.renderMarkupOverlay();
-      });
-    });
-    this.shadowRoot
-      .querySelector('[data-markup-undo="true"]')
-      ?.addEventListener("click", () => {
-        this.markupItems = this.markupItems.slice(0, -1);
-        if (this.markupItems.length === 0) {
-          this.markupContext = null;
-        }
-        this.renderMarkupOverlay();
-      });
-    this.shadowRoot
-      .querySelector('[data-markup-cancel="true"]')
-      ?.addEventListener("click", () => {
-        this.cancelMarkupEditSession();
-        this.uninstallMarkupKeydownListener();
-        this.openCard();
-      });
-    this.shadowRoot
-      .querySelector('[data-markup-done="true"]')
-      ?.addEventListener("click", () => {
-        this.markupDraft = null;
-        this.markupSessionSnapshot = null;
-        this.uninstallMarkupKeydownListener();
-        this.openCard();
-      });
-  }
-
-  private readonly handleMarkupKeydown = (event: KeyboardEvent): void => {
-    if (event.key !== "Escape" || !this.markupOverlayOpen) {
-      return;
-    }
-    event.preventDefault();
-    this.cancelMarkupEditSession();
-    this.uninstallMarkupKeydownListener();
-    this.openCard();
-  };
-
-  private readonly handleMarkupCanvasClick = (event: MouseEvent): void => {
-    if (!this.markupOverlayOpen || !this.suppressNextMarkupCanvasClick) {
-      return;
-    }
-    this.suppressNextMarkupCanvasClick = false;
-    const overlay = this.shadowRoot.querySelector(".obv-markup-overlay");
-    const path: readonly unknown[] =
-      typeof event.composedPath === "function" ? event.composedPath() : [];
-    const targetsMarkupCanvas = overlay
-      ? path.includes(overlay) || event.target === overlay
-      : false;
-    if (!targetsMarkupCanvas) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
-  private installMarkupKeydownListener(): void {
-    if (this.markupKeydownListenerInstalled) {
-      return;
-    }
-    window.addEventListener("keydown", this.handleMarkupKeydown);
-    window.addEventListener("click", this.handleMarkupCanvasClick, true);
-    this.markupKeydownListenerInstalled = true;
-  }
-
-  private uninstallMarkupKeydownListener(): void {
-    if (!this.markupKeydownListenerInstalled) {
-      return;
-    }
-    window.removeEventListener("keydown", this.handleMarkupKeydown);
-    window.removeEventListener("click", this.handleMarkupCanvasClick, true);
-    this.suppressNextMarkupCanvasClick = false;
-    this.markupKeydownListenerInstalled = false;
-  }
-
-  private beginMarkupEditSession(): void {
-    const sessionContext = this.markupContext ?? this.captureMarkupContext();
-    this.markupContext = sessionContext;
-    this.markupSessionSnapshot = {
-      items: this.markupItems.map((item) => ({
-        ...item,
-        points: [...item.points],
-      })),
-      context: sessionContext,
-    };
-    this.renderMarkupOverlay();
-  }
-
-  private cancelMarkupEditSession(): void {
-    this.markupDraft = null;
-    if (this.markupSessionSnapshot) {
-      this.markupItems = this.markupSessionSnapshot.items.map((item) => ({
-        ...item,
-        points: [...item.points],
-      }));
-      this.markupContext = this.markupSessionSnapshot.context;
-    } else {
-      this.markupItems = [];
-      this.markupContext = null;
-    }
-    this.markupSessionSnapshot = null;
-  }
-
-  private clearMarkupState(): void {
-    this.markupDraft = null;
-    this.markupItems = [];
-    this.markupContext = null;
-    this.markupSessionSnapshot = null;
-  }
-
   private clearSubmissionDraftState(): void {
-    this.clearMarkupState();
     this.elementGrabItems = [];
     this.measurementItems = [];
     this.clearElementGrabHoverState();
@@ -2911,7 +2522,7 @@ export class ObviousFeedbackWidget {
   }
 
   private getElementAtPoint(
-    point: FeedbackMarkupPoint,
+    point: FeedbackPointerPoint,
     overlaySelector: string,
   ): Element | null {
     if (typeof document.elementFromPoint !== "function") {
@@ -2985,7 +2596,7 @@ export class ObviousFeedbackWidget {
     }, 150);
   }
 
-  private updateElementGrabHover(point: FeedbackMarkupPoint): void {
+  private updateElementGrabHover(point: FeedbackPointerPoint): void {
     const target = this.getElementAtPoint(point, ".obv-element-picker-overlay");
     if (target === this.elementGrabHoverTarget) {
       this.updateElementPickerHoverOverlay();
@@ -3032,7 +2643,6 @@ export class ObviousFeedbackWidget {
 
   private renderElementPickerOverlay(): void {
     this.elementPickerOpen = true;
-    this.markupOverlayOpen = false;
     this.shadowRoot.innerHTML = `
       ${this.renderStyleTag()}
       <div class="obv-element-picker-overlay" role="application" aria-label="Select an element on the page. Click to attach it, press Escape to cancel." tabindex="0">
@@ -3054,7 +2664,7 @@ export class ObviousFeedbackWidget {
     if (overlay instanceof HTMLElement) {
       overlay.focus();
       overlay.addEventListener("pointermove", (event) => {
-        this.updateElementGrabHover(getMarkupPoint(event));
+        this.updateElementGrabHover(getPointerPoint(event));
         event.preventDefault();
       });
       overlay.addEventListener("pointerup", (event) => {
@@ -3081,7 +2691,7 @@ export class ObviousFeedbackWidget {
   }
 
   private async handleElementPickerClick(event: PointerEvent): Promise<void> {
-    const point = getMarkupPoint(event);
+    const point = getPointerPoint(event);
     this.updateElementGrabHover(point);
     const target =
       this.elementGrabHoverTarget ??
@@ -3608,7 +3218,6 @@ export class ObviousFeedbackWidget {
 
   private renderRulerOverlay(): void {
     this.measureOverlayOpen = true;
-    this.markupOverlayOpen = false;
     this.elementPickerOpen = false;
     this.rulerLines = [];
     this.selectedRulerId = null;
@@ -3980,107 +3589,6 @@ export class ObviousFeedbackWidget {
     label.style.top = `${Math.max(8, Math.round(rect.top - 36))}px`;
   }
 
-  private handleMarkupPointerDown(event: PointerEvent): void {
-    this.suppressNextMarkupCanvasClick = true;
-    event.stopPropagation?.();
-    if (!this.markupContext) {
-      this.markupContext = this.captureMarkupContext();
-    }
-    const point = getMarkupPoint(event);
-    this.markupDraft = {
-      id: createMarkupId(),
-      tool: this.markupTool,
-      start: point,
-      points: [point],
-    };
-    if (event.currentTarget instanceof Element) {
-      event.currentTarget.setPointerCapture?.(event.pointerId);
-    }
-    event.preventDefault();
-  }
-
-  private handleMarkupPointerMove(event: PointerEvent): void {
-    event.stopPropagation?.();
-    if (!this.markupDraft) {
-      return;
-    }
-    this.appendMarkupDraftPoint(getMarkupPoint(event));
-    this.scheduleMarkupSvgRender();
-    event.preventDefault();
-  }
-
-  private handleMarkupPointerUp(event: PointerEvent): void {
-    event.stopPropagation?.();
-    if (!this.markupDraft) {
-      return;
-    }
-    this.appendMarkupDraftPoint(getMarkupPoint(event), { force: true });
-    const item = normalizeMarkupItem(this.markupDraft);
-    if (item && this.markupItems.length < MAX_MARKUP_ITEMS) {
-      this.markupItems = [...this.markupItems, item];
-    }
-    this.markupDraft = null;
-    this.renderMarkupOverlay();
-    event.preventDefault();
-  }
-
-  private appendMarkupDraftPoint(
-    point: FeedbackMarkupPoint,
-    options: { force?: boolean } = {},
-  ): void {
-    if (!this.markupDraft) {
-      return;
-    }
-    if (this.markupDraft.tool !== "pen") {
-      this.markupDraft.points = [this.markupDraft.start, point];
-      return;
-    }
-    if (this.markupDraft.points.length >= MAX_MARKUP_POINTS_PER_ITEM) {
-      return;
-    }
-    const previousPoint =
-      this.markupDraft.points[this.markupDraft.points.length - 1] ??
-      this.markupDraft.start;
-    const distance = distanceBetweenPoints(previousPoint, point);
-    if (
-      distance === 0 ||
-      (!options.force && distance < MARKUP_POINTER_MOVE_THRESHOLD_PX)
-    ) {
-      return;
-    }
-    this.markupDraft.points = [...this.markupDraft.points, point];
-  }
-
-  private scheduleMarkupSvgRender(): void {
-    if (this.markupRenderFrame !== null) {
-      return;
-    }
-    const requestAnimationFrame = window.requestAnimationFrame?.bind(window);
-    if (!requestAnimationFrame) {
-      this.renderMarkupSvgNow();
-      return;
-    }
-    this.markupRenderFrame = requestAnimationFrame(() =>
-      this.renderMarkupSvgNow(),
-    );
-  }
-
-  private renderMarkupSvgNow(): void {
-    this.markupRenderFrame = null;
-    const svg = this.shadowRoot.querySelector(".obv-markup-svg");
-    if (svg) {
-      svg.innerHTML = this.renderMarkupSvg();
-    }
-  }
-
-  private cancelMarkupSvgRender(): void {
-    if (this.markupRenderFrame === null) {
-      return;
-    }
-    window.cancelAnimationFrame?.(this.markupRenderFrame);
-    this.markupRenderFrame = null;
-  }
-
   private addAttachmentFiles(files: File[]): void {
     if (files.length === 0 || this.config.previewOnly) {
       return;
@@ -4242,7 +3750,7 @@ export class ObviousFeedbackWidget {
       changed = true;
       return { ...attachment, ...patch };
     });
-    if (changed && this.isCardOpen() && !this.markupOverlayOpen) {
+    if (changed && this.isCardOpen()) {
       this.syncAllInputsToRoundItems();
       this.openCard();
     }
@@ -4345,7 +3853,6 @@ export class ObviousFeedbackWidget {
             : undefined,
           consoleLogs: this.consoleBuffer.read(),
           networkLog: this.networkBuffer.read(),
-          annotationPayload: this.createAnnotationPayload(),
           elementGrabs:
             this.elementGrabItems.length > 0
               ? this.elementGrabItems
@@ -4506,7 +4013,7 @@ export class ObviousFeedbackWidget {
       for (const entry of refreshCandidates) {
         await this.refreshIssueHistoryEntry(entry.issueId);
       }
-      if (this.isCardOpen() && !this.markupOverlayOpen) {
+      if (this.isCardOpen()) {
         this.syncAllInputsToRoundItems();
         this.openCard();
       }
@@ -4591,7 +4098,6 @@ export class ObviousFeedbackWidget {
     this.statusCardUpdatedAt = updatedAt ?? null;
     this.statusCardReportedAt = reportedAt ?? null;
     this.activePanel = null;
-    this.markupOverlayOpen = false;
     this.installGlobalFileDropGuards();
     const feedbackCardPlacement = this.getFeedbackCardPlacement("status");
     const safeIssueUrl = getSafeExternalUrl(issueUrl);
@@ -4714,12 +4220,6 @@ export class ObviousFeedbackWidget {
 
     const isTerminalStatus =
       status === "resolved" || status === "no_action" || status === "duplicate";
-    if (this.markupOverlayOpen) {
-      if (!isTerminalStatus) {
-        this.scheduleStatusPoll(issueId);
-      }
-      return;
-    }
     if (this.isCardOpen()) {
       this.syncAllInputsToRoundItems();
       this.openCard();

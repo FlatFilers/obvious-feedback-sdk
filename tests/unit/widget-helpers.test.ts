@@ -9,10 +9,6 @@ import {
   normalizeWorkerThreadLink,
 } from "../../src/widget/feedback-normalizers";
 import {
-  normalizeMarkupItem,
-  type FeedbackMarkupDraft,
-} from "../../src/widget/markup";
-import {
   computeRulerDistances,
   type RulerLine,
 } from "../../src/widget/measurements";
@@ -54,30 +50,6 @@ describe("feedback normalizers", () => {
         url: "javascript:alert(1)",
       }),
     ).toBeUndefined();
-  });
-});
-
-describe("markup helpers", () => {
-  it("keeps point clicks and drops tiny rectangle drags", () => {
-    const pointDraft: FeedbackMarkupDraft = {
-      id: "m_1",
-      tool: "point",
-      start: { x: 10, y: 20 },
-      points: [{ x: 11, y: 21 }],
-    };
-    const rectangleDraft: FeedbackMarkupDraft = {
-      id: "m_2",
-      tool: "rectangle",
-      start: { x: 10, y: 20 },
-      points: [{ x: 11, y: 21 }],
-    };
-
-    expect(normalizeMarkupItem(pointDraft)).toEqual({
-      id: "m_1",
-      tool: "point",
-      points: [{ x: 10, y: 20 }],
-    });
-    expect(normalizeMarkupItem(rectangleDraft)).toBeNull();
   });
 });
 

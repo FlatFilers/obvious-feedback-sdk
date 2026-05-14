@@ -3,32 +3,11 @@ import {
   MAX_DRAFT_ROUND_STORAGE_BYTES,
   MAX_ROUND_ITEMS,
 } from "../constants";
-import type { DomSnapshotNode } from "../browser/dom-snapshot";
 import type {
   ElementGrabItem,
   ElementGrabRect,
   FeedbackVisualSuggestion,
 } from "../public-types";
-
-export interface FeedbackMarkupPoint {
-  x: number;
-  y: number;
-}
-
-export interface FeedbackMarkupItem {
-  id: string;
-  tool: "rectangle" | "point" | "pen";
-  points: FeedbackMarkupPoint[];
-}
-
-export interface FeedbackMarkupPayload {
-  items: FeedbackMarkupItem[];
-  viewport: { width: number; height: number };
-  scroll: { x: number; y: number };
-  devicePixelRatio: number;
-  domSnapshot?: DomSnapshotNode;
-  capturedAt: string;
-}
 
 export interface FeedbackMeasurementRuler {
   orientation: "horizontal" | "vertical";
@@ -62,7 +41,6 @@ export interface FeedbackMeasurement {
 export interface FeedbackRoundItem {
   id: string;
   description: string;
-  markupPayload?: FeedbackMarkupPayload;
   elementGrabs?: ElementGrabItem[];
   measurements?: FeedbackMeasurement[];
   visualSuggestions?: FeedbackVisualSuggestion[];
@@ -111,7 +89,6 @@ export function parseStoredDraftRound(storageKey: string | null): FeedbackRoundI
       items.push({
         id: item.id,
         description: item.description,
-        markupPayload: item.markupPayload ?? undefined,
         elementGrabs: Array.isArray(item.elementGrabs)
           ? item.elementGrabs
           : undefined,
@@ -141,15 +118,8 @@ export function persistDraftRound(
       window.localStorage?.removeItem(storageKey);
       return;
     }
-    let serializedItems = items.slice(0, MAX_ROUND_ITEMS);
-    let json = JSON.stringify(serializedItems);
-    if (json.length > MAX_DRAFT_ROUND_STORAGE_BYTES) {
-      serializedItems = serializedItems.map((item) => ({
-        ...item,
-        markupPayload: undefined,
-      }));
-      json = JSON.stringify(serializedItems);
-    }
+    const serializedItems = items.slice(0, MAX_ROUND_ITEMS);
+    const json = JSON.stringify(serializedItems);
     if (json.length <= MAX_DRAFT_ROUND_STORAGE_BYTES) {
       window.localStorage?.setItem(storageKey, json);
     }
