@@ -6,6 +6,7 @@ import {
 import type {
   ElementGrabItem,
   ElementGrabRect,
+  FeedbackPin,
   FeedbackVisualSuggestion,
 } from "../public-types";
 
@@ -45,6 +46,40 @@ export interface FeedbackRoundItem {
   measurements?: FeedbackMeasurement[];
   visualSuggestions?: FeedbackVisualSuggestion[];
   attachmentTokens?: string[];
+  /**
+   * Optional on-page anchor for an inline annotation pin. Client-only UI
+   * state — never sent to the API. Pins survive page reloads via the
+   * persisted draft round and are wiped on submit.
+   */
+  pin?: FeedbackPin;
+}
+
+function parseStoredPin(raw: unknown): FeedbackPin | undefined {
+  if (raw === null || typeof raw !== "object") {
+    return undefined;
+  }
+  const record = raw as Record<string, unknown>;
+  const xPctValue = record.xPct;
+  const yPxValue = record.yPx;
+  const isFixedValue = record.isFixed;
+  const elementGrabIdValue = record.elementGrabId;
+  if (
+    typeof xPctValue !== "number" ||
+    !Number.isFinite(xPctValue) ||
+    typeof yPxValue !== "number" ||
+    !Number.isFinite(yPxValue) ||
+    typeof isFixedValue !== "boolean" ||
+    typeof elementGrabIdValue !== "string" ||
+    elementGrabIdValue.length === 0
+  ) {
+    return undefined;
+  }
+  return {
+    xPct: xPctValue,
+    yPx: yPxValue,
+    isFixed: isFixedValue,
+    elementGrabId: elementGrabIdValue,
+  };
 }
 
 export function createRoundItemId(): string {
@@ -101,6 +136,7 @@ export function parseStoredDraftRound(storageKey: string | null): FeedbackRoundI
         attachmentTokens: Array.isArray(item.attachmentTokens)
           ? item.attachmentTokens
           : undefined,
+        pin: parseStoredPin(item.pin),
       });
     }
     return items.slice(0, MAX_ROUND_ITEMS);

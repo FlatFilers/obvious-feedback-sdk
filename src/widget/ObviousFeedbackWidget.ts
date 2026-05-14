@@ -47,6 +47,8 @@ import {
   FEEDBACK_FORM_ESTIMATED_HEIGHT_PX,
   FEEDBACK_STATUS_CARD_ESTIMATED_HEIGHT_PX,
   HISTORY_REFRESH_STALE_MS,
+  INLINE_POPUP_ESTIMATED_HEIGHT_PX,
+  INLINE_POPUP_WIDTH_PX,
   ISSUE_HISTORY_STORAGE_PREFIX,
   MAX_DRAFT_ROUND_STORAGE_BYTES,
   MAX_ELEMENT_GRABS,
@@ -58,6 +60,8 @@ import {
   MAX_TEXT_LENGTH,
   MAX_VISUAL_SUGGESTION_SCOPE_DEPTH,
   MAX_VISUAL_SUGGESTION_SCOPE_TARGETS,
+  PIN_REANCHOR_THRESHOLD_PX,
+  PIN_TICKER_INTERVAL_MS,
   SILLY_FEEDBACK_LOAD_PROBABILITY,
   SILLY_FEEDBACK_MESSAGES,
   TRIGGER_DOCK_OVERSCROLL_PX,
@@ -66,6 +70,13 @@ import {
   TRIGGER_POSITION_STORAGE_KEY,
   TRIGGER_VIEWPORT_MARGIN_PX,
 } from "../constants";
+import {
+  computeInlinePopupPlacement,
+  computePinAnchor,
+  computePinAnchorFromPoint,
+  isElementFixed,
+  resolvePinElement,
+} from "../pin-positioning";
 import {
   type VisualSuggestionTargetInput,
   VisualSuggestionManager,
@@ -169,6 +180,7 @@ import type {
   FeedbackAiSummary,
   FeedbackClientStatus,
   FeedbackIssueLinks,
+  FeedbackPin,
   FeedbackPullRequestLink,
   FeedbackSdkConfig,
   FeedbackSdkHandle,
@@ -213,6 +225,15 @@ interface VisualSuggestionTargetOption {
   element: HTMLElement;
   ref: FeedbackVisualSuggestionElementRef;
   scopeOptions: VisualSuggestionScopeOption[];
+}
+
+interface PendingPinAnchor {
+  xPct: number;
+  yPx: number;
+  isFixed: boolean;
+  element: HTMLElement;
+  grab: ElementGrabItem;
+  elementName: string;
 }
 
 function getRandomSillyFeedbackMessage(): string {
@@ -380,6 +401,7 @@ export class ObviousFeedbackWidget {
       | "elementSourceResolver"
       | "sessionReplayUrlResolver"
       | "visualSuggestions"
+      | "inlineAnnotations"
     >;
   private readonly host: HTMLDivElement;
   private readonly shadowRoot: ShadowRoot;
@@ -423,6 +445,15 @@ export class ObviousFeedbackWidget {
   private activeSillyFeedbackMessage: string | null = null;
 
   private elementPickerOpen = false;
+  private annotationModeActive = false;
+  private inlineAnnotationOpen = false;
+  private editingPinItemId: string | null = null;
+  private pendingPinAnchor: PendingPinAnchor | null = null;
+  private pinPositionRafHandle: number | null = null;
+  private pinResizeObserver: ResizeObserver | null = null;
+  private pinScrollListenerInstalled = false;
+  private inlinePopupShakeUntil = 0;
+  private inlinePopupDraft: string = "";
   private readonly visualSuggestions: VisualSuggestionManager | null;
   private activeVisualSuggestionItemId: string | null = null;
   private visualSuggestionTargetOptions: VisualSuggestionTargetOption[] = [];
@@ -469,6 +500,7 @@ export class ObviousFeedbackWidget {
       elementSourceResolver: config.elementSourceResolver,
       sessionReplayUrlResolver: config.sessionReplayUrlResolver,
       visualSuggestions: config.visualSuggestions,
+      inlineAnnotations: config.inlineAnnotations,
     };
     this.visualSuggestions =
       this.config.visualSuggestions?.enabled === true
@@ -840,6 +872,9 @@ export class ObviousFeedbackWidget {
     this.clearStatusTimer();
     this.uninstallGlobalFileDropGuards();
     this.disconnectCardPlacementObserver();
+    this.stopPinPositionTicker();
+    this.uninstallPinScrollListener();
+    this.uninstallPinResizeObserver();
     this.systemThemeCleanup?.();
     this.systemThemeCleanup = null;
     this.host.remove();
@@ -935,8 +970,44 @@ export class ObviousFeedbackWidget {
     this.focusedItemId = null;
     this.selectedIssueId = null;
 
-    this.shadowRoot.innerHTML = `${this.renderStyleTag()}${this.renderTriggerButton()}`;
-    this.bindTrigger(() => this.openCard());
+    this.shadowRoot.innerHTML = `${this.renderStyleTag()}${this.renderTriggerButton()}${this.renderPinLayer()}`;
+    this.bindTrigger(() => this.handleTriggerActivate());
+    this.bindPinLayer();
+
+    if (this.annotationModeActive) {
+      this.handleAnnotationModeTriggerClick();
+      return;
+    }
+    if (this.shouldEnterAnnotationModeOnTrigger()) {
+      // Note: do not auto-enter annotation mode just because the trigger
+      // re-rendered. We only enter from a real click via handleTriggerActivate.
+    }
+  }
+
+  private handleTriggerActivate(): void {
+    if (this.annotationModeActive) {
+      this.handleAnnotationModeTriggerClick();
+      return;
+    }
+    if (this.shouldEnterAnnotationModeOnTrigger()) {
+      this.enterAnnotationMode();
+      return;
+    }
+    this.openCard();
+  }
+
+  private inlineAnnotationsEnabled(): boolean {
+    return this.config.inlineAnnotations?.enabled === true;
+  }
+
+  private shouldEnterAnnotationModeOnTrigger(): boolean {
+    if (!this.inlineAnnotationsEnabled()) return false;
+    if (this.config.previewOnly) return false;
+    if (this.submittedIssueUrl) return false;
+    if (this.statusCardIssueId) return false;
+    if (this.activePanel !== null) return false;
+    if (this.roundItems.length > 0) return false;
+    return true;
   }
 
   private getFeedbackCardPlacement(
@@ -1024,6 +1095,7 @@ export class ObviousFeedbackWidget {
     this.shadowRoot.innerHTML = `
       ${this.renderStyleTag()}
       ${this.renderTriggerButton()}
+      ${this.renderPinLayer()}
       <div class="obv-card" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-dialog-direction="${escapeHtml(feedbackCardPlacement.direction)}" style="${escapeHtml(feedbackCardPlacement.style)}">
         ${panelContent}
       </div>
@@ -1031,6 +1103,7 @@ export class ObviousFeedbackWidget {
 
     this.installGlobalFileDropGuards();
     this.bindTrigger(() => this.renderTrigger());
+    this.bindPinLayer();
     this.bindUnifiedPanel();
     if (!wasOpen) {
       this.refreshIssueHistoryStatuses().catch(() => undefined);
@@ -2635,7 +2708,9 @@ export class ObviousFeedbackWidget {
       ".obv-element-picker-overlay",
     );
     if (overlay instanceof HTMLElement) {
-      overlay.focus();
+      if (!this.inlineAnnotationOpen) {
+        overlay.focus();
+      }
       overlay.addEventListener("pointermove", (event) => {
         this.updateElementGrabHover(getPointerPoint(event));
         event.preventDefault();
@@ -2646,19 +2721,39 @@ export class ObviousFeedbackWidget {
       overlay.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
           event.preventDefault();
-          this.clearElementGrabHoverState();
-          this.elementPickerOpen = false;
-          this.openCard();
+          this.handleElementPickerEscape();
         }
       });
     }
     this.shadowRoot
       .querySelector('[data-element-picker-done="true"]')
       ?.addEventListener("click", () => {
-        this.clearElementGrabHoverState();
-        this.elementPickerOpen = false;
-        this.openCard();
+        this.handleElementPickerCancel();
       });
+  }
+
+  private handleElementPickerEscape(): void {
+    if (this.annotationModeActive) {
+      if (this.inlineAnnotationOpen) {
+        this.closeInlineAnnotationPopup();
+        return;
+      }
+      this.exitAnnotationMode({ openCard: this.hasDraftPins() });
+      return;
+    }
+    this.clearElementGrabHoverState();
+    this.elementPickerOpen = false;
+    this.openCard();
+  }
+
+  private handleElementPickerCancel(): void {
+    if (this.annotationModeActive) {
+      this.exitAnnotationMode({ openCard: this.hasDraftPins() });
+      return;
+    }
+    this.clearElementGrabHoverState();
+    this.elementPickerOpen = false;
+    this.openCard();
   }
 
   private async handleElementPickerClick(event: PointerEvent): Promise<void> {
@@ -2669,6 +2764,21 @@ export class ObviousFeedbackWidget {
       this.getElementAtPoint(point, ".obv-element-picker-overlay");
     if (!target) {
       event.preventDefault();
+      return;
+    }
+    if (this.annotationModeActive) {
+      event.preventDefault();
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      if (this.inlineAnnotationOpen) {
+        this.shakeInlineAnnotationPopup();
+        return;
+      }
+      if (this.editingPinItemId !== null) {
+        this.closeInlineAnnotationPopup();
+      }
+      await this.handleAnnotationPick(target, point);
       return;
     }
     if (this.elementGrabItems.length >= MAX_ELEMENT_GRABS) {
@@ -4206,6 +4316,764 @@ export class ObviousFeedbackWidget {
       issueId,
       publicKey: this.config.publicKey,
     });
+  }
+
+  // ---- Inline pin annotation flow ----
+
+  private hasDraftPins(): boolean {
+    return this.roundItems.some((item) => item.pin !== undefined);
+  }
+
+  private getPinnedItemsWithIndex(): Array<{
+    item: FeedbackRoundItem;
+    index: number;
+  }> {
+    const pinned: Array<{ item: FeedbackRoundItem; index: number }> = [];
+    for (let i = 0; i < this.roundItems.length; i += 1) {
+      const item = this.roundItems[i];
+      if (item && item.pin) {
+        pinned.push({ item, index: i + 1 });
+      }
+    }
+    return pinned;
+  }
+
+  private enterAnnotationMode(): void {
+    if (this.annotationModeActive) {
+      this.renderAnnotationModeShell();
+      return;
+    }
+    this.annotationModeActive = true;
+    this.editingPinItemId = null;
+    this.pendingPinAnchor = null;
+    this.inlineAnnotationOpen = false;
+    this.inlinePopupDraft = "";
+    this.activePanel = null;
+    this.renderAnnotationModeShell();
+    this.startPinPositionTicker();
+    this.installPinScrollListener();
+    this.installPinResizeObserver();
+  }
+
+  private exitAnnotationMode(options: { openCard?: boolean } = {}): void {
+    if (!this.annotationModeActive) {
+      if (options.openCard) {
+        this.openCard();
+      } else {
+        this.renderTrigger();
+      }
+      return;
+    }
+    this.annotationModeActive = false;
+    this.inlineAnnotationOpen = false;
+    this.editingPinItemId = null;
+    this.pendingPinAnchor = null;
+    this.elementPickerOpen = false;
+    this.clearElementGrabHoverState();
+    this.stopPinPositionTicker();
+    this.uninstallPinScrollListener();
+    this.uninstallPinResizeObserver();
+    if (options.openCard) {
+      this.openCard();
+    } else {
+      this.renderTrigger();
+    }
+  }
+
+  private renderAnnotationModeShell(): void {
+    this.elementPickerOpen = true;
+    this.activePanel = null;
+    const pinnedCount = this.getPinnedItemsWithIndex().length;
+    const limitReached = this.roundItems.length >= MAX_ROUND_ITEMS;
+    const description = limitReached
+      ? `Pin limit reached (${MAX_ROUND_ITEMS}). Open the list to review.`
+      : pinnedCount === 0
+        ? "Click any element on the page to leave feedback"
+        : `Click another element to add feedback (${pinnedCount} pin${pinnedCount === 1 ? "" : "s"})`;
+    const openListLabel = pinnedCount === 0
+      ? "Open list (0)"
+      : `Open list (${pinnedCount})`;
+    const openListDisabled = pinnedCount === 0
+      ? 'disabled aria-disabled="true"'
+      : "";
+    this.shadowRoot.innerHTML = `
+      ${this.renderStyleTag()}
+      <div class="obv-element-picker-overlay" data-annotation-overlay="true" role="application" aria-label="Click any element to add an annotation. Press Escape to exit." tabindex="0">
+        <div class="obv-element-grab-highlight" hidden></div>
+        <div class="obv-element-grab-label" hidden></div>
+      </div>
+      ${this.renderPinLayer()}
+      ${this.renderTriggerButton()}
+      <div class="obv-annotation-chrome" role="toolbar" aria-label="Annotation mode controls">
+        <span class="obv-annotation-chrome-icon" aria-hidden="true">${createIcon("element")}</span>
+        <span class="obv-annotation-chrome-text">${escapeHtml(description)}</span>
+        <button class="obv-button obv-button-secondary obv-annotation-chrome-open-list" type="button" data-annotation-open-card="true" aria-label="Open feedback list" ${openListDisabled}>${createIcon("status")}<span>${escapeHtml(openListLabel)}</span></button>
+        <button class="obv-icon-button obv-annotation-chrome-close" type="button" data-annotation-exit="true" aria-label="Exit annotation mode (Esc)" data-tooltip="Exit (Esc)">${createIcon("close")}</button>
+      </div>
+      ${this.inlineAnnotationOpen ? this.renderInlineAnnotationPopup() : ""}
+    `;
+    this.bindAnnotationModeShell();
+    this.updateElementPickerHoverOverlay();
+  }
+
+  private bindAnnotationModeShell(): void {
+    this.bindTrigger(() => this.handleAnnotationModeTriggerClick());
+    this.bindElementPickerOverlay();
+    this.bindAnnotationChrome();
+    this.bindPinLayer();
+    if (this.inlineAnnotationOpen) {
+      this.bindInlineAnnotationPopup();
+    }
+  }
+
+  private bindAnnotationChrome(): void {
+    this.shadowRoot
+      .querySelector('[data-annotation-exit="true"]')
+      ?.addEventListener("click", () => {
+        this.exitAnnotationMode({ openCard: false });
+      });
+    this.shadowRoot
+      .querySelector('[data-annotation-open-card="true"]')
+      ?.addEventListener("click", () => {
+        if (this.getPinnedItemsWithIndex().length === 0) {
+          return;
+        }
+        this.exitAnnotationMode({ openCard: true });
+      });
+  }
+
+  private handleAnnotationModeTriggerClick(): void {
+    if (this.inlineAnnotationOpen) {
+      this.closeInlineAnnotationPopup();
+      return;
+    }
+    if (this.getPinnedItemsWithIndex().length > 0) {
+      this.exitAnnotationMode({ openCard: true });
+      return;
+    }
+    this.exitAnnotationMode({ openCard: false });
+  }
+
+  private async handleAnnotationPick(
+    target: HTMLElement,
+    point: FeedbackPointerPoint,
+  ): Promise<void> {
+    if (this.roundItems.length >= MAX_ROUND_ITEMS) {
+      this.renderAnnotationModeShell();
+      return;
+    }
+    const grab = await this.createElementGrabItem(target);
+    if (this.destroyed || !this.annotationModeActive) {
+      return;
+    }
+    const fixed = isElementFixed(target);
+    const innerWidth = window.innerWidth || 1;
+    const scrollY = window.scrollY || 0;
+    const anchor = computePinAnchorFromPoint(
+      point.x,
+      point.y,
+      fixed,
+      innerWidth,
+      scrollY,
+    );
+    const elementName = getElementGrabDisplayName(grab);
+    this.pendingPinAnchor = {
+      xPct: anchor.xPct,
+      yPx: anchor.yPx,
+      isFixed: fixed,
+      element: target,
+      grab,
+      elementName,
+    };
+    this.editingPinItemId = null;
+    this.inlineAnnotationOpen = true;
+    this.inlinePopupDraft = "";
+    this.clearElementGrabHoverState();
+    this.renderAnnotationModeShell();
+  }
+
+  private renderInlineAnnotationPopup(): string {
+    if (!this.inlineAnnotationOpen) {
+      return "";
+    }
+    const anchorRect = this.computeInlinePopupAnchorRect();
+    if (!anchorRect) {
+      return "";
+    }
+    const viewport = {
+      width: window.innerWidth || 1,
+      height: window.innerHeight || 1,
+    };
+    const placement = computeInlinePopupPlacement(
+      anchorRect.rect,
+      INLINE_POPUP_WIDTH_PX,
+      INLINE_POPUP_ESTIMATED_HEIGHT_PX,
+      viewport,
+      anchorRect.scrollY,
+      anchorRect.scrollX,
+    );
+    const isEditing =
+      this.editingPinItemId !== null &&
+      this.roundItems.some((item) => item.id === this.editingPinItemId);
+    const editingItem = isEditing
+      ? this.roundItems.find((item) => item.id === this.editingPinItemId) ?? null
+      : null;
+    const elementName = isEditing
+      ? this.getInlinePopupElementName(editingItem)
+      : this.pendingPinAnchor?.elementName ?? "Element";
+    const draft = isEditing
+      ? editingItem?.description ?? ""
+      : this.inlinePopupDraft;
+    const elementMissing =
+      isEditing && !anchorRect.hasLiveElement
+        ? '<span class="obv-inline-popup-missing">Element no longer on page</span>'
+        : "";
+    const submitLabel = isEditing ? "Save" : "Add";
+    const positionStyle = `position: ${anchorRect.fixed ? "fixed" : "absolute"}; left: ${Math.round(placement.left)}px; top: ${Math.round(placement.top)}px;`;
+    const arrowStyle = `left: ${Math.round(placement.arrowOffsetX)}px;`;
+    const placementAttr = placement.placement;
+    const shakeAttr =
+      Date.now() < this.inlinePopupShakeUntil ? ' data-shake="true"' : "";
+    const deleteButton = isEditing
+      ? `<button class="obv-icon-button obv-inline-popup-delete" type="button" data-inline-popup-delete="true" aria-label="Delete annotation" data-tooltip="Delete">${createIcon("close")}</button>`
+      : "";
+    return `
+      <div class="obv-inline-popup" data-annotation-popup="true" data-placement="${escapeHtml(placementAttr)}" data-fixed="${anchorRect.fixed ? "true" : "false"}"${shakeAttr} role="dialog" aria-modal="false" aria-label="${escapeHtml(isEditing ? `Edit annotation for ${elementName}` : `Add annotation for ${elementName}`)}" style="${positionStyle}">
+        <div class="obv-inline-popup-arrow" style="${arrowStyle}" aria-hidden="true"></div>
+        <div class="obv-inline-popup-header">
+          <span class="obv-inline-popup-icon" aria-hidden="true">${createIcon("element")}</span>
+          <span class="obv-inline-popup-element">${escapeHtml(elementName)}</span>
+          ${elementMissing}
+          <button class="obv-icon-button obv-inline-popup-close" type="button" data-inline-popup-close="true" aria-label="Cancel">${createIcon("close")}</button>
+        </div>
+        <textarea class="obv-inline-popup-textarea" data-inline-popup-textarea="true" rows="3" placeholder="What's the feedback?" aria-label="Annotation note">${escapeHtml(draft)}</textarea>
+        <div class="obv-inline-popup-actions">
+          ${deleteButton}
+          <div class="obv-inline-popup-actions-primary">
+            <span class="obv-inline-popup-hint">${escapeHtml(this.getInlinePopupSubmitHint())}</span>
+            <button class="obv-button obv-button-secondary" type="button" data-inline-popup-cancel="true">Cancel</button>
+            <button class="obv-button" type="button" data-inline-popup-submit="true">${createIcon("check")}<span>${escapeHtml(submitLabel)}</span></button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private getInlinePopupSubmitHint(): string {
+    return this.isMacPlatform() ? "\u2318 + Enter" : "Ctrl + Enter";
+  }
+
+  private getInlinePopupElementName(item: FeedbackRoundItem | null): string {
+    if (!item) return "Element";
+    const grab = item.elementGrabs?.find(
+      (candidate) => candidate.id === item.pin?.elementGrabId,
+    );
+    const target = grab ?? item.elementGrabs?.[0];
+    if (target) {
+      return getElementGrabDisplayName(target);
+    }
+    return "Element";
+  }
+
+  private computeInlinePopupAnchorRect(): {
+    rect: { left: number; top: number; width: number; height: number };
+    scrollY: number;
+    scrollX: number;
+    fixed: boolean;
+    hasLiveElement: boolean;
+  } | null {
+    if (this.editingPinItemId) {
+      const item = this.roundItems.find(
+        (candidate) => candidate.id === this.editingPinItemId,
+      );
+      const pin = item?.pin;
+      if (!pin) return null;
+      const grab = item?.elementGrabs?.find(
+        (candidate) => candidate.id === pin.elementGrabId,
+      );
+      const liveElement = grab
+        ? resolvePinElement(grab.cssSelector, null)
+        : null;
+      if (liveElement) {
+        const rect = liveElement.getBoundingClientRect();
+        return {
+          rect: {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+          },
+          scrollY: pin.isFixed ? 0 : window.scrollY,
+          scrollX: pin.isFixed ? 0 : window.scrollX,
+          fixed: pin.isFixed,
+          hasLiveElement: true,
+        };
+      }
+      const xPx = (pin.xPct / 100) * (window.innerWidth || 1);
+      return {
+        rect: { left: xPx - 12, top: pin.yPx - 12, width: 24, height: 24 },
+        scrollY: 0,
+        scrollX: 0,
+        fixed: pin.isFixed,
+        hasLiveElement: false,
+      };
+    }
+    const pending = this.pendingPinAnchor;
+    if (!pending) return null;
+    if (pending.element.isConnected) {
+      const rect = pending.element.getBoundingClientRect();
+      return {
+        rect: {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        },
+        scrollY: pending.isFixed ? 0 : window.scrollY,
+        scrollX: pending.isFixed ? 0 : window.scrollX,
+        fixed: pending.isFixed,
+        hasLiveElement: true,
+      };
+    }
+    const xPx = (pending.xPct / 100) * (window.innerWidth || 1);
+    return {
+      rect: { left: xPx - 12, top: pending.yPx - 12, width: 24, height: 24 },
+      scrollY: 0,
+      scrollX: 0,
+      fixed: pending.isFixed,
+      hasLiveElement: false,
+    };
+  }
+
+  private bindInlineAnnotationPopup(): void {
+    const popup = this.shadowRoot.querySelector(
+      '[data-annotation-popup="true"]',
+    );
+    if (!(popup instanceof HTMLElement)) {
+      return;
+    }
+    const textarea = popup.querySelector(
+      '[data-inline-popup-textarea="true"]',
+    );
+    if (textarea instanceof HTMLTextAreaElement) {
+      textarea.addEventListener("input", () => {
+        this.inlinePopupDraft = textarea.value;
+        if (this.editingPinItemId !== null) {
+          const editingId = this.editingPinItemId;
+          this.roundItems = this.roundItems.map((item) =>
+            item.id === editingId
+              ? { ...item, description: textarea.value }
+              : item,
+          );
+          this.persistDraftRound();
+        }
+      });
+      textarea.addEventListener("keydown", (event) => {
+        if (
+          (event.metaKey || event.ctrlKey) &&
+          event.key === "Enter" &&
+          !event.shiftKey
+        ) {
+          event.preventDefault();
+          this.handleInlineAnnotationSubmit();
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          this.closeInlineAnnotationPopup();
+        }
+      });
+      textarea.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+      window.requestAnimationFrame(() => {
+        if (!textarea.isConnected) return;
+        textarea.focus();
+        const value = textarea.value;
+        if (value.length > 0) {
+          textarea.setSelectionRange(value.length, value.length);
+        }
+      });
+    }
+    popup
+      .querySelector('[data-inline-popup-submit="true"]')
+      ?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.handleInlineAnnotationSubmit();
+      });
+    popup
+      .querySelector('[data-inline-popup-cancel="true"]')
+      ?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.closeInlineAnnotationPopup();
+      });
+    popup
+      .querySelector('[data-inline-popup-close="true"]')
+      ?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.closeInlineAnnotationPopup();
+      });
+    popup
+      .querySelector('[data-inline-popup-delete="true"]')
+      ?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (this.editingPinItemId !== null) {
+          this.handlePinDelete(this.editingPinItemId);
+        }
+      });
+    popup.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    popup.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
+  }
+
+  private handleInlineAnnotationSubmit(): void {
+    if (this.editingPinItemId !== null) {
+      const targetId = this.editingPinItemId;
+      const text = this.inlinePopupDraft.trim();
+      const existing = this.roundItems.find((item) => item.id === targetId);
+      if (!existing) {
+        this.closeInlineAnnotationPopup();
+        return;
+      }
+      const description =
+        text.length > 0 ? text : existing.description.trim();
+      if (description.length === 0) {
+        this.shakeInlineAnnotationPopup();
+        return;
+      }
+      this.roundItems = this.roundItems.map((item) =>
+        item.id === targetId ? { ...item, description } : item,
+      );
+      this.persistDraftRound();
+      this.emitOpenIssueCountChange();
+      this.closeInlineAnnotationPopup();
+      return;
+    }
+    const pending = this.pendingPinAnchor;
+    if (!pending) {
+      this.closeInlineAnnotationPopup();
+      return;
+    }
+    const text = this.inlinePopupDraft.trim();
+    if (text.length === 0) {
+      this.shakeInlineAnnotationPopup();
+      return;
+    }
+    if (this.roundItems.length >= MAX_ROUND_ITEMS) {
+      this.closeInlineAnnotationPopup();
+      return;
+    }
+    const pin: FeedbackPin = {
+      xPct: pending.xPct,
+      yPx: pending.yPx,
+      isFixed: pending.isFixed,
+      elementGrabId: pending.grab.id,
+    };
+    const newItem: FeedbackRoundItem = {
+      id: createRoundItemId(),
+      description: text,
+      elementGrabs: [pending.grab],
+      pin,
+    };
+    this.roundItems = [...this.roundItems, newItem];
+    this.pendingPinAnchor = null;
+    this.inlinePopupDraft = "";
+    this.inlineAnnotationOpen = false;
+    this.editingPinItemId = null;
+    this.persistDraftRound();
+    this.emitOpenIssueCountChange();
+    this.renderAnnotationModeShell();
+  }
+
+  private closeInlineAnnotationPopup(): void {
+    if (!this.inlineAnnotationOpen) return;
+    this.inlineAnnotationOpen = false;
+    this.editingPinItemId = null;
+    this.pendingPinAnchor = null;
+    this.inlinePopupDraft = "";
+    if (this.annotationModeActive) {
+      this.renderAnnotationModeShell();
+    }
+  }
+
+  private shakeInlineAnnotationPopup(): void {
+    this.inlinePopupShakeUntil = Date.now() + 320;
+    const popup = this.shadowRoot.querySelector(
+      '[data-annotation-popup="true"]',
+    );
+    if (popup instanceof HTMLElement) {
+      popup.setAttribute("data-shake", "true");
+      window.setTimeout(() => {
+        popup.removeAttribute("data-shake");
+      }, 320);
+    }
+  }
+
+  private renderPinLayer(): string {
+    const pinned = this.getPinnedItemsWithIndex();
+    if (pinned.length === 0) {
+      return "";
+    }
+    const scrollMarkers: string[] = [];
+    const fixedMarkers: string[] = [];
+    for (const entry of pinned) {
+      const pin = entry.item.pin;
+      if (!pin) continue;
+      const isActive = entry.item.id === this.editingPinItemId;
+      const previewText = (entry.item.description ?? "").trim();
+      const previewSnippet = previewText.slice(0, 80);
+      const tooltipHtml =
+        previewSnippet.length > 0
+          ? `<span class="obv-pin-tooltip" aria-hidden="true"><span class="obv-pin-tooltip-index">#${entry.index}</span><span class="obv-pin-tooltip-text">${escapeHtml(previewSnippet)}${previewText.length > previewSnippet.length ? "\u2026" : ""}</span></span>`
+          : `<span class="obv-pin-tooltip" aria-hidden="true"><span class="obv-pin-tooltip-index">#${entry.index}</span></span>`;
+      const label =
+        previewSnippet.length > 0 ? previewSnippet : "annotation";
+      const button = `<button class="obv-pin" data-pin-item-id="${escapeHtml(entry.item.id)}" type="button" style="left: ${pin.xPct.toFixed(3)}%; top: ${Math.round(pin.yPx)}px;"${isActive ? ' data-active="true"' : ""} aria-label="Edit annotation ${entry.index}: ${escapeHtml(label)}"><span class="obv-pin-number">${entry.index}</span>${tooltipHtml}</button>`;
+      if (pin.isFixed) {
+        fixedMarkers.push(button);
+      } else {
+        scrollMarkers.push(button);
+      }
+    }
+    const scrollLayer =
+      scrollMarkers.length > 0
+        ? `<div class="obv-pin-layer obv-pin-layer-scroll" aria-hidden="true">${scrollMarkers.join("")}</div>`
+        : "";
+    const fixedLayer =
+      fixedMarkers.length > 0
+        ? `<div class="obv-pin-layer obv-pin-layer-fixed" aria-hidden="true">${fixedMarkers.join("")}</div>`
+        : "";
+    return `${scrollLayer}${fixedLayer}`;
+  }
+
+  private bindPinLayer(): void {
+    const pins = this.shadowRoot.querySelectorAll(".obv-pin");
+    pins.forEach((pin) => {
+      if (!(pin instanceof HTMLElement)) return;
+      const itemId = pin.getAttribute("data-pin-item-id");
+      if (!itemId) return;
+      pin.addEventListener("click", (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        this.handlePinClick(itemId);
+      });
+      pin.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+      });
+    });
+  }
+
+  private handlePinClick(itemId: string): void {
+    if (!this.annotationModeActive) {
+      this.enterAnnotationMode();
+    }
+    if (this.inlineAnnotationOpen && this.editingPinItemId !== itemId) {
+      this.shakeInlineAnnotationPopup();
+      return;
+    }
+    if (this.inlineAnnotationOpen && this.editingPinItemId === itemId) {
+      return;
+    }
+    const item = this.roundItems.find((candidate) => candidate.id === itemId);
+    if (!item || !item.pin) return;
+    this.editingPinItemId = itemId;
+    this.pendingPinAnchor = null;
+    this.inlineAnnotationOpen = true;
+    this.inlinePopupDraft = item.description;
+    this.clearElementGrabHoverState();
+    this.renderAnnotationModeShell();
+  }
+
+  private handlePinDelete(itemId: string): void {
+    const wasEditing = this.editingPinItemId === itemId;
+    this.roundItems = this.roundItems.filter((item) => item.id !== itemId);
+    if (wasEditing) {
+      this.inlineAnnotationOpen = false;
+      this.editingPinItemId = null;
+      this.pendingPinAnchor = null;
+      this.inlinePopupDraft = "";
+    }
+    this.persistDraftRound();
+    this.emitOpenIssueCountChange();
+    if (this.annotationModeActive) {
+      this.renderAnnotationModeShell();
+    }
+  }
+
+  private startPinPositionTicker(): void {
+    if (this.pinPositionRafHandle !== null) return;
+    if (typeof window.requestAnimationFrame !== "function") return;
+    let lastTickAt = 0;
+    const tick = (timestamp: number): void => {
+      this.pinPositionRafHandle = null;
+      if (this.destroyed || !this.annotationModeActive) {
+        return;
+      }
+      if (timestamp - lastTickAt >= PIN_TICKER_INTERVAL_MS) {
+        lastTickAt = timestamp;
+        this.refreshPinPositions();
+      }
+      this.pinPositionRafHandle = window.requestAnimationFrame(tick);
+    };
+    this.pinPositionRafHandle = window.requestAnimationFrame(tick);
+  }
+
+  private stopPinPositionTicker(): void {
+    if (this.pinPositionRafHandle !== null) {
+      const cancel = window.cancelAnimationFrame ?? window.clearTimeout;
+      cancel(this.pinPositionRafHandle);
+      this.pinPositionRafHandle = null;
+    }
+  }
+
+  private installPinScrollListener(): void {
+    if (this.pinScrollListenerInstalled) return;
+    window.addEventListener("scroll", this.handlePinViewportChange, true);
+    this.pinScrollListenerInstalled = true;
+  }
+
+  private uninstallPinScrollListener(): void {
+    if (!this.pinScrollListenerInstalled) return;
+    window.removeEventListener("scroll", this.handlePinViewportChange, true);
+    this.pinScrollListenerInstalled = false;
+  }
+
+  private installPinResizeObserver(): void {
+    if (this.pinResizeObserver !== null) return;
+    if (typeof ResizeObserver === "undefined") return;
+    if (typeof document === "undefined" || !document.documentElement) return;
+    this.pinResizeObserver = new ResizeObserver(() => {
+      this.refreshPinPositions();
+    });
+    this.pinResizeObserver.observe(document.documentElement);
+  }
+
+  private uninstallPinResizeObserver(): void {
+    if (this.pinResizeObserver !== null) {
+      this.pinResizeObserver.disconnect();
+      this.pinResizeObserver = null;
+    }
+  }
+
+  private readonly handlePinViewportChange = (): void => {
+    this.refreshPinPositions();
+  };
+
+  private refreshPinPositions(): void {
+    if (!this.annotationModeActive) return;
+    let dirty = false;
+    const innerWidth = window.innerWidth || 1;
+    const scrollY = window.scrollY || 0;
+    this.roundItems = this.roundItems.map((item) => {
+      if (!item.pin || !item.elementGrabs) return item;
+      const grab = item.elementGrabs.find(
+        (candidate) => candidate.id === item.pin?.elementGrabId,
+      );
+      if (!grab) return item;
+      const element = resolvePinElement(grab.cssSelector, null);
+      if (!element) return item;
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return item;
+      const fixedNow = isElementFixed(element);
+      const anchor = computePinAnchor(
+        {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        },
+        fixedNow,
+        innerWidth,
+        scrollY,
+      );
+      const xDelta = Math.abs(item.pin.xPct - anchor.xPct);
+      const yDelta = Math.abs(item.pin.yPx - anchor.yPx);
+      if (
+        item.pin.isFixed === fixedNow &&
+        xDelta < PIN_REANCHOR_THRESHOLD_PX / 10 &&
+        yDelta < PIN_REANCHOR_THRESHOLD_PX
+      ) {
+        return item;
+      }
+      dirty = true;
+      return {
+        ...item,
+        pin: {
+          ...item.pin,
+          xPct: anchor.xPct,
+          yPx: anchor.yPx,
+          isFixed: fixedNow,
+        },
+      };
+    });
+    if (dirty) {
+      this.persistDraftRound();
+      this.updatePinLayerDom();
+    }
+    if (this.inlineAnnotationOpen) {
+      this.updateInlinePopupAnchorDom();
+    }
+  }
+
+  private updatePinLayerDom(): void {
+    const pinned = this.getPinnedItemsWithIndex();
+    const map = new Map(pinned.map((entry) => [entry.item.id, entry]));
+    const pins = this.shadowRoot.querySelectorAll(".obv-pin");
+    let needsFullRender = false;
+    pins.forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      const id = node.getAttribute("data-pin-item-id");
+      if (!id) return;
+      const entry = map.get(id);
+      if (!entry) return;
+      const pin = entry.item.pin;
+      if (!pin) return;
+      node.style.left = `${pin.xPct.toFixed(3)}%`;
+      node.style.top = `${Math.round(pin.yPx)}px`;
+      const parent = node.parentElement;
+      if (parent instanceof HTMLElement) {
+        const inFixedLayer = parent.classList.contains("obv-pin-layer-fixed");
+        if (inFixedLayer !== pin.isFixed) {
+          needsFullRender = true;
+        }
+      }
+    });
+    if (needsFullRender) {
+      this.renderAnnotationModeShell();
+    }
+  }
+
+  private updateInlinePopupAnchorDom(): void {
+    const popup = this.shadowRoot.querySelector(
+      '[data-annotation-popup="true"]',
+    );
+    if (!(popup instanceof HTMLElement)) return;
+    const anchorRect = this.computeInlinePopupAnchorRect();
+    if (!anchorRect) return;
+    const viewport = {
+      width: window.innerWidth || 1,
+      height: window.innerHeight || 1,
+    };
+    const placement = computeInlinePopupPlacement(
+      anchorRect.rect,
+      popup.offsetWidth || INLINE_POPUP_WIDTH_PX,
+      popup.offsetHeight || INLINE_POPUP_ESTIMATED_HEIGHT_PX,
+      viewport,
+      anchorRect.scrollY,
+      anchorRect.scrollX,
+    );
+    popup.style.position = anchorRect.fixed ? "fixed" : "absolute";
+    popup.style.left = `${Math.round(placement.left)}px`;
+    popup.style.top = `${Math.round(placement.top)}px`;
+    popup.setAttribute("data-placement", placement.placement);
+    popup.setAttribute("data-fixed", anchorRect.fixed ? "true" : "false");
+    const arrow = popup.querySelector(".obv-inline-popup-arrow");
+    if (arrow instanceof HTMLElement) {
+      arrow.style.left = `${Math.round(placement.arrowOffsetX)}px`;
+    }
   }
 }
 

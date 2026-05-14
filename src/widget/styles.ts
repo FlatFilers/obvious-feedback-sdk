@@ -1,4 +1,11 @@
-import { DEFAULT_TRIGGER_SIZE_PX, TRIGGER_HIDDEN_PEEK_PX, TRIGGER_VIEWPORT_MARGIN_PX } from "../constants";
+import {
+  DEFAULT_TRIGGER_SIZE_PX,
+  INLINE_POPUP_WIDTH_PX,
+  PIN_LAYER_Z_INDEX,
+  PIN_SIZE_PX,
+  TRIGGER_HIDDEN_PEEK_PX,
+  TRIGGER_VIEWPORT_MARGIN_PX,
+} from "../constants";
 
 export function createStyles(): string {
   return `
@@ -427,6 +434,124 @@ export function createStyles(): string {
     :host([data-theme="dark"]) .obv-vs-palette { --obv-vs-accent: #60a5fa; --obv-vs-slider-track: rgba(255, 255, 255, 0.26); background: #242424; border-color: rgba(255, 255, 255, 0.16); }
     :host([data-theme="dark"]) .obv-vs-row:hover { background: rgba(255, 255, 255, 0.05); }
     :host([data-theme="dark"]) .obv-vs-scrub[data-has-override="true"] { color: #93c5fd; }
+
+    /* Inline pin annotations */
+    .obv-annotation-chrome {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 2147483647;
+      display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px;
+      border: 1px solid var(--obv-feedback-border); border-radius: 999px;
+      background: var(--obv-feedback-bg); box-shadow: var(--obv-feedback-shadow); color: var(--obv-feedback-muted);
+      font-size: 12px; font-weight: 600; max-width: min(560px, calc(100vw - 24px));
+    }
+    .obv-annotation-chrome-icon { display: inline-flex; color: var(--obv-feedback-text); }
+    .obv-annotation-chrome-icon .obv-icon { width: 16px; height: 16px; }
+    .obv-annotation-chrome-text { color: var(--obv-feedback-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .obv-annotation-chrome-open-list { padding: 4px 10px; min-height: 28px; font-size: 12px; }
+    .obv-annotation-chrome-close { width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 999px; }
+    [data-annotation-overlay="true"] { background: transparent; }
+    [data-annotation-overlay="true"]:focus { outline: none; }
+    .obv-pin-layer {
+      position: absolute; top: 0; left: 0; width: 100%; height: 0;
+      pointer-events: none; z-index: ${PIN_LAYER_Z_INDEX};
+      contain: layout style;
+    }
+    .obv-pin-layer-fixed { position: fixed; width: 100vw; height: 0; top: 0; left: 0; }
+    .obv-pin {
+      position: absolute; transform: translate(-50%, -50%); pointer-events: auto;
+      width: ${PIN_SIZE_PX}px; height: ${PIN_SIZE_PX}px; min-height: ${PIN_SIZE_PX}px; padding: 0; margin: 0;
+      border-radius: 999px; border: 2px solid var(--obv-feedback-bg);
+      background: var(--obv-feedback-primary); color: var(--obv-feedback-primary-foreground);
+      display: inline-flex; align-items: center; justify-content: center;
+      font: 600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06);
+      cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease;
+      box-sizing: border-box;
+    }
+    .obv-pin:hover { transform: translate(-50%, -50%) scale(1.12); box-shadow: 0 4px 14px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.08); }
+    .obv-pin:focus-visible { outline: 2px solid var(--obv-feedback-focus); outline-offset: 2px; }
+    .obv-pin[data-active="true"] {
+      box-shadow: 0 4px 14px rgba(0,0,0,0.28), 0 0 0 3px color-mix(in srgb, var(--obv-feedback-primary) 28%, transparent);
+      transform: translate(-50%, -50%) scale(1.08);
+    }
+    .obv-pin-number { line-height: 1; font-variant-numeric: tabular-nums; pointer-events: none; }
+    .obv-pin-tooltip {
+      position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%);
+      display: none; align-items: center; gap: 6px; padding: 4px 8px;
+      background: var(--obv-feedback-text); color: var(--obv-feedback-bg);
+      border-radius: 6px; font-size: 11px; font-weight: 600; white-space: nowrap;
+      max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+      pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+    }
+    .obv-pin:hover .obv-pin-tooltip { display: inline-flex; }
+    .obv-pin-tooltip-index { opacity: 0.7; }
+    .obv-pin-tooltip-text { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+    .obv-inline-popup {
+      width: ${INLINE_POPUP_WIDTH_PX}px; max-width: calc(100vw - 24px);
+      z-index: ${PIN_LAYER_Z_INDEX + 1};
+      background: var(--obv-feedback-bg); color: var(--obv-feedback-text);
+      border: 1px solid var(--obv-feedback-border);
+      border-radius: var(--obv-feedback-radius-card); box-shadow: var(--obv-feedback-shadow);
+      padding: 10px 12px 10px; box-sizing: border-box;
+      font-family: inherit;
+    }
+    .obv-inline-popup[data-shake="true"] { animation: obvInlinePopupShake 280ms ease-out; }
+    @keyframes obvInlinePopupShake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-4px); }
+      40% { transform: translateX(4px); }
+      60% { transform: translateX(-3px); }
+      80% { transform: translateX(3px); }
+    }
+    .obv-inline-popup-arrow {
+      position: absolute; top: -6px; width: 12px; height: 12px;
+      background: var(--obv-feedback-bg);
+      border-left: 1px solid var(--obv-feedback-border);
+      border-top: 1px solid var(--obv-feedback-border);
+      transform: translateX(-50%) rotate(45deg);
+      pointer-events: none;
+    }
+    .obv-inline-popup[data-placement="above"] .obv-inline-popup-arrow {
+      top: auto; bottom: -6px; border-left: 0; border-top: 0;
+      border-right: 1px solid var(--obv-feedback-border); border-bottom: 1px solid var(--obv-feedback-border);
+    }
+    .obv-inline-popup-header {
+      display: flex; align-items: center; gap: 6px; min-height: 22px; margin-bottom: 6px;
+    }
+    .obv-inline-popup-icon { display: inline-flex; color: var(--obv-feedback-muted); }
+    .obv-inline-popup-icon .obv-icon { width: 14px; height: 14px; }
+    .obv-inline-popup-element {
+      flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-size: 12px; font-weight: 650; color: var(--obv-feedback-text);
+    }
+    .obv-inline-popup-missing {
+      flex: 0 0 auto; font-size: 10px; font-weight: 600; padding: 1px 6px;
+      border-radius: 999px; color: var(--obv-feedback-muted);
+      background: var(--obv-feedback-bg-subtle); border: 1px solid var(--obv-feedback-border);
+    }
+    .obv-inline-popup-close {
+      width: 24px; height: 24px; min-height: 24px; padding: 0; border-radius: 999px;
+    }
+    .obv-inline-popup-textarea {
+      width: 100%; box-sizing: border-box; min-height: 64px; max-height: 200px; resize: vertical;
+      padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--obv-feedback-border); background: var(--obv-feedback-bg);
+      color: var(--obv-feedback-text); font: inherit; font-size: 13px; line-height: 1.4;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+    .obv-inline-popup-textarea:focus {
+      outline: none; border-color: var(--obv-feedback-border-strong);
+      box-shadow: 0 0 0 3px var(--obv-feedback-focus);
+    }
+    .obv-inline-popup-actions {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px;
+    }
+    .obv-inline-popup-actions-primary { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+    .obv-inline-popup-hint { font-size: 11px; color: var(--obv-feedback-muted); margin-right: 4px; }
+    .obv-inline-popup-delete { width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 999px; }
+    .obv-inline-popup .obv-button {
+      min-height: 28px; padding: 4px 10px; font-size: 12px; gap: 4px;
+    }
+    .obv-inline-popup .obv-button .obv-icon { width: 14px; height: 14px; }
   `;
 }
 
