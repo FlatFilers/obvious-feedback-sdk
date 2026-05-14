@@ -73,6 +73,56 @@ test.describe("Mock submit flow", () => {
     expect(response.data.attachmentToken).toBeTruthy();
   });
 
+  test("selected elements can submit without visual edits", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#status")).toHaveText(
+      "SDK initialized successfully.",
+    );
+
+    await page.locator(".obv-trigger").click();
+    await page
+      .locator('[data-item-input="__new"]')
+      .fill("Point at the fixture paragraph");
+    await page.locator('[data-element-select-start="true"]').click();
+
+    const targetBox = await page.locator("#visual-target").boundingBox();
+    expect(targetBox).not.toBeNull();
+    if (!targetBox) return;
+    await page.mouse.click(
+      targetBox.x + targetBox.width / 2,
+      targetBox.y + targetBox.height / 2,
+    );
+
+    await expect(page.locator(".obv-vs-palette")).toBeVisible();
+    await page.locator('[data-vs-close="true"]').click();
+    await expect(page.locator(".obv-row-pill-vs")).toHaveCount(0);
+    await expect(page.locator(".obv-row-pill")).toContainText("<p>");
+
+    await page.locator('[data-item-input="__new"]').press("Enter");
+    await page.locator('[data-submit-round="true"]').click();
+
+    await expect
+      .poll(async () => {
+        return page.evaluate(async () => {
+          const res = await fetch(
+            "http://localhost:4444/_test/last-submission",
+          );
+          return res.json();
+        });
+      })
+      .toMatchObject({
+        data: {
+          description: "Point at the fixture paragraph",
+          elementGrabs: [
+            {
+              tagName: "P",
+              cssSelector: "#visual-target",
+            },
+          ],
+        },
+      });
+  });
+
   test("visual suggestions preview live and submit with feedback context", async ({
     page,
   }) => {
@@ -85,7 +135,7 @@ test.describe("Mock submit flow", () => {
     await page
       .locator('[data-item-input="__new"]')
       .fill("Make the fixture paragraph larger");
-    await page.locator('[data-visual-suggest-start="true"]').click();
+    await page.locator('[data-element-select-start="true"]').click();
 
     const targetBox = await page.locator("#visual-target").boundingBox();
     expect(targetBox).not.toBeNull();
@@ -154,7 +204,7 @@ test.describe("Mock submit flow", () => {
     await page
       .locator('[data-item-input="__new"]')
       .fill("Make the card title larger");
-    await page.locator('[data-visual-suggest-start="true"]').click();
+    await page.locator('[data-element-select-start="true"]').click();
 
     const titleBox = await page.locator("#card-title").boundingBox();
     expect(titleBox).not.toBeNull();

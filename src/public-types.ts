@@ -50,11 +50,9 @@ export interface FeedbackSdkConfig {
    */
   theme?: FeedbackSdkTheme;
   /**
-   * Feedback SDK "Suggest visual change" flow (Budge-inspired). Disabled by default.
-   * When enabled, reporters can select a page element, nudge a safe CSS property,
-   * and attach the suggested change (original -> suggested value + generated prompt)
-   * to their feedback report. The original page is never mutated permanently: any
-   * preview is restored before submit.
+   * Enables visual editing controls after a reporter selects a page element.
+   * The element is still submitted as context if no visual values are changed.
+   * Any previewed changes are restored before submit.
    */
   visualSuggestions?: FeedbackVisualSuggestionsConfig;
 }

@@ -449,7 +449,6 @@ export class ObviousFeedbackWidget {
   private activeSillyFeedbackMessage: string | null = null;
 
   private elementPickerOpen = false;
-  private elementPickerOnPick: ((target: HTMLElement) => void) | null = null;
   private readonly visualSuggestions: VisualSuggestionManager | null;
   private activeVisualSuggestionItemId: string | null = null;
   private visualSuggestionTargetOptions: VisualSuggestionTargetOption[] = [];
@@ -1115,9 +1114,8 @@ export class ObviousFeedbackWidget {
         <div class="obv-list-footer">
           <div class="obv-footer-tools">
             <button class="obv-icon-button obv-footer-tool-btn" type="button" data-element-select-start="true" data-tooltip="Select element" aria-label="Select element">${createIcon("element")}</button>
-            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-attach-trigger="true" data-tooltip="Attach file" aria-label="Attach file">${createIcon("paperclip")}</button>
             <button class="obv-icon-button obv-footer-tool-btn" type="button" data-measure-start="true" data-tooltip="Measure spacing" aria-label="Measure spacing">${createIcon("ruler")}</button>
-            ${this.visualSuggestions ? `<button class="obv-icon-button obv-footer-tool-btn" type="button" data-visual-suggest-start="true" data-tooltip="Suggest visual change" aria-label="Suggest visual change">${createIcon("dial")}</button>` : ""}
+            <button class="obv-icon-button obv-footer-tool-btn" type="button" data-attach-trigger="true" data-tooltip="Attach file" aria-label="Attach file">${createIcon("paperclip")}</button>
             <input class="obv-attachment-input" data-attachment-input="true" type="file" multiple tabindex="-1" aria-hidden="true" style="display:none" />
           </div>
           <button class="obv-button" type="button" data-submit-round="true" ${isSubmitDisabled ? 'disabled aria-disabled="true"' : ""} aria-keyshortcuts="${this.isMacPlatform() ? "Meta+Enter" : "Control+Enter"}">${submitLabel}</button>
@@ -2675,7 +2673,6 @@ export class ObviousFeedbackWidget {
           event.preventDefault();
           this.clearElementGrabHoverState();
           this.elementPickerOpen = false;
-          this.elementPickerOnPick = null;
           this.openCard();
         }
       });
@@ -2685,7 +2682,6 @@ export class ObviousFeedbackWidget {
       ?.addEventListener("click", () => {
         this.clearElementGrabHoverState();
         this.elementPickerOpen = false;
-        this.elementPickerOnPick = null;
         this.openCard();
       });
   }
@@ -2700,16 +2696,6 @@ export class ObviousFeedbackWidget {
       event.preventDefault();
       return;
     }
-    if (this.elementPickerOnPick) {
-      event.preventDefault();
-      if (!(target instanceof HTMLElement)) {
-        return;
-      }
-      const onPick = this.elementPickerOnPick;
-      this.elementPickerOnPick = null;
-      void onPick(target);
-      return;
-    }
     if (this.elementGrabItems.length >= MAX_ELEMENT_GRABS) {
       event.preventDefault();
       return;
@@ -2721,25 +2707,24 @@ export class ObviousFeedbackWidget {
     this.elementGrabItems = [...this.elementGrabItems, nextItem];
     this.clearElementGrabHoverState();
     this.elementPickerOpen = false;
+    await this.activateVisualSuggestionForSelectedElement(target, nextItem);
     this.openCard();
   }
 
   // ---- Visual suggestion flow (feature-flagged, palette UX) ----
 
-  private beginVisualSuggestionSelection(): void {
-    if (!this.visualSuggestions) return;
-    this.visualSuggestionTargetOptions = [];
-    this.visualSuggestionScopeOptions = [];
-    this.elementPickerOnPick = (target) =>
-      this.handleVisualSuggestionPick(target);
-    this.renderElementPickerOverlay();
-  }
-
-  private async handleVisualSuggestionPick(target: HTMLElement): Promise<void> {
+  private async activateVisualSuggestionForSelectedElement(
+    target: Element,
+    grab: ElementGrabItem,
+  ): Promise<void> {
     const mgr = this.visualSuggestions;
     if (!mgr || mgr.isFull()) return;
-    const targetOptions = await this.createVisualSuggestionTargetOptions(target);
-    if (this.destroyed || !this.elementPickerOpen) return;
+    if (!(target instanceof HTMLElement)) return;
+    const targetOptions = await this.createVisualSuggestionTargetOptions(
+      target,
+      grab,
+    );
+    if (this.destroyed) return;
     const selectedTarget = targetOptions[0];
     if (!selectedTarget) return;
     this.visualSuggestionTargetOptions = targetOptions;
@@ -2758,10 +2743,6 @@ export class ObviousFeedbackWidget {
       },
     );
     this.activeVisualSuggestionItemId = null;
-    this.clearElementGrabHoverState();
-    this.elementPickerOpen = false;
-    this.elementPickerOnPick = null;
-    this.openCard();
   }
 
   private getActiveVisualSuggestionTargetOption(): VisualSuggestionTargetOption | null {
@@ -2776,13 +2757,17 @@ export class ObviousFeedbackWidget {
 
   private async createVisualSuggestionTargetOptions(
     rawTarget: HTMLElement,
+    selectedGrab?: ElementGrabItem,
   ): Promise<VisualSuggestionTargetOption[]> {
     const normalizedTarget = normalizeVisualSuggestionTarget(rawTarget);
     if (!isElementVisibleForScope(normalizedTarget)) {
       return [];
     }
 
-    const grab = await this.createElementGrabItem(normalizedTarget);
+    const grab =
+      selectedGrab && normalizedTarget === rawTarget
+        ? selectedGrab
+        : await this.createElementGrabItem(normalizedTarget);
     const ref = createVisualSuggestionElementRef(grab);
     const label = getVisualSuggestionTargetLabel(normalizedTarget);
     return [
@@ -2973,13 +2958,6 @@ export class ObviousFeedbackWidget {
   private bindVisualSuggestions(): void {
     const mgr = this.visualSuggestions;
     if (!mgr) return;
-
-    this.shadowRoot
-      .querySelector('[data-visual-suggest-start="true"]')
-      ?.addEventListener("click", () => {
-        this.syncAllInputsToRoundItems();
-        this.beginVisualSuggestionSelection();
-      });
 
     this.shadowRoot
       .querySelector('[data-vs-close="true"]')
