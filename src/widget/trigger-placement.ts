@@ -1,6 +1,5 @@
 import {
   DEFAULT_TRIGGER_SIZE_PX,
-  FEEDBACK_CARD_GAP_PX,
   FEEDBACK_CARD_MAX_WIDTH_PX,
   FEEDBACK_CARD_VIEWPORT_MARGIN_PX,
   TRIGGER_DOCK_OVERSCROLL_PX,
@@ -467,20 +466,22 @@ export function createFeedbackCardPlacement(
       : estimatedHeight,
     Math.max(1, viewport.height - FEEDBACK_CARD_VIEWPORT_MARGIN_PX * 2),
   );
+  // Card anchors one of its corners to the trigger's bounding rect so that
+  // the trigger physically sits at the corner of the card (acting as the
+  // close X). spaceRight/spaceLeft/spaceBelow/spaceAbove are measured from the
+  // trigger anchor edges instead of subtracting a gap.
   const spaceRight = viewportRight - triggerRect.left;
   const spaceLeft = triggerRect.left + triggerRect.width - viewportLeft;
-  const spaceBelow =
-    viewportBottom -
-    (triggerRect.top + triggerRect.height + FEEDBACK_CARD_GAP_PX);
-  const spaceAbove = triggerRect.top - FEEDBACK_CARD_GAP_PX - viewportTop;
+  const spaceBelow = viewportBottom - triggerRect.top;
+  const spaceAbove = triggerRect.top + triggerRect.height - viewportTop;
   const opensRight = spaceRight >= cardWidth || spaceRight >= spaceLeft;
   const opensDown = spaceBelow >= cardHeight || spaceBelow >= spaceAbove;
   const rawLeft = opensRight
     ? triggerRect.left
     : triggerRect.left + triggerRect.width - cardWidth;
   const rawTop = opensDown
-    ? triggerRect.top + triggerRect.height + FEEDBACK_CARD_GAP_PX
-    : triggerRect.top - cardHeight - FEEDBACK_CARD_GAP_PX;
+    ? triggerRect.top
+    : triggerRect.top + triggerRect.height - cardHeight;
   const maxLeft = Math.max(viewportLeft, viewportRight - cardWidth);
   const maxTop = Math.max(viewportTop, viewportBottom - cardHeight);
   const left = clamp(rawLeft, viewportLeft, maxLeft);

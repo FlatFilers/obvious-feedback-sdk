@@ -56,9 +56,7 @@ export function getVisualSuggestionTargetKind(
     return "text";
   }
   const text = getVisualSuggestionElementLabel(element);
-  const rect = element.getBoundingClientRect();
-  const hasTextOnlyShape =
-    text.length > 0 && rect.height <= 72 && element.children.length <= 2;
+  const hasTextOnlyShape = text.length > 0 && element.children.length <= 2;
   return hasTextOnlyShape ? "text" : "container";
 }
 

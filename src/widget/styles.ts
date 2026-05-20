@@ -49,6 +49,63 @@ export function createStyles(): string {
       background: var(--obv-feedback-bg-subtle);
       transform: translateY(-1px);
     }
+    /* When the card is open the trigger sits at the card's anchor corner
+       acting as the close X. Strip its border, background, and shadow so
+       it reads as part of the card surface rather than a separate floating
+       button. The X icon picks up the muted kicker tone so it sits in the
+       same visual band as the FEEDBACK label.
+
+       NB: do NOT override position here. The base rule sets position: fixed
+       and the card-placement math (createFeedbackCardPlacement) anchors the
+       card off the trigger's bounding rect. Switching to position: relative
+       knocks the trigger out of its fixed anchor and moves the card with it. */
+    .obv-trigger[data-card-open] {
+      border-color: transparent;
+      background: transparent;
+      color: var(--obv-feedback-muted);
+      box-shadow: none;
+      transform: none;
+    }
+    /* Hover/active/focus feedback is rendered on an inset pseudo-element so
+       it stays well inside the card's rounded corner. Painting the bg on
+       the full 44px trigger would spill past the card's 18px corner curve
+       and look like a separate floating pill again. The 44px hit area is
+       preserved for pointers and touch. */
+    .obv-trigger[data-card-open]::before {
+      content: "";
+      position: absolute;
+      inset: 8px;
+      border-radius: 999px;
+      background: transparent;
+      transition: background 140ms ease;
+      pointer-events: none;
+    }
+    .obv-trigger[data-card-open]:hover {
+      border-color: transparent;
+      background: transparent;
+      color: var(--obv-feedback-text);
+      transform: none;
+    }
+    .obv-trigger[data-card-open]:hover::before {
+      background: var(--obv-feedback-bg-subtle);
+    }
+    .obv-trigger[data-card-open]:active {
+      background: transparent;
+      transform: scale(0.96);
+    }
+    .obv-trigger[data-card-open]:active::before {
+      background: var(--obv-feedback-bg-subtle);
+    }
+    .obv-trigger[data-card-open]:focus-visible {
+      border-color: transparent;
+      box-shadow: none;
+    }
+    .obv-trigger[data-card-open]:focus-visible::before {
+      background: var(--obv-feedback-bg-subtle);
+      box-shadow: 0 0 0 2px var(--obv-feedback-focus);
+    }
+    /* The draft ring is redundant while the card (and its draft list) is open. */
+    .obv-trigger[data-card-open] .obv-trigger-ring { display: none; }
     .obv-trigger[data-trigger-hidden] {
       transition: left 160ms cubic-bezier(0.2, 0.8, 0.2, 1), top 160ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 120ms ease, box-shadow 120ms ease, background 120ms ease, color 120ms ease, transform 120ms ease;
     }
@@ -99,8 +156,20 @@ export function createStyles(): string {
       display: block; width: 16px; height: 16px; flex: 0 0 16px;
       fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
-    .obv-trigger-icon { display: inline-flex; align-items: center; justify-content: center; color: currentColor; }
+    .obv-trigger-icon {
+      position: relative; display: inline-flex; align-items: center; justify-content: center;
+      width: 18px; height: 18px; color: currentColor;
+    }
+    .obv-trigger-icon-glyph {
+      position: absolute; inset: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: opacity 200ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
     .obv-trigger-icon .obv-icon { width: 18px; height: 18px; }
+    .obv-trigger-icon-glyph-pencil { opacity: 1; transform: rotate(0deg) scale(1); }
+    .obv-trigger-icon-glyph-close { opacity: 0; transform: rotate(-45deg) scale(0.85); }
+    .obv-trigger[data-card-open] .obv-trigger-icon-glyph-pencil { opacity: 0; transform: rotate(45deg) scale(0.85); }
+    .obv-trigger[data-card-open] .obv-trigger-icon-glyph-close { opacity: 1; transform: rotate(0deg) scale(1); }
     .obv-trigger-ring {
       position: absolute; inset: -4px; border-radius: 999px; pointer-events: none;
       border: 1.5px solid color-mix(in srgb, var(--obv-feedback-primary) 55%, transparent);
@@ -115,9 +184,66 @@ export function createStyles(): string {
     .obv-trigger[data-assistant-position="top-right"] { top: 96px; bottom: auto; }
     .obv-trigger[data-assistant-position="top-left"] { top: 96px; left: 20px; right: auto; bottom: auto; }
     .obv-card {
-      position: fixed; right: 20px; bottom: 150px; width: min(392px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: visible; z-index: 2147483647;
+      position: fixed; right: 20px; bottom: 150px; width: min(392px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: visible; z-index: 2147483646;
       background: var(--obv-feedback-bg); color: var(--obv-feedback-text); border: 1px solid var(--obv-feedback-border); border-radius: var(--obv-feedback-radius-card);
       box-shadow: var(--obv-feedback-shadow); padding: 18px; box-sizing: border-box;
+      transform-origin: 100% 100%;
+    }
+    /* The card's anchor corner overlaps the trigger so that the trigger
+       physically sits at one corner of the card and acts as its close X.
+       transform-origin is set to that anchor corner so the card scales into
+       and out of the trigger position. */
+    .obv-card[data-dialog-direction="up-left"] { transform-origin: 100% 100%; }
+    .obv-card[data-dialog-direction="up-right"] { transform-origin: 0% 100%; }
+    .obv-card[data-dialog-direction="down-left"] { transform-origin: 100% 0%; }
+    .obv-card[data-dialog-direction="down-right"] { transform-origin: 0% 0%; }
+    /* Reserve space at the corner where the trigger lives so card content
+       (submit button / kicker) does not collide with the trigger circle. */
+    .obv-card[data-dialog-direction="up-left"] .obv-list-footer { padding-right: 56px; }
+    .obv-card[data-dialog-direction="up-right"] .obv-list-footer { padding-left: 56px; }
+    .obv-card[data-dialog-direction="down-left"] .obv-card-header { padding-right: 56px; }
+    .obv-card[data-dialog-direction="down-right"] .obv-card-header { padding-left: 56px; }
+    .obv-card[data-card-anim="enter"] {
+      animation: obvCardEnter 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      will-change: transform, border-radius, opacity;
+    }
+    .obv-card[data-card-anim="exit"] {
+      animation: obvCardExit 200ms cubic-bezier(0.4, 0, 0.6, 1) both;
+      will-change: transform, border-radius, opacity;
+      pointer-events: none;
+    }
+    .obv-card[data-card-anim="enter"] > * {
+      animation: obvCardContentFade 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
+      animation-delay: 110ms;
+    }
+    @keyframes obvCardEnter {
+      0% {
+        opacity: 0;
+        transform: scale(var(--obv-card-anim-scale-x, 0.12), var(--obv-card-anim-scale-y, 0.16));
+        border-radius: 999px;
+      }
+      35% { opacity: 1; }
+      100% {
+        opacity: 1;
+        transform: scale(1, 1);
+        border-radius: var(--obv-feedback-radius-card);
+      }
+    }
+    @keyframes obvCardExit {
+      0% {
+        opacity: 1;
+        transform: scale(1, 1);
+        border-radius: var(--obv-feedback-radius-card);
+      }
+      100% {
+        opacity: 0;
+        transform: scale(var(--obv-card-anim-scale-x, 0.12), var(--obv-card-anim-scale-y, 0.16));
+        border-radius: 999px;
+      }
+    }
+    @keyframes obvCardContentFade {
+      0% { opacity: 0; }
+      100% { opacity: 1; }
     }
     /* Inner scroll container: moves overflow out of .obv-card so footer tool ::after tooltips are not clipped */
     .obv-card-scroll { overflow-y: auto; max-height: calc(100vh - 76px); }
@@ -468,6 +594,14 @@ export function createStyles(): string {
       cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease;
       box-sizing: border-box;
     }
+    .obv-pin[data-fresh="true"] {
+      animation: obvPinEnter 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+    @keyframes obvPinEnter {
+      0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+      60% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+      100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
     .obv-pin:hover { transform: translate(-50%, -50%) scale(1.12); box-shadow: 0 4px 14px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.08); }
     .obv-pin:focus-visible { outline: 2px solid var(--obv-feedback-focus); outline-offset: 2px; }
     .obv-pin[data-active="true"] {
@@ -494,6 +628,23 @@ export function createStyles(): string {
       border-radius: var(--obv-feedback-radius-card); box-shadow: var(--obv-feedback-shadow);
       padding: 10px 12px 10px; box-sizing: border-box;
       font-family: inherit;
+      animation: obvPopupEnter 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+      transform-origin: 50% 0%;
+    }
+    .obv-inline-popup[data-placement="above"] { transform-origin: 50% 100%; }
+    .obv-inline-popup[data-anim-ready="true"] {
+      transition: top 220ms cubic-bezier(0.32, 0.72, 0, 1), left 220ms cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    @keyframes obvPopupEnter {
+      0% { opacity: 0; transform: scale(0.92) translateY(-4px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .obv-inline-popup[data-placement="above"] {
+      animation-name: obvPopupEnterAbove;
+    }
+    @keyframes obvPopupEnterAbove {
+      0% { opacity: 0; transform: scale(0.92) translateY(4px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
     }
     .obv-inline-popup[data-shake="true"] { animation: obvInlinePopupShake 280ms ease-out; }
     @keyframes obvInlinePopupShake {
@@ -576,6 +727,17 @@ export function createStyles(): string {
       min-height: 28px; padding: 4px 10px; font-size: 12px; gap: 4px;
     }
     .obv-inline-popup .obv-button .obv-icon { width: 14px; height: 14px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .obv-trigger,
+      .obv-trigger-icon-glyph,
+      .obv-card,
+      .obv-pin,
+      .obv-inline-popup {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
   `;
 }
 

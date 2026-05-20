@@ -41,7 +41,6 @@ import {
   DRAFT_ROUND_STORAGE_PREFIX,
   FEEDBACK_ATTACHMENT_SESSION_PREFIX,
   FEEDBACK_ATTACHMENT_UPLOAD_TIMEOUT_MS,
-  FEEDBACK_CARD_GAP_PX,
   FEEDBACK_CARD_MAX_WIDTH_PX,
   FEEDBACK_CARD_VIEWPORT_MARGIN_PX,
   FEEDBACK_FORM_ESTIMATED_HEIGHT_PX,
@@ -456,6 +455,8 @@ export class ObviousFeedbackWidget {
   private pinScrollListenerInstalled = false;
   private inlinePopupShakeUntil = 0;
   private inlinePopupDraft: string = "";
+  private inlinePopupAnimReady = false;
+  private readonly freshPinIds: Set<string> = new Set();
   private readonly visualSuggestions: VisualSuggestionManager | null;
   private activeVisualSuggestionItemId: string | null = null;
   private visualSuggestionTargetOptions: VisualSuggestionTargetOption[] = [];
@@ -625,7 +626,8 @@ export class ObviousFeedbackWidget {
       draftCount > 0
         ? `<span class="obv-trigger-ring" data-status="draft" aria-hidden="true"></span>`
         : "";
-    return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? "draft" : "idle"}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})"${this.isCardOpen() ? ' data-card-open="true"' : ""}${isHidden ? ` data-trigger-hidden="true" data-trigger-dock-side="${escapeHtml(this.triggerPosition.dockSide ?? "")}"` : ""}${isHidden && this.hiddenTriggerPeeking ? ' data-trigger-peeking="true"' : ""} style="${createTriggerPositionStyle(triggerPosition)}"><span class="obv-trigger-icon" aria-hidden="true">${createIcon("compose")}</span>${draftIndicator}</button>`;
+    const triggerIconHtml = `<span class="obv-trigger-icon" aria-hidden="true"><span class="obv-trigger-icon-glyph obv-trigger-icon-glyph-pencil">${createIcon("compose")}</span><span class="obv-trigger-icon-glyph obv-trigger-icon-glyph-close">${createIcon("close")}</span></span>`;
+    return `<button class="obv-trigger" data-assistant-position="${escapeHtml(this.config.assistantPosition)}" data-trigger-corner="${escapeHtml(this.triggerPosition.corner)}" data-issue-status="${draftCount > 0 ? "draft" : "idle"}" type="button" aria-label="${escapeHtml(this.getTriggerStatusLabel())}" data-tooltip="Feedback (${this.getShortcutLabel()})"${this.isCardOpen() ? ' data-card-open="true"' : ""}${isHidden ? ` data-trigger-hidden="true" data-trigger-dock-side="${escapeHtml(this.triggerPosition.dockSide ?? "")}"` : ""}${isHidden && this.hiddenTriggerPeeking ? ' data-trigger-peeking="true"' : ""} style="${createTriggerPositionStyle(triggerPosition)}">${triggerIconHtml}${draftIndicator}</button>`;
   }
 
   private updateTriggerPeekState(nextPeeking: boolean): void {
@@ -908,7 +910,7 @@ export class ObviousFeedbackWidget {
     ) {
       event.preventDefault();
       if (this.isCardOpen()) {
-        this.renderTrigger();
+        this.dismissCard();
       } else {
         this.openCard();
       }
@@ -992,11 +994,92 @@ export class ObviousFeedbackWidget {
       this.handleAnnotationModeTriggerClick();
       return;
     }
+    if (this.isCardOpen()) {
+      this.dismissCard();
+      return;
+    }
     if (this.shouldEnterAnnotationModeOnTrigger()) {
       this.enterAnnotationMode();
       return;
     }
     this.openCard();
+  }
+
+  private dismissCard(): void {
+    const card = queryHtmlElement(this.shadowRoot, ".obv-card");
+    if (!card) {
+      this.renderTrigger();
+      return;
+    }
+    if (this.shouldReduceMotion()) {
+      this.renderTrigger();
+      return;
+    }
+    const trigger = queryHtmlElement(this.shadowRoot, ".obv-trigger");
+    if (trigger) {
+      trigger.removeAttribute("data-card-open");
+    }
+    this.applyCardFlipVariables(card, trigger);
+    card.setAttribute("data-card-anim", "exit");
+    let finalized = false;
+    const finalize = (): void => {
+      if (finalized) return;
+      finalized = true;
+      card.removeEventListener("animationend", finalize);
+      this.renderTrigger();
+    };
+    card.addEventListener("animationend", finalize, { once: true });
+    window.setTimeout(finalize, 260);
+  }
+
+  private shouldReduceMotion(): boolean {
+    return (
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+  }
+
+  private applyCardFlipVariables(
+    card: HTMLElement,
+    trigger: HTMLElement | null,
+  ): void {
+    if (!trigger) {
+      return;
+    }
+    if (
+      typeof card.getBoundingClientRect !== "function" ||
+      typeof trigger.getBoundingClientRect !== "function" ||
+      typeof card.style?.setProperty !== "function"
+    ) {
+      return;
+    }
+    const cardRect = card.getBoundingClientRect();
+    const triggerRect = trigger.getBoundingClientRect();
+    if (
+      cardRect.width <= 0 ||
+      cardRect.height <= 0 ||
+      triggerRect.width <= 0 ||
+      triggerRect.height <= 0
+    ) {
+      return;
+    }
+    // The card's anchor corner is overlapping the trigger anchor corner. We
+    // scale non-uniformly so the card collapses to a square the size of the
+    // trigger (giving a clean circular shape with border-radius). transform-
+    // origin is configured in CSS per dialog direction, so no translate is
+    // needed.
+    const scaleX = triggerRect.width / cardRect.width;
+    const scaleY = triggerRect.height / cardRect.height;
+    card.style.setProperty("--obv-card-anim-scale-x", scaleX.toFixed(4));
+    card.style.setProperty("--obv-card-anim-scale-y", scaleY.toFixed(4));
+  }
+
+  private clearCardFlipVariables(card: HTMLElement): void {
+    if (typeof card.style?.removeProperty !== "function") {
+      return;
+    }
+    card.style.removeProperty("--obv-card-anim-scale-x");
+    card.style.removeProperty("--obv-card-anim-scale-y");
   }
 
   private inlineAnnotationsEnabled(): boolean {
@@ -1074,6 +1157,9 @@ export class ObviousFeedbackWidget {
     if (!card) {
       return;
     }
+    if (card.hasAttribute("data-card-anim")) {
+      return;
+    }
     const measuredSize = { width: card.offsetWidth, height: card.offsetHeight };
     const placement = this.getFeedbackCardPlacement("form", measuredSize);
     card.setAttribute("style", placement.style);
@@ -1105,13 +1191,57 @@ export class ObviousFeedbackWidget {
     `;
 
     this.installGlobalFileDropGuards();
-    this.bindTrigger(() => this.renderTrigger());
+    this.bindTrigger(() => this.dismissCard());
     this.bindPinLayer();
     this.bindUnifiedPanel();
+    // The initial placement above used an estimated height. Re-place once
+    // synchronously now that we can measure the real rendered card so the
+    // anchor corner lines up with the trigger before the enter animation
+    // begins. Without this the card animates to the wrong final position.
+    this.placeAnchoredFeedbackCardNow();
     if (!wasOpen) {
+      this.playCardEnterAnimation();
       this.refreshIssueHistoryStatuses().catch(() => undefined);
     }
     this.observeAnchoredFeedbackCard();
+  }
+
+  private placeAnchoredFeedbackCardNow(): void {
+    const card = queryHtmlElement(this.shadowRoot, ".obv-card");
+    if (!card) return;
+    const width = card.offsetWidth;
+    const height = card.offsetHeight;
+    if (
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      width <= 0 ||
+      height <= 0
+    ) {
+      return;
+    }
+    const placement = this.getFeedbackCardPlacement("form", {
+      width,
+      height,
+    });
+    card.setAttribute("style", placement.style);
+    card.setAttribute("data-dialog-direction", placement.direction);
+    card.setAttribute("data-trigger-corner", this.triggerPosition.corner);
+  }
+
+  private playCardEnterAnimation(): void {
+    const card = queryHtmlElement(this.shadowRoot, ".obv-card");
+    if (!card) return;
+    if (this.shouldReduceMotion()) return;
+    const trigger = queryHtmlElement(this.shadowRoot, ".obv-trigger");
+    this.applyCardFlipVariables(card, trigger);
+    card.setAttribute("data-card-anim", "enter");
+    const clear = (): void => {
+      card.removeAttribute("data-card-anim");
+      this.clearCardFlipVariables(card);
+      card.removeEventListener("animationend", clear);
+    };
+    card.addEventListener("animationend", clear, { once: true });
+    window.setTimeout(clear, 360);
   }
 
   private renderUnifiedPanel(): string {
@@ -1132,7 +1262,6 @@ export class ObviousFeedbackWidget {
           <div class="obv-card-scroll">
             <div class="obv-card-header">
               <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
-              <button class="obv-icon-button obv-card-close" type="button" data-close-panel="true" data-tooltip="Close · ${escapeHtml(closeShortcut)}" aria-label="Close feedback (${escapeHtml(closeShortcut)})">${createIcon("close")}</button>
             </div>
             <div class="obv-success">
               <div class="obv-success-message">${createIcon("check")} Sent to Autobuild</div>
@@ -1147,13 +1276,11 @@ export class ObviousFeedbackWidget {
       `;
     }
 
-    const closeShortcut = this.getShortcutLabel();
     return `
       <div class="obv-unified-panel">
         <div class="obv-card-scroll">
           <div class="obv-card-header">
             <div class="obv-kicker">${escapeHtml(this.activeSillyFeedbackMessage ?? "Feedback")}</div>
-            <button class="obv-icon-button obv-card-close" type="button" data-close-panel="true" data-tooltip="Close · ${escapeHtml(closeShortcut)}" aria-label="Close feedback (${escapeHtml(closeShortcut)})">${createIcon("close")}</button>
           </div>
           ${this.config.previewOnly ? `<div class="obv-preview-note">${escapeHtml(this.config.previewOnlyReason)}</div>` : ""}
           ${this.feedbackFormError ? `<div class="obv-form-error" role="alert">${escapeHtml(this.feedbackFormError)}</div>` : ""}
@@ -4543,6 +4670,7 @@ export class ObviousFeedbackWidget {
     this.annotationModeActive = false;
     this.annotationReturnToCardAfterSubmit = false;
     this.inlineAnnotationOpen = false;
+    this.inlinePopupAnimReady = false;
     this.editingPinItemId = null;
     this.pendingPinSourceItemId = null;
     this.pendingPinAnchor = null;
@@ -4559,6 +4687,9 @@ export class ObviousFeedbackWidget {
   }
 
   private renderAnnotationModeShell(): void {
+    if (!this.inlineAnnotationOpen) {
+      this.inlinePopupAnimReady = false;
+    }
     this.elementPickerOpen = true;
     this.activePanel = null;
     const pinnedCount = this.getPinnedItemsWithIndex().length;
@@ -4720,8 +4851,9 @@ export class ObviousFeedbackWidget {
     const placementAttr = placement.placement;
     const shakeAttr =
       Date.now() < this.inlinePopupShakeUntil ? ' data-shake="true"' : "";
+    const animReadyAttr = this.inlinePopupAnimReady ? "true" : "false";
     return `
-      <div class="obv-inline-popup" data-annotation-popup="true" data-placement="${escapeHtml(placementAttr)}" data-fixed="${anchorRect.fixed ? "true" : "false"}"${shakeAttr} role="dialog" aria-modal="false" aria-label="${escapeHtml(isEditing ? `Edit annotation for ${elementName}` : `Add annotation for ${elementName}`)}" style="${positionStyle}">
+      <div class="obv-inline-popup" data-annotation-popup="true" data-placement="${escapeHtml(placementAttr)}" data-fixed="${anchorRect.fixed ? "true" : "false"}" data-anim-ready="${animReadyAttr}"${shakeAttr} role="dialog" aria-modal="false" aria-label="${escapeHtml(isEditing ? `Edit annotation for ${elementName}` : `Add annotation for ${elementName}`)}" style="${positionStyle}">
         <div class="obv-inline-popup-arrow" style="${arrowStyle}" aria-hidden="true"></div>
         <div class="obv-inline-popup-header">
           <span class="obv-inline-popup-icon" aria-hidden="true">${createIcon("element")}</span>
@@ -4894,6 +5026,13 @@ export class ObviousFeedbackWidget {
     );
     if (!(popup instanceof HTMLElement)) {
       return;
+    }
+    if (!this.inlinePopupAnimReady) {
+      window.requestAnimationFrame(() => {
+        if (!popup.isConnected) return;
+        this.inlinePopupAnimReady = true;
+        popup.setAttribute("data-anim-ready", "true");
+      });
     }
     const textarea = popup.querySelector(
       '[data-inline-popup-textarea="true"]',
@@ -5091,6 +5230,7 @@ export class ObviousFeedbackWidget {
               }
             : item,
         );
+        this.freshPinIds.add(targetId);
         this.pendingPinAnchor = null;
         this.pendingPinSourceItemId = null;
         this.inlinePopupDraft = "";
@@ -5111,6 +5251,7 @@ export class ObviousFeedbackWidget {
         visualSuggestions.length > 0 ? visualSuggestions : undefined,
       pin,
     };
+    this.freshPinIds.add(newItem.id);
     const shouldOpenCardAfterSubmit =
       this.annotationReturnToCardAfterSubmit ||
       this.getPinnedItemsWithIndex().length === 0;
@@ -5190,7 +5331,10 @@ export class ObviousFeedbackWidget {
           : `<span class="obv-pin-tooltip" aria-hidden="true"><span class="obv-pin-tooltip-index">#${entry.index}</span></span>`;
       const label =
         previewSnippet.length > 0 ? previewSnippet : "annotation";
-      const button = `<button class="obv-pin" data-pin-item-id="${escapeHtml(entry.item.id)}" type="button" style="left: ${pin.xPct.toFixed(3)}%; top: ${Math.round(pin.yPx)}px;"${isActive ? ' data-active="true"' : ""} aria-label="Edit annotation ${entry.index}: ${escapeHtml(label)}"><span class="obv-pin-number">${entry.index}</span>${tooltipHtml}</button>`;
+      const freshAttr = this.freshPinIds.has(entry.item.id)
+        ? ' data-fresh="true"'
+        : "";
+      const button = `<button class="obv-pin" data-pin-item-id="${escapeHtml(entry.item.id)}" type="button" style="left: ${pin.xPct.toFixed(3)}%; top: ${Math.round(pin.yPx)}px;"${isActive ? ' data-active="true"' : ""}${freshAttr} aria-label="Edit annotation ${entry.index}: ${escapeHtml(label)}"><span class="obv-pin-number">${entry.index}</span>${tooltipHtml}</button>`;
       if (pin.isFixed) {
         fixedMarkers.push(button);
       } else {
@@ -5222,7 +5366,15 @@ export class ObviousFeedbackWidget {
       pin.addEventListener("pointerdown", (event) => {
         event.stopPropagation();
       });
+      if (pin.hasAttribute("data-fresh")) {
+        pin.addEventListener(
+          "animationend",
+          () => pin.removeAttribute("data-fresh"),
+          { once: true },
+        );
+      }
     });
+    this.freshPinIds.clear();
   }
 
   private handlePinClick(itemId: string): void {
