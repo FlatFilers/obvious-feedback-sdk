@@ -140,6 +140,50 @@ export class VisualSuggestionManager {
     this.items = suggestions.map((suggestion) => ({ ...suggestion }));
   }
 
+  applySuggestions(
+    target: HTMLElement,
+    ref: FeedbackVisualSuggestionElementRef,
+    suggestions: readonly FeedbackVisualSuggestion[],
+  ): void {
+    this.active = this.createActiveElementState(target, ref);
+    this.items = suggestions.map((suggestion) => ({ ...suggestion }));
+    const active = this.active;
+    if (!active) return;
+
+    for (const suggestion of suggestions) {
+      const appliedTargets: PersistentPreviewEntry["targets"] = [];
+      const existingPreview = this.previews.get(suggestion.id);
+      for (const target of active.targets) {
+        const targetOriginal = target.originals.get(suggestion.property);
+        if (!targetOriginal) continue;
+        const existingTarget = existingPreview?.targets.find(
+          (entry) => entry.element === target.element,
+        );
+        try {
+          target.element.style.setProperty(
+            suggestion.property,
+            suggestion.suggestedValue,
+          );
+          appliedTargets.push({
+            element: target.element,
+            previousInlineValue:
+              existingTarget?.previousInlineValue ??
+              targetOriginal.previousInlineValue,
+          });
+        } catch {
+          // Keep previewing the other matched elements.
+        }
+      }
+      this.previews.set(suggestion.id, {
+        id: suggestion.id,
+        elementId: suggestion.element.id,
+        property: suggestion.property,
+        targets: appliedTargets,
+        appliedValue: suggestion.suggestedValue,
+      });
+    }
+  }
+
   closeActiveElement(): void {
     this.active = null;
   }

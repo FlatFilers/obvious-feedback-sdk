@@ -46,6 +46,91 @@ test.describe("Inline pin annotations", () => {
     ).toHaveValue("This title is hard to read");
   });
 
+  test("annotation popup previews visual changes", async ({ page }) => {
+    await page.goto(FIXTURE_URL, { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#status")).toHaveText(
+      "SDK initialized successfully.",
+    );
+
+    await page.locator(".obv-trigger").click();
+    const titleBox = await page.locator("#card-title").boundingBox();
+    expect(titleBox).not.toBeNull();
+    if (!titleBox) return;
+    await page.mouse.click(
+      titleBox.x + titleBox.width / 2,
+      titleBox.y + titleBox.height / 2,
+    );
+
+    const popup = page.locator('[data-annotation-popup="true"]');
+    await popup.locator('[data-inline-popup-textarea="true"]').fill("Make it pop");
+
+    const fontSizeSlider = popup.locator('[data-inline-vs-slider="font-size"]');
+    await expect(fontSizeSlider).toBeVisible();
+    await fontSizeSlider.evaluate((element) => {
+      if (!(element instanceof HTMLInputElement)) return;
+      element.value = "28";
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await expect(page.locator("#card-title")).toHaveCSS("font-size", "28px");
+    await popup.locator('[data-inline-popup-submit="true"]').click();
+
+    await expect(page.locator(".obv-row-pill").first()).toContainText(
+      "Font size",
+    );
+    await expect(page.locator(".obv-row-pill-vs")).toHaveCount(0);
+
+    await page.locator(".obv-row-pill").first().click();
+    await expect(
+      popup.locator('[data-inline-vs-slider="font-size"]'),
+    ).toBeVisible();
+    await popup.locator('[data-inline-popup-cancel="true"]').click();
+    await expect(page.locator("#card-title")).toHaveCSS("font-size", "28px");
+  });
+
+  test("removing an element pill target keeps the comment text", async ({
+    page,
+  }) => {
+    await page.goto(FIXTURE_URL, { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#status")).toHaveText(
+      "SDK initialized successfully.",
+    );
+
+    await page.locator(".obv-trigger").click();
+    const titleBox = await page.locator("#card-title").boundingBox();
+    expect(titleBox).not.toBeNull();
+    if (!titleBox) return;
+    await page.mouse.click(
+      titleBox.x + titleBox.width / 2,
+      titleBox.y + titleBox.height / 2,
+    );
+
+    const popup = page.locator('[data-annotation-popup="true"]');
+    await popup
+      .locator('[data-inline-popup-textarea="true"]')
+      .fill("Keep this text");
+
+    const fontSizeSlider = popup.locator('[data-inline-vs-slider="font-size"]');
+    await expect(fontSizeSlider).toBeVisible();
+    await fontSizeSlider.evaluate((element) => {
+      if (!(element instanceof HTMLInputElement)) return;
+      element.value = "28";
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await popup.locator('[data-inline-popup-submit="true"]').click();
+
+    await page.locator(".obv-row-pill-x").first().click();
+
+    await expect(page.locator(".obv-row-input").first()).toHaveValue(
+      "Keep this text",
+    );
+    await expect(page.locator(".obv-row-pill")).toHaveCount(0);
+    await expect(page.locator(".obv-pin")).toHaveCount(0);
+    await expect(page.locator("#card-title")).toHaveCSS("font-size", "16px");
+  });
+
   test("clicking or pressing Enter in a pinned list row does not open the popup", async ({ page }) => {
     await page.goto(FIXTURE_URL, { waitUntil: "domcontentloaded" });
     await expect(page.locator("#status")).toHaveText(
@@ -157,7 +242,11 @@ test.describe("Inline pin annotations", () => {
 
     await reopened
       .locator('[data-inline-popup-textarea="true"]')
-      .fill("First (edited)");
+      .evaluate((element) => {
+        if (!(element instanceof HTMLTextAreaElement)) return;
+        element.value = "First (edited)";
+        element.dispatchEvent(new Event("input", { bubbles: true }));
+      });
     await reopened.locator('[data-inline-popup-submit="true"]').click();
 
     await page.locator('[data-annotation-open-card="true"]').click();

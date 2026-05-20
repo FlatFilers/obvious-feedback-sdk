@@ -1742,7 +1742,9 @@ export class ObviousFeedbackWidget {
     this.shadowRoot
       .querySelectorAll("[data-item-remove-grab]")
       .forEach((button) => {
-        button.addEventListener("click", () => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          event.preventDefault();
           const value = button.getAttribute(
             "data-item-remove-grab",
           );
@@ -1756,6 +1758,15 @@ export class ObviousFeedbackWidget {
               );
               if (item.elementGrabs.length === 0) {
                 item.elementGrabs = undefined;
+              }
+              if (item.pin?.elementGrabId === grabId) {
+                if (item.visualSuggestions) {
+                  this.visualSuggestions?.removeSuggestions(
+                    item.visualSuggestions.map((suggestion) => suggestion.id),
+                  );
+                }
+                item.pin = undefined;
+                item.visualSuggestions = undefined;
               }
             }
             this.persistDraftRound();
@@ -2330,6 +2341,48 @@ export class ObviousFeedbackWidget {
     this.persistDraftRound();
   }
 
+  private activateInlineVisualSuggestionsForItem(item: FeedbackRoundItem): void {
+    const manager = this.visualSuggestions;
+    const pin = item.pin;
+    if (!manager || !pin) return;
+    const grab = item.elementGrabs?.find(
+      (candidate) => candidate.id === pin.elementGrabId,
+    );
+    if (!grab) return;
+    const liveElement = resolvePinElement(grab.cssSelector, null);
+    if (!(liveElement instanceof HTMLElement)) return;
+    this.visualSuggestionTargetOptions = [];
+    this.visualSuggestionScopeOptions = [];
+    if (item.visualSuggestions && item.visualSuggestions.length > 0) {
+      const ref = item.visualSuggestions[0].element;
+      const previewedElement = manager.getPreviewedElement(ref.id);
+      manager.applySuggestions(
+        previewedElement ?? liveElement,
+        ref,
+        item.visualSuggestions,
+      );
+      return;
+    }
+    manager.setActiveElement(liveElement, grab);
+  }
+
+  private saveActiveInlineVisualSuggestionsToItem(itemId: string): void {
+    const manager = this.visualSuggestions;
+    if (!manager?.getActiveElement()) return;
+    const visualSuggestions = manager.commitCurrentLine();
+    this.roundItems = this.roundItems.map((item) =>
+      item.id === itemId
+        ? {
+            ...item,
+            visualSuggestions:
+              visualSuggestions.length > 0 ? visualSuggestions : undefined,
+          }
+        : item,
+    );
+    this.persistDraftRound();
+    this.emitOpenIssueCountChange();
+  }
+
   private closeVisualSuggestionPalette(): void {
     const manager = this.visualSuggestions;
     if (!manager) return;
@@ -2350,12 +2403,19 @@ export class ObviousFeedbackWidget {
     if (item.elementGrabs) {
       for (const grab of item.elementGrabs) {
         const displayName = getElementGrabDisplayName(grab);
+        const visualSummary =
+          item.pin?.elementGrabId === grab.id && item.visualSuggestions
+            ? this.getVisualSuggestionPillSummary(item.visualSuggestions)
+            : null;
+        const pillLabel = visualSummary
+          ? `${displayName} · ${visualSummary}`
+          : displayName;
         const pillActionClass = item.pin ? " obv-row-pill-action" : "";
         const openPinAttrs = item.pin
           ? ` data-pin-comment-open="${escapeHtml(item.id)}" role="button" tabindex="0" aria-label="Open comment for ${escapeHtml(displayName)}"`
           : "";
         pills.push(
-          `<span class="obv-row-pill${pillActionClass}"${openPinAttrs}>${createIcon("element")}<span class="obv-row-pill-label">${escapeHtml(displayName)}</span><button class="obv-row-pill-x" type="button" data-item-remove-grab="${escapeHtml(item.id)}:${escapeHtml(grab.id)}" aria-label="Remove ${escapeHtml(displayName)}">${createIcon("close")}</button></span>`,
+          `<span class="obv-row-pill${pillActionClass}"${openPinAttrs}>${createIcon("element")}<span class="obv-row-pill-label">${escapeHtml(pillLabel)}</span><button class="obv-row-pill-x" type="button" data-item-remove-grab="${escapeHtml(item.id)}:${escapeHtml(grab.id)}" aria-label="Remove ${escapeHtml(displayName)}">${createIcon("close")}</button></span>`,
         );
       }
     }
@@ -2373,7 +2433,7 @@ export class ObviousFeedbackWidget {
         );
       }
     }
-    if (item.visualSuggestions) {
+    if (item.visualSuggestions && !item.pin) {
       for (const group of this.groupVisualSuggestionsByElement(
         item.visualSuggestions,
       )) {
@@ -2392,6 +2452,16 @@ export class ObviousFeedbackWidget {
     return pills.length > 0
       ? `<div class="obv-row-meta">${pills.join("")}</div>`
       : "";
+  }
+
+  private getVisualSuggestionPillSummary(
+    suggestions: readonly FeedbackVisualSuggestion[],
+  ): string {
+    if (suggestions.length === 1) {
+      const property = suggestions[0].property;
+      return VISUAL_SUGGESTION_PROPERTY_LABELS[property] ?? property;
+    }
+    return `${suggestions.length} changes`;
   }
 
   private renderComposePills(): string {
@@ -4531,6 +4601,7 @@ export class ObviousFeedbackWidget {
     this.bindPinLayer();
     if (this.inlineAnnotationOpen) {
       this.bindInlineAnnotationPopup();
+      this.bindInlineVisualSuggestionControls();
     }
   }
 
@@ -4603,6 +4674,7 @@ export class ObviousFeedbackWidget {
     this.inlineAnnotationOpen = true;
     this.inlinePopupDraft = this.getPendingPinSourceText();
     this.clearElementGrabHoverState();
+    await this.activateVisualSuggestionForSelectedElement(target, grab);
     this.renderAnnotationModeShell();
   }
 
@@ -4657,6 +4729,7 @@ export class ObviousFeedbackWidget {
           ${elementMissing}
         </div>
         <textarea class="obv-inline-popup-textarea" data-inline-popup-textarea="true" rows="3" placeholder="What's the feedback?" aria-label="Annotation note">${escapeHtml(draft)}</textarea>
+        ${this.renderInlineVisualSuggestionControls()}
         <div class="obv-inline-popup-actions">
           <div class="obv-inline-popup-actions-primary">
             <span class="obv-inline-popup-hint">${escapeHtml(this.getInlinePopupSubmitHint())}</span>
@@ -4670,6 +4743,67 @@ export class ObviousFeedbackWidget {
 
   private getInlinePopupSubmitHint(): string {
     return this.isMacPlatform() ? "\u2318 + Enter" : "Ctrl + Enter";
+  }
+
+  private renderInlineVisualSuggestionControls(): string {
+    const manager = this.visualSuggestions;
+    const active = manager?.getActiveElement();
+    if (!manager || !active) return "";
+    const targetOption = this.getActiveVisualSuggestionTargetOption();
+    const properties = getVisualSuggestionTargetProperties(
+      active.element,
+      targetOption?.kind ?? getVisualSuggestionTargetKind(active.element),
+    ).filter((property) => getVisualSuggestionSliderConfig(property) !== null);
+    if (properties.length === 0) return "";
+
+    const rows = properties
+      .map((property) => {
+        const label = VISUAL_SUGGESTION_PROPERTY_LABELS[property] ?? property;
+        const sliderConfig = getVisualSuggestionSliderConfig(property);
+        if (!sliderConfig) return "";
+        const displayValue = manager.getCurrentDisplayValue(property);
+        const override = manager.getOverrideForActiveElement(property);
+        const parsed = parseCssNumericValue(displayValue);
+        const sliderMin = sliderConfig.min;
+        const sliderMax = sliderConfig.max;
+        const sliderStep = sliderConfig.step;
+        const sliderUnit = parsed?.unit || sliderConfig.unit || "px";
+        const sliderValue = parsed
+          ? Math.min(sliderMax, Math.max(sliderMin, parsed.value))
+          : sliderMin;
+        const shown = parsed
+          ? parsed.value > sliderMax
+            ? `${formatCssNumericValue(sliderMax, parsed.unit || sliderUnit)}+`
+            : formatCssNumericValue(parsed.value, parsed.unit)
+          : displayValue || "—";
+        const sliderPercent =
+          sliderMax > sliderMin
+            ? ((sliderValue - sliderMin) / (sliderMax - sliderMin)) * 100
+            : 0;
+        return `
+          <div class="obv-inline-vs-row" data-has-override="${override !== null}">
+            <div class="obv-inline-vs-row-top">
+              <span class="obv-inline-vs-label">${escapeHtml(label)}</span>
+              <span class="obv-inline-vs-value" data-inline-vs-value="${escapeHtml(property)}">${escapeHtml(shown)}</span>
+            </div>
+            <div class="obv-inline-vs-control">
+              <input type="range" class="obv-vs-slider obv-inline-vs-slider" data-inline-vs-slider="${escapeHtml(property)}" data-inline-vs-slider-unit="${escapeHtml(sliderUnit)}" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" value="${sliderValue}" style="--obv-vs-slider-percent: ${sliderPercent.toFixed(2)}%" aria-label="Adjust ${escapeHtml(label)}" />
+              <button class="obv-inline-vs-revert" type="button" data-inline-vs-revert="${escapeHtml(property)}" aria-label="Revert ${escapeHtml(label)}">↺</button>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    return `
+      <div class="obv-inline-vs" role="group" aria-label="Preview visual changes">
+        <div class="obv-inline-vs-header">
+          <span>Preview changes</span>
+          <span class="obv-inline-vs-sub">Optional</span>
+        </div>
+        ${rows}
+      </div>
+    `;
   }
 
   private getInlinePopupElementName(item: FeedbackRoundItem | null): string {
@@ -4824,6 +4958,59 @@ export class ObviousFeedbackWidget {
     });
   }
 
+  private bindInlineVisualSuggestionControls(): void {
+    const manager = this.visualSuggestions;
+    if (!manager) return;
+
+    this.shadowRoot
+      .querySelectorAll("[data-inline-vs-revert]")
+      .forEach((button) => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const property = button.getAttribute("data-inline-vs-revert");
+          if (!isVisualSuggestionProperty(property)) return;
+          manager.clearPropertyOverride(property);
+          this.renderAnnotationModeShell();
+        });
+      });
+
+    this.shadowRoot
+      .querySelectorAll("[data-inline-vs-slider]")
+      .forEach((element) => {
+        const property = element.getAttribute("data-inline-vs-slider");
+        if (!isVisualSuggestionProperty(property)) return;
+        const sliderUnit = parseSliderUnit(
+          element.getAttribute("data-inline-vs-slider-unit") ?? "px",
+        );
+        element.addEventListener("input", () => {
+          if (!isInputLikeElement(element)) return;
+          const next = `${element.value}${sliderUnit}`;
+          const min = Number(element.min);
+          const max = Number(element.max);
+          const value = Number(element.value);
+          const percent =
+            Number.isFinite(min) && Number.isFinite(max) && max > min
+              ? ((value - min) / (max - min)) * 100
+              : 0;
+          element.style.setProperty(
+            "--obv-vs-slider-percent",
+            `${Math.min(100, Math.max(0, percent)).toFixed(2)}%`,
+          );
+          manager.setPropertyOverride(property, next);
+          element.closest("[data-has-override]")?.setAttribute(
+            "data-has-override",
+            "true",
+          );
+          const valueElement = this.shadowRoot.querySelector(
+            `[data-inline-vs-value="${property}"]`,
+          );
+          if (valueElement) {
+            valueElement.textContent = next;
+          }
+        });
+      });
+  }
+
   private handleInlineAnnotationSubmit(): void {
     if (this.editingPinItemId !== null) {
       const targetId = this.editingPinItemId;
@@ -4839,8 +5026,19 @@ export class ObviousFeedbackWidget {
         this.shakeInlineAnnotationPopup();
         return;
       }
+      const visualSuggestions =
+        this.visualSuggestions?.commitCurrentLine() ?? [];
       this.roundItems = this.roundItems.map((item) =>
-        item.id === targetId ? { ...item, description } : item,
+        item.id === targetId
+          ? {
+              ...item,
+              description,
+              visualSuggestions:
+                visualSuggestions.length > 0
+                  ? visualSuggestions
+                  : item.visualSuggestions,
+            }
+          : item,
       );
       this.persistDraftRound();
       this.emitOpenIssueCountChange();
@@ -4849,7 +5047,7 @@ export class ObviousFeedbackWidget {
         this.exitAnnotationMode({ openCard: true });
         return;
       }
-      this.closeInlineAnnotationPopup();
+      this.closeInlineAnnotationPopup({ discardVisualSuggestions: false });
       return;
     }
     const pending = this.pendingPinAnchor;
@@ -4872,6 +5070,8 @@ export class ObviousFeedbackWidget {
       isFixed: pending.isFixed,
       elementGrabId: pending.grab.id,
     };
+    const visualSuggestions =
+      this.visualSuggestions?.commitCurrentLine() ?? [];
     const sourceItemId = this.pendingPinSourceItemId;
     if (sourceItemId && sourceItemId !== "__new") {
       const targetId = sourceItemId;
@@ -4883,6 +5083,10 @@ export class ObviousFeedbackWidget {
                 ...item,
                 description: text,
                 elementGrabs: [...(item.elementGrabs ?? []), pending.grab],
+                visualSuggestions:
+                  visualSuggestions.length > 0
+                    ? visualSuggestions
+                    : item.visualSuggestions,
                 pin,
               }
             : item,
@@ -4903,6 +5107,8 @@ export class ObviousFeedbackWidget {
       id: createRoundItemId(),
       description: text,
       elementGrabs: [pending.grab],
+      visualSuggestions:
+        visualSuggestions.length > 0 ? visualSuggestions : undefined,
       pin,
     };
     const shouldOpenCardAfterSubmit =
@@ -4928,8 +5134,20 @@ export class ObviousFeedbackWidget {
     this.renderAnnotationModeShell();
   }
 
-  private closeInlineAnnotationPopup(): void {
+  private closeInlineAnnotationPopup(
+    options: { discardVisualSuggestions?: boolean } = {},
+  ): void {
     if (!this.inlineAnnotationOpen) return;
+    if (this.editingPinItemId !== null) {
+      this.saveActiveInlineVisualSuggestionsToItem(this.editingPinItemId);
+    } else if (options.discardVisualSuggestions !== false) {
+      const active = this.visualSuggestions?.getActiveElement();
+      if (active) {
+        this.visualSuggestions?.removeElement(active.ref.id);
+      }
+    } else {
+      this.visualSuggestions?.closeActiveElement();
+    }
     this.inlineAnnotationOpen = false;
     this.editingPinItemId = null;
     this.pendingPinAnchor = null;
@@ -5027,6 +5245,7 @@ export class ObviousFeedbackWidget {
     this.inlineAnnotationOpen = true;
     this.inlinePopupDraft = item.description;
     this.clearElementGrabHoverState();
+    this.activateInlineVisualSuggestionsForItem(item);
     this.renderAnnotationModeShell();
   }
 
