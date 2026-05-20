@@ -446,8 +446,10 @@ export class ObviousFeedbackWidget {
 
   private elementPickerOpen = false;
   private annotationModeActive = false;
+  private annotationReturnToCardAfterSubmit = false;
   private inlineAnnotationOpen = false;
   private editingPinItemId: string | null = null;
+  private pendingPinSourceItemId: string | "__new" | null = null;
   private pendingPinAnchor: PendingPinAnchor | null = null;
   private pinPositionRafHandle: number | null = null;
   private pinResizeObserver: ResizeObserver | null = null;
@@ -459,6 +461,7 @@ export class ObviousFeedbackWidget {
   private visualSuggestionTargetOptions: VisualSuggestionTargetOption[] = [];
   private visualSuggestionScopeOptions: VisualSuggestionScopeOption[] = [];
   private measureOverlayOpen = false;
+  private measurementSourceItemId: string | "__new" | null = null;
   private measurementItems: FeedbackMeasurement[] = [];
   private newRowDraft = "";
   private rulerLines: RulerLine[] = [];
@@ -1366,6 +1369,10 @@ export class ObviousFeedbackWidget {
         if (!next.closest(".obv-unified-panel")) {
           return;
         }
+        if (next.closest(".obv-list-footer")) {
+          this.focusedItemId = itemId;
+          return;
+        }
         const stillExists = this.roundItems.some(
           (candidate) => candidate.id === itemId,
         );
@@ -1545,6 +1552,63 @@ export class ObviousFeedbackWidget {
         }
       });
     });
+
+    this.shadowRoot
+      .querySelectorAll("[data-pin-comment-open]")
+      .forEach((target) => {
+        target.addEventListener("click", (event) => {
+          if (targetElement(event)?.closest(".obv-row-pill-x")) {
+            return;
+          }
+          const itemId = target.getAttribute("data-pin-comment-open");
+          if (!itemId) return;
+          event.preventDefault();
+          event.stopPropagation();
+          this.openPinnedItemComment(itemId);
+        });
+        target.addEventListener("keydown", (event) => {
+          if (!isKeyboardEvent(event)) return;
+          if (event.key !== "Enter" && event.key !== " ") return;
+          const itemId = target.getAttribute("data-pin-comment-open");
+          if (!itemId) return;
+          event.preventDefault();
+          event.stopPropagation();
+          this.openPinnedItemComment(itemId);
+        });
+      });
+  }
+
+  private openPinnedItemComment(itemId: string): void {
+    const item = this.roundItems.find((candidate) => candidate.id === itemId);
+    if (!item?.pin) return;
+    this.syncAllInputsToRoundItems();
+    this.persistDraftRound();
+    this.pendingPinSourceItemId = null;
+    this.annotationReturnToCardAfterSubmit = true;
+    this.handlePinClick(itemId);
+  }
+
+  private getPendingPinSourceItemId(): string | "__new" | null {
+    if (
+      this.focusedItemId &&
+      this.focusedItemId !== "__new" &&
+      this.roundItems.some((item) => item.id === this.focusedItemId)
+    ) {
+      return this.focusedItemId;
+    }
+    if (this.focusedItemId === "__new" || this.newRowDraft.trim().length > 0) {
+      return "__new";
+    }
+    return null;
+  }
+
+  private getPendingPinSourceText(): string {
+    const sourceId = this.pendingPinSourceItemId;
+    if (!sourceId) return "";
+    if (sourceId === "__new") return this.newRowDraft;
+    return (
+      this.roundItems.find((item) => item.id === sourceId)?.description ?? ""
+    );
   }
 
   private bindFooterTools(): void {
@@ -1552,6 +1616,11 @@ export class ObviousFeedbackWidget {
       .querySelector('[data-element-select-start="true"]')
       ?.addEventListener("click", () => {
         this.syncAllInputsToRoundItems();
+        if (this.inlineAnnotationsEnabled()) {
+          this.pendingPinSourceItemId = this.getPendingPinSourceItemId();
+          this.enterAnnotationMode({ returnToCardAfterSubmit: true });
+          return;
+        }
         this.renderElementPickerOverlay();
       });
     this.shadowRoot
@@ -1567,6 +1636,10 @@ export class ObviousFeedbackWidget {
       .querySelector('[data-measure-start="true"]')
       ?.addEventListener("click", () => {
         this.syncAllInputsToRoundItems();
+        if (this.roundItems.length === 0 && this.newRowDraft.trim().length === 0) {
+          this.focusedItemId = "__new";
+        }
+        this.measurementSourceItemId = this.getPendingPinSourceItemId();
         this.renderRulerOverlay();
       });
     const fileInput = queryInputElement(
@@ -2276,8 +2349,13 @@ export class ObviousFeedbackWidget {
     const pills: string[] = [];
     if (item.elementGrabs) {
       for (const grab of item.elementGrabs) {
+        const displayName = getElementGrabDisplayName(grab);
+        const pillActionClass = item.pin ? " obv-row-pill-action" : "";
+        const openPinAttrs = item.pin
+          ? ` data-pin-comment-open="${escapeHtml(item.id)}" role="button" tabindex="0" aria-label="Open comment for ${escapeHtml(displayName)}"`
+          : "";
         pills.push(
-          `<span class="obv-row-pill">${createIcon("element")}<span class="obv-row-pill-label">${escapeHtml(getElementGrabDisplayName(grab))}</span><button class="obv-row-pill-x" type="button" data-item-remove-grab="${escapeHtml(item.id)}:${escapeHtml(grab.id)}" aria-label="Remove ${escapeHtml(getElementGrabDisplayName(grab))}">${createIcon("close")}</button></span>`,
+          `<span class="obv-row-pill${pillActionClass}"${openPinAttrs}>${createIcon("element")}<span class="obv-row-pill-label">${escapeHtml(displayName)}</span><button class="obv-row-pill-x" type="button" data-item-remove-grab="${escapeHtml(item.id)}:${escapeHtml(grab.id)}" aria-label="Remove ${escapeHtml(displayName)}">${createIcon("close")}</button></span>`,
         );
       }
     }
@@ -3593,11 +3671,31 @@ export class ObviousFeedbackWidget {
       distances,
       viewport: { width: window.innerWidth, height: window.innerHeight },
     };
-    this.measurementItems = [...this.measurementItems, measurement];
+    const sourceItemId = this.measurementSourceItemId;
+    if (sourceItemId && sourceItemId !== "__new") {
+      const targetId = sourceItemId;
+      const existingItem = this.roundItems.find((item) => item.id === targetId);
+      if (existingItem) {
+        this.roundItems = this.roundItems.map((item) =>
+          item.id === targetId
+            ? {
+                ...item,
+                measurements: [...(item.measurements ?? []), measurement],
+              }
+            : item,
+        );
+        this.focusedItemId = targetId;
+      } else {
+        this.measurementItems = [...this.measurementItems, measurement];
+      }
+    } else {
+      this.measurementItems = [...this.measurementItems, measurement];
+    }
     this.rulerLines = [];
     this.selectedRulerId = null;
     this.rulerPreview = null;
     this.draggingRulerId = null;
+    this.measurementSourceItemId = null;
     this.measureOverlayOpen = false;
     this.openCard();
   }
@@ -3607,6 +3705,7 @@ export class ObviousFeedbackWidget {
     this.selectedRulerId = null;
     this.rulerPreview = null;
     this.draggingRulerId = null;
+    this.measurementSourceItemId = null;
     this.measureOverlayOpen = false;
     this.openCard();
   }
@@ -4338,7 +4437,14 @@ export class ObviousFeedbackWidget {
     return pinned;
   }
 
-  private enterAnnotationMode(): void {
+  private enterAnnotationMode(
+    options: { returnToCardAfterSubmit?: boolean } = {},
+  ): void {
+    this.annotationReturnToCardAfterSubmit =
+      options.returnToCardAfterSubmit === true;
+    if (!this.annotationReturnToCardAfterSubmit) {
+      this.pendingPinSourceItemId = null;
+    }
     if (this.annotationModeActive) {
       this.renderAnnotationModeShell();
       return;
@@ -4365,8 +4471,10 @@ export class ObviousFeedbackWidget {
       return;
     }
     this.annotationModeActive = false;
+    this.annotationReturnToCardAfterSubmit = false;
     this.inlineAnnotationOpen = false;
     this.editingPinItemId = null;
+    this.pendingPinSourceItemId = null;
     this.pendingPinAnchor = null;
     this.elementPickerOpen = false;
     this.clearElementGrabHoverState();
@@ -4458,7 +4566,13 @@ export class ObviousFeedbackWidget {
     target: HTMLElement,
     point: FeedbackPointerPoint,
   ): Promise<void> {
-    if (this.roundItems.length >= MAX_ROUND_ITEMS) {
+    const sourceItem =
+      this.pendingPinSourceItemId && this.pendingPinSourceItemId !== "__new"
+        ? this.roundItems.find(
+            (item) => item.id === this.pendingPinSourceItemId,
+          ) ?? null
+        : null;
+    if (this.roundItems.length >= MAX_ROUND_ITEMS && !sourceItem) {
       this.renderAnnotationModeShell();
       return;
     }
@@ -4487,7 +4601,7 @@ export class ObviousFeedbackWidget {
     };
     this.editingPinItemId = null;
     this.inlineAnnotationOpen = true;
-    this.inlinePopupDraft = "";
+    this.inlinePopupDraft = this.getPendingPinSourceText();
     this.clearElementGrabHoverState();
     this.renderAnnotationModeShell();
   }
@@ -4534,9 +4648,6 @@ export class ObviousFeedbackWidget {
     const placementAttr = placement.placement;
     const shakeAttr =
       Date.now() < this.inlinePopupShakeUntil ? ' data-shake="true"' : "";
-    const deleteButton = isEditing
-      ? `<button class="obv-icon-button obv-inline-popup-delete" type="button" data-inline-popup-delete="true" aria-label="Delete annotation" data-tooltip="Delete">${createIcon("close")}</button>`
-      : "";
     return `
       <div class="obv-inline-popup" data-annotation-popup="true" data-placement="${escapeHtml(placementAttr)}" data-fixed="${anchorRect.fixed ? "true" : "false"}"${shakeAttr} role="dialog" aria-modal="false" aria-label="${escapeHtml(isEditing ? `Edit annotation for ${elementName}` : `Add annotation for ${elementName}`)}" style="${positionStyle}">
         <div class="obv-inline-popup-arrow" style="${arrowStyle}" aria-hidden="true"></div>
@@ -4544,11 +4655,9 @@ export class ObviousFeedbackWidget {
           <span class="obv-inline-popup-icon" aria-hidden="true">${createIcon("element")}</span>
           <span class="obv-inline-popup-element">${escapeHtml(elementName)}</span>
           ${elementMissing}
-          <button class="obv-icon-button obv-inline-popup-close" type="button" data-inline-popup-close="true" aria-label="Cancel">${createIcon("close")}</button>
         </div>
         <textarea class="obv-inline-popup-textarea" data-inline-popup-textarea="true" rows="3" placeholder="What's the feedback?" aria-label="Annotation note">${escapeHtml(draft)}</textarea>
         <div class="obv-inline-popup-actions">
-          ${deleteButton}
           <div class="obv-inline-popup-actions-primary">
             <span class="obv-inline-popup-hint">${escapeHtml(this.getInlinePopupSubmitHint())}</span>
             <button class="obv-button obv-button-secondary" type="button" data-inline-popup-cancel="true">Cancel</button>
@@ -4707,20 +4816,6 @@ export class ObviousFeedbackWidget {
         event.stopPropagation();
         this.closeInlineAnnotationPopup();
       });
-    popup
-      .querySelector('[data-inline-popup-close="true"]')
-      ?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        this.closeInlineAnnotationPopup();
-      });
-    popup
-      .querySelector('[data-inline-popup-delete="true"]')
-      ?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if (this.editingPinItemId !== null) {
-          this.handlePinDelete(this.editingPinItemId);
-        }
-      });
     popup.addEventListener("click", (event) => {
       event.stopPropagation();
     });
@@ -4749,6 +4844,11 @@ export class ObviousFeedbackWidget {
       );
       this.persistDraftRound();
       this.emitOpenIssueCountChange();
+      if (this.annotationReturnToCardAfterSubmit) {
+        this.focusedItemId = targetId;
+        this.exitAnnotationMode({ openCard: true });
+        return;
+      }
       this.closeInlineAnnotationPopup();
       return;
     }
@@ -4772,19 +4872,59 @@ export class ObviousFeedbackWidget {
       isFixed: pending.isFixed,
       elementGrabId: pending.grab.id,
     };
+    const sourceItemId = this.pendingPinSourceItemId;
+    if (sourceItemId && sourceItemId !== "__new") {
+      const targetId = sourceItemId;
+      const existingItem = this.roundItems.find((item) => item.id === targetId);
+      if (existingItem) {
+        this.roundItems = this.roundItems.map((item) =>
+          item.id === targetId
+            ? {
+                ...item,
+                description: text,
+                elementGrabs: [...(item.elementGrabs ?? []), pending.grab],
+                pin,
+              }
+            : item,
+        );
+        this.pendingPinAnchor = null;
+        this.pendingPinSourceItemId = null;
+        this.inlinePopupDraft = "";
+        this.inlineAnnotationOpen = false;
+        this.editingPinItemId = null;
+        this.persistDraftRound();
+        this.emitOpenIssueCountChange();
+        this.focusedItemId = targetId;
+        this.exitAnnotationMode({ openCard: true });
+        return;
+      }
+    }
     const newItem: FeedbackRoundItem = {
       id: createRoundItemId(),
       description: text,
       elementGrabs: [pending.grab],
       pin,
     };
+    const shouldOpenCardAfterSubmit =
+      this.annotationReturnToCardAfterSubmit ||
+      this.getPinnedItemsWithIndex().length === 0;
     this.roundItems = [...this.roundItems, newItem];
     this.pendingPinAnchor = null;
+    this.pendingPinSourceItemId = null;
     this.inlinePopupDraft = "";
     this.inlineAnnotationOpen = false;
     this.editingPinItemId = null;
+    if (sourceItemId === "__new") {
+      this.newRowDraft = "";
+      this.clearSubmissionDraftState();
+    }
     this.persistDraftRound();
     this.emitOpenIssueCountChange();
+    if (shouldOpenCardAfterSubmit) {
+      this.focusedItemId = newItem.id;
+      this.exitAnnotationMode({ openCard: true });
+      return;
+    }
     this.renderAnnotationModeShell();
   }
 
@@ -4793,6 +4933,7 @@ export class ObviousFeedbackWidget {
     this.inlineAnnotationOpen = false;
     this.editingPinItemId = null;
     this.pendingPinAnchor = null;
+    this.pendingPinSourceItemId = null;
     this.inlinePopupDraft = "";
     if (this.annotationModeActive) {
       this.renderAnnotationModeShell();
@@ -4868,7 +5009,9 @@ export class ObviousFeedbackWidget {
 
   private handlePinClick(itemId: string): void {
     if (!this.annotationModeActive) {
-      this.enterAnnotationMode();
+      this.enterAnnotationMode({
+        returnToCardAfterSubmit: this.annotationReturnToCardAfterSubmit,
+      });
     }
     if (this.inlineAnnotationOpen && this.editingPinItemId !== itemId) {
       this.shakeInlineAnnotationPopup();

@@ -73,6 +73,79 @@ test.describe("Mock submit flow", () => {
     expect(response.data.attachmentToken).toBeTruthy();
   });
 
+  test("empty compose row remains after cancelling measure spacing", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#status")).toHaveText(
+      "SDK initialized successfully.",
+    );
+
+    await page.locator(".obv-trigger").click();
+    const composeInput = page.locator('[data-item-input="__new"]');
+    await expect(composeInput).toBeVisible();
+    await composeInput.click();
+
+    await page.locator('[data-measure-start="true"]').click();
+    await page.locator('[data-measure-cancel="true"]').click();
+
+    await expect(page.locator('[data-item-input="__new"]')).toBeVisible();
+    await expect(page.locator('[data-item-input="__new"]')).toHaveValue("");
+  });
+
+  test("empty inserted row remains after cancelling measure spacing", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#status")).toHaveText(
+      "SDK initialized successfully.",
+    );
+
+    await page.locator(".obv-trigger").click();
+    await page.locator('[data-item-input="__new"]').fill("First item");
+    await page.locator('[data-item-input="__new"]').press("Enter");
+
+    const inputs = page.locator(".obv-list-row .obv-row-input");
+    await expect(inputs).toHaveCount(2);
+    await expect(inputs.nth(1)).toHaveValue("");
+
+    await page.locator('[data-measure-start="true"]').click();
+    await page.locator('[data-measure-cancel="true"]').click();
+
+    await expect(page.locator(".obv-list-row .obv-row-input")).toHaveCount(2);
+    await expect(page.locator(".obv-list-row .obv-row-input").nth(1)).toHaveValue(
+      "",
+    );
+  });
+
+  test("measurement from an empty inserted row attaches to that row", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#status")).toHaveText(
+      "SDK initialized successfully.",
+    );
+
+    await page.locator(".obv-trigger").click();
+    await page.locator('[data-item-input="__new"]').fill("First item");
+    await page.locator('[data-item-input="__new"]').press("Enter");
+
+    const inputs = page.locator(".obv-list-row .obv-row-input");
+    await expect(inputs).toHaveCount(2);
+    await inputs.nth(1).click();
+
+    await page.locator('[data-measure-start="true"]').click();
+    await page.mouse.click(100, 100);
+    await page.mouse.click(180, 100);
+    await page.locator('[data-measure-done="true"]').click();
+
+    await expect(page.locator(".obv-list-row .obv-row-input")).toHaveCount(2);
+    await expect(page.locator(".obv-list-row .obv-row-input").nth(1)).toHaveValue(
+      "",
+    );
+    await expect(page.locator(".obv-row-pill").last()).toContainText("px");
+  });
+
   test("selected elements can submit without visual edits", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(page.locator("#status")).toHaveText(

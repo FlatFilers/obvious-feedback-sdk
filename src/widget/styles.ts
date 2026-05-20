@@ -528,11 +528,8 @@ export function createStyles(): string {
       border-radius: 999px; color: var(--obv-feedback-muted);
       background: var(--obv-feedback-bg-subtle); border: 1px solid var(--obv-feedback-border);
     }
-    .obv-inline-popup-close {
-      width: 24px; height: 24px; min-height: 24px; padding: 0; border-radius: 999px;
-    }
     .obv-inline-popup-textarea {
-      width: 100%; box-sizing: border-box; min-height: 64px; max-height: 200px; resize: vertical;
+      width: 100%; box-sizing: border-box; min-height: 64px; max-height: 200px; resize: none;
       padding: 8px 10px; border-radius: 8px;
       border: 1px solid var(--obv-feedback-border); background: var(--obv-feedback-bg);
       color: var(--obv-feedback-text); font: inherit; font-size: 13px; line-height: 1.4;
@@ -547,7 +544,6 @@ export function createStyles(): string {
     }
     .obv-inline-popup-actions-primary { display: flex; align-items: center; gap: 6px; margin-left: auto; }
     .obv-inline-popup-hint { font-size: 11px; color: var(--obv-feedback-muted); margin-right: 4px; }
-    .obv-inline-popup-delete { width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 999px; }
     .obv-inline-popup .obv-button {
       min-height: 28px; padding: 4px 10px; font-size: 12px; gap: 4px;
     }
