@@ -17,9 +17,13 @@ export type FeedbackSdkTheme = "light" | "dark" | "system";
 
 export interface FeedbackSdkHandle {
   destroy: () => void;
-  open: () => void;
-  getOpenIssueCount: () => number;
-  subscribeToOpenIssueCount: (listener: (count: number) => void) => () => void;
+  enterAnnotationMode: () => void;
+  exitAnnotationMode: () => void;
+  submit: () => Promise<void>;
+  getDraftPinCount: () => number;
+  subscribeToDraftPinCount: (
+    listener: (count: number) => void,
+  ) => () => void;
 }
 
 export interface FeedbackSdkConfig {
@@ -27,11 +31,6 @@ export interface FeedbackSdkConfig {
   apiBaseUrl?: string;
   identityToken?: string;
   env?: string;
-  prNumber?: number;
-  redactSelectors?: string[];
-  triggerLabel?: string;
-  triggerLabels?: string[];
-  assistantPosition?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
   capturePageContext?: boolean;
   /** Optionally resolves a provider-neutral replay URL to include with feedback submissions. */
   sessionReplayUrlResolver?: SessionReplayUrlResolver;
@@ -50,60 +49,49 @@ export interface FeedbackSdkConfig {
    */
   theme?: FeedbackSdkTheme;
   /**
-   * Enables visual editing controls after a reporter selects a page element.
-   * The element is still submitted as context if no visual values are changed.
-   * Any previewed changes are restored before submit.
+   * Optional metadata about the page/PR being previewed. Surfaces inline on
+   * the toolbar (branch + sha label, PR link, thread link). Every field is
+   * optional; the toolbar gracefully omits any UI for fields it does not
+   * have. Designed for Obvious autobuild PR previews but works for any host.
    */
-  visualSuggestions?: FeedbackVisualSuggestionsConfig;
-  /**
-   * Inline pin annotations (agentation-style). Disabled by default for backwards
-   * compatibility. When enabled, clicking the trigger from an empty draft round
-   * activates a sticky annotation mode where clicking any element on the host
-   * page opens an inline comment popup anchored to that element. Submitting the
-   * popup creates a numbered pin marker on the page; pins remain visible until
-   * the round is submitted.
-   */
-  inlineAnnotations?: FeedbackInlineAnnotationsConfig;
+  context?: FeedbackContext;
 }
 
-export interface FeedbackVisualSuggestionsConfig {
-  enabled?: boolean;
-}
+export type FeedbackContextCiStatus =
+  | "success"
+  | "pending"
+  | "failure"
+  | "unknown";
+export type FeedbackContextReviewStatus =
+  | "approved"
+  | "changes_requested"
+  | "pending"
+  | "unknown";
+export type FeedbackContextPrStatus = "open" | "merged" | "closed" | "draft";
 
-export interface FeedbackInlineAnnotationsConfig {
-  enabled?: boolean;
-}
-
-/**
- * On-page draft annotation pin. Anchors a feedback round item to a point on
- * the host page so the SDK can render a numbered marker next to the element
- * the user is commenting on.
- *
- * Pins are client-side UI state only — the linked element data is already
- * captured in `FeedbackRoundItem.elementGrabs`, so pin coordinates are NOT
- * sent to the backend. They live in the persisted draft round to survive
- * page reloads while the user is collecting feedback.
- */
-export interface FeedbackPin {
-  /** Horizontal anchor as a percentage of viewport width (0-100). */
-  xPct: number;
-  /**
-   * Vertical anchor in pixels. Doc-space (relative to top of `<body>`) when
-   * `isFixed` is false; viewport-space (relative to top of viewport) when
-   * `isFixed` is true.
-   */
-  yPx: number;
-  /**
-   * True when the linked element is rendered via `position: fixed` (or any
-   * fixed-ancestor). The marker is rendered in a fixed-position layer so it
-   * stays glued to the viewport, mirroring the element it points at.
-   */
-  isFixed: boolean;
-  /**
-   * Links this pin to one of the `elementGrabs` on the same round item,
-   * used for live re-anchoring via the grab's `cssSelector`.
-   */
-  elementGrabId: string;
+export interface FeedbackContext {
+  /** GitHub PR number, surfaced on the toolbar's PR link. */
+  prNumber?: number;
+  /** Optional PR title, used as link tooltip. */
+  prTitle?: string;
+  /** Direct link to the GitHub PR. Surfaces a GitHub icon link. */
+  prUrl?: string;
+  /** Direct link to the autobuild thread (executable). Surfaces a thread icon link. */
+  threadUrl?: string;
+  /** Lifecycle state of the PR. Reserved for future use; not surfaced on the flat toolbar. */
+  status?: FeedbackContextPrStatus;
+  /** CI state. Reserved for future use; not surfaced on the flat toolbar. */
+  ciStatus?: FeedbackContextCiStatus;
+  /** Review state. Reserved for future use; not surfaced on the flat toolbar. */
+  reviewStatus?: FeedbackContextReviewStatus;
+  /** Branch name; surfaced as `branch • sha` text label on the toolbar. */
+  branch?: string;
+  /** Full or short commit SHA; surfaced as `branch • sha` text label on the toolbar. */
+  commitSha?: string;
+  /** Build identifier; reserved for future use. */
+  buildId?: string;
+  /** Author display name; reserved for future use. */
+  author?: string;
 }
 
 export interface FeedbackSubmissionInput {
@@ -206,6 +194,11 @@ export type ElementSourceResolver = (
   element: Element,
 ) => Promise<ElementSourceInfo | null>;
 
+/**
+ * CSS properties that can be tweaked inline from a pin popover.
+ * Mutations are applied to the picked element via inline style and persist
+ * until the pin is deleted, the round is submitted, or the SDK is destroyed.
+ */
 export type FeedbackVisualSuggestionProperty =
   | "font-size"
   | "border-radius"
@@ -214,46 +207,8 @@ export type FeedbackVisualSuggestionProperty =
   | "color"
   | "background-color";
 
-export interface FeedbackVisualSuggestionElementRef {
-  id: string;
-  tagName: string;
-  cssSelector: string;
-  boundingRect: ElementGrabRect;
-  componentName: string | null;
-  sourceFile: string | null;
-  lineNumber: number | null;
-}
-
-export type FeedbackVisualSuggestionScopeKind = "element" | "similar-siblings";
-
-export interface FeedbackVisualSuggestionScope {
-  kind: FeedbackVisualSuggestionScopeKind;
-  label: string;
-  matchedCount: number;
-  parentElement?: {
-    tagName: string;
-    cssSelector: string;
-  };
-  matchedElements?: Array<{
-    tagName: string;
-    cssSelector: string;
-    textContent: string;
-    componentName: string | null;
-  }>;
-}
-
 export interface FeedbackVisualSuggestion {
-  id: string;
   property: FeedbackVisualSuggestionProperty;
   originalValue: string;
   suggestedValue: string;
-  prompt: string;
-  element: FeedbackVisualSuggestionElementRef;
-  scope?: FeedbackVisualSuggestionScope;
-  capturedAt: string;
-}
-
-export interface FeedbackVisualSuggestionsPayload {
-  version: 1;
-  suggestions: FeedbackVisualSuggestion[];
 }
