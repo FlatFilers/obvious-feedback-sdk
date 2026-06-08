@@ -88,7 +88,7 @@ export class FeedbackToolbar {
 
     this.draggable = createDraggable({
       target: this.host,
-      handle: this.requireHandle(),
+      handle: this.requireDragSurface(),
       initialPosition: computeDefaultPosition(this.host),
       storageKey: getPositionStorageKey(),
       onDragEnd: () => {
@@ -177,10 +177,10 @@ export class FeedbackToolbar {
     this.draggable?.setPosition(position);
   }
 
-  private requireHandle(): HTMLElement {
-    const element = this.shadowRoot.querySelector("[data-obv-drag-handle]");
+  private requireDragSurface(): HTMLElement {
+    const element = this.shadowRoot.querySelector(".obv-toolbar");
     if (!(element instanceof HTMLElement)) {
-      throw new Error("[ObviousFeedback] toolbar drag handle missing.");
+      throw new Error("[ObviousFeedback] toolbar drag surface missing.");
     }
     return element;
   }
@@ -192,11 +192,11 @@ export class FeedbackToolbar {
     const styleMarkup = `<style>${createToolbarStyles()}</style>`;
     this.shadowRoot.innerHTML = `${styleMarkup}${this.renderToolbarHtml()}`;
     this.bindEvents();
-    // The drag handle DOM is replaced on every render, so retarget the
-    // draggable controller at the freshly-mounted handle. Without this,
-    // pointer events on the new handle have no listeners attached and
-    // dragging silently no-ops after the first state change.
-    this.draggable?.setHandle(this.requireHandle());
+    // The toolbar DOM is replaced on every render, so retarget the draggable
+    // controller at the freshly-mounted surface. Without this, pointer events
+    // on the new toolbar have no listeners attached and dragging silently no-ops
+    // after the first state change.
+    this.draggable?.setHandle(this.requireDragSurface());
   }
 
   private renderToolbarHtml(): string {
