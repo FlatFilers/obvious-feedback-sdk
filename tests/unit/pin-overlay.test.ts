@@ -77,6 +77,28 @@ describe("PinOverlay", () => {
     expect(counts).toEqual([0, 1, 2, 1]);
   });
 
+  it("subscribePopoverOpen fires immediately and when the popover opens or closes", () => {
+    overlay = new PinOverlay({ theme: "light" });
+    const states: boolean[] = [];
+    const unsubscribe = overlay.subscribePopoverOpen((open) => {
+      states.push(open);
+    });
+    expect(states).toEqual([false]);
+    const pin = overlay.addPin(makeAnchor(), null);
+    expect(states).toEqual([false, true]);
+    const host = document.querySelector("[data-obvious-feedback-pin-layer]");
+    const done = host?.shadowRoot?.querySelector('[data-pin-action="close"]');
+    if (!(done instanceof HTMLButtonElement)) {
+      throw new Error("done button was not rendered");
+    }
+    done.click();
+    expect(states).toEqual([false, true, false]);
+    overlay.removePin(pin.id);
+    unsubscribe();
+    overlay.addPin(makeAnchor(), null);
+    expect(states).toEqual([false, true, false]);
+  });
+
   it("opens a popover when a pin is added", () => {
     overlay = new PinOverlay({ theme: "light" });
     overlay.addPin(makeAnchor(), null);

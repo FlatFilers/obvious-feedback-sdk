@@ -143,6 +143,7 @@ export class PinOverlay {
   private rafHandle: number | null = null;
   private readonly resizeObserver: ResizeObserver | null;
   private readonly listeners = new Set<(count: number) => void>();
+  private readonly popoverListeners = new Set<(open: boolean) => void>();
   private readonly designSystem: FeedbackDesignSystemConfig | undefined;
   private cachedCatalog: TokenCatalog | null = null;
 
@@ -370,6 +371,14 @@ export class PinOverlay {
     };
   }
 
+  subscribePopoverOpen(listener: (open: boolean) => void): () => void {
+    this.popoverListeners.add(listener);
+    listener(this.activePopoverId !== null);
+    return () => {
+      this.popoverListeners.delete(listener);
+    };
+  }
+
   /** Bring a pin's popover into focus from the parent (e.g. clicking on a pin chip). */
   focusPin(id: string): void {
     if (!this.pins.has(id)) {
@@ -486,11 +495,13 @@ export class PinOverlay {
       const length = textarea.value.length;
       textarea.setSelectionRange(length, length);
     }
+    this.notifyPopoverOpen();
   }
 
   private closePopover(): void {
     this.activePopoverDrag?.destroy();
     this.activePopoverDrag = null;
+    const wasOpen = this.activePopoverId !== null;
     if (this.activePopoverId) {
       this.pins.get(this.activePopoverId)?.marker.removeAttribute("data-active");
     }
@@ -498,6 +509,9 @@ export class PinOverlay {
     const popover = this.layer.querySelector(".obv-pin-popover");
     popover?.remove();
     this.activePopoverId = null;
+    if (wasOpen) {
+      this.notifyPopoverOpen();
+    }
   }
 
   private ensureActiveElementOutline(): HTMLDivElement {
@@ -928,6 +942,17 @@ export class PinOverlay {
         listener(count);
       } catch (error) {
         console.warn("[ObviousFeedback] pin count listener threw", error);
+      }
+    }
+  }
+
+  private notifyPopoverOpen(): void {
+    const open = this.activePopoverId !== null;
+    for (const listener of this.popoverListeners) {
+      try {
+        listener(open);
+      } catch (error) {
+        console.warn("[ObviousFeedback] popover open listener threw", error);
       }
     }
   }

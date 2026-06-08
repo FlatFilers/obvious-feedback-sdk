@@ -118,6 +118,10 @@ export class ObviousFeedbackWidget {
       this.notifyCount(count);
     });
 
+    this.pinOverlay.subscribePopoverOpen((open) => {
+      this.toolbar.setHidden(open);
+    });
+
     this.navigationCleanup = observeLocationChanges(() =>
       this.handleLocationChanged(),
     );

@@ -19,6 +19,22 @@ describe("FeedbackToolbar", () => {
     document.body.innerHTML = "";
   });
 
+  it("hides the toolbar host while setHidden is true", () => {
+    toolbar = new FeedbackToolbar({
+      context: undefined,
+      theme: "light",
+      initialPinCount: 0,
+      onCommentClick: createNoop(),
+      onSendClick: createNoop(),
+    });
+    const host = document.querySelector("[data-obvious-feedback-toolbar]");
+    expect(host?.getAttribute("data-hidden")).toBe("false");
+    toolbar.setHidden(true);
+    expect(host?.getAttribute("data-hidden")).toBe("true");
+    toolbar.setHidden(false);
+    expect(host?.getAttribute("data-hidden")).toBe("false");
+  });
+
   it("renders the drag handle and comment button by default", () => {
     toolbar = new FeedbackToolbar({
       context: undefined,
@@ -76,11 +92,11 @@ describe("FeedbackToolbar", () => {
       host?.shadowRoot?.querySelector('[data-toolbar-action="send"]'),
     ).toBeNull();
     expect(
-      host?.shadowRoot?.querySelector(".obv-cell-count"),
+      host?.shadowRoot?.querySelector(".obv-cell-count-badge"),
     ).toBeNull();
   });
 
-  it("shows Send and the draft counter when pin count > 0", () => {
+  it("shows Send and merges the draft counter into the Feedback action when pin count > 0", () => {
     toolbar = new FeedbackToolbar({
       context: undefined,
       theme: "light",
@@ -89,17 +105,24 @@ describe("FeedbackToolbar", () => {
       onSendClick: createNoop(),
     });
     toolbar.setPinCount(2);
-    const html =
-      document.querySelector("[data-obvious-feedback-toolbar]")?.shadowRoot
-        ?.innerHTML ?? "";
+    const root = document.querySelector("[data-obvious-feedback-toolbar]")
+      ?.shadowRoot;
+    const html = root?.innerHTML ?? "";
+    const commentButton = root?.querySelector<HTMLButtonElement>(
+      '[data-toolbar-action="comment"]',
+    );
     expect(html).toContain('data-toolbar-action="send"');
-    expect(html).toContain("2 comments");
-    expect(html.indexOf("2 comments")).toBeLessThan(
-      html.indexOf("Add another"),
+    expect(commentButton?.textContent ?? "").toContain("Feedback");
+    expect(
+      commentButton?.querySelector(".obv-cell-count-badge")?.textContent,
+    ).toBe("2");
+    expect(commentButton?.getAttribute("aria-label")).toContain(
+      "2 comments drafted",
     );
     expect(html).not.toContain("2 drafts");
     expect(html).not.toContain("2 pins");
     expect(html).not.toContain('data-toolbar-action="clear-all"');
+    expect(root?.querySelector(".obv-cell-count")).toBeNull();
   });
 
   it("renders picking state as passive status text instead of a button", () => {
@@ -126,7 +149,7 @@ describe("FeedbackToolbar", () => {
     expect(commentClicks).toBe(0);
   });
 
-  it("singularizes the comment counter to '1 comment' when there is exactly one pin", () => {
+  it("exposes singular comment count in the Feedback action aria-label when there is exactly one pin", () => {
     toolbar = new FeedbackToolbar({
       context: undefined,
       theme: "light",
@@ -134,11 +157,20 @@ describe("FeedbackToolbar", () => {
       onCommentClick: createNoop(),
       onSendClick: createNoop(),
     });
-    const html =
-      document.querySelector("[data-obvious-feedback-toolbar]")?.shadowRoot
-        ?.innerHTML ?? "";
-    expect(html).toContain("1 comment");
-    expect(html).not.toContain("1 comments");
+    const commentButton = document
+      .querySelector("[data-obvious-feedback-toolbar]")
+      ?.shadowRoot?.querySelector<HTMLButtonElement>(
+        '[data-toolbar-action="comment"]',
+      );
+    expect(
+      commentButton?.querySelector(".obv-cell-count-badge")?.textContent,
+    ).toBe("1");
+    expect(commentButton?.getAttribute("aria-label")).toContain(
+      "1 comment drafted",
+    );
+    expect(commentButton?.getAttribute("aria-label")).not.toContain(
+      "1 comments",
+    );
   });
 
   it("groups context cells on the left and active controls on the right", () => {
@@ -165,7 +197,10 @@ describe("FeedbackToolbar", () => {
     expect(
       endGroup?.querySelector('[data-toolbar-action="comment"]'),
     ).not.toBeNull();
-    expect(endGroup?.querySelector(".obv-cell-count")).not.toBeNull();
+    expect(
+      endGroup?.querySelector('[data-toolbar-action="comment"]')
+        ?.querySelector(".obv-cell-count-badge"),
+    ).not.toBeNull();
     expect(
       endGroup?.querySelector('[data-toolbar-action="send"]'),
     ).not.toBeNull();
@@ -334,7 +369,7 @@ describe("FeedbackToolbar", () => {
       expect(cta?.getAttribute("href")).toBe(
         "https://app.obvious.ai/autobuild/executables/exe_test",
       );
-      expect(cta?.textContent ?? "").toContain("View progress");
+      expect(cta?.textContent ?? "").toContain("View Progress");
     });
 
     it("falls back to the PR link when no threadUrl is present", () => {
@@ -352,7 +387,7 @@ describe("FeedbackToolbar", () => {
       expect(cta?.getAttribute("href")).toBe(
         "https://github.com/example/repo/pull/14125",
       );
-      expect(cta?.textContent ?? "").toContain("View PR");
+      expect(cta?.textContent ?? "").toContain("View Progress");
     });
 
     it("renders the banner without a CTA when no thread or PR URL is provided", () => {

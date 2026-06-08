@@ -11,6 +11,7 @@ export function createToolbarStyles(): string {
       all: initial;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color-scheme: light;
+      transition: opacity 160ms ease, visibility 160ms ease;
       --obv-bg: #ffffff;
       --obv-bg-elevated: #ffffff;
       --obv-text: #18181b;
@@ -24,6 +25,16 @@ export function createToolbarStyles(): string {
       --obv-danger: #ef4444;
       --obv-success: #16a34a;
       --obv-shadow: 0 8px 24px rgba(0, 0, 0, 0.14), 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+    :host([data-hidden="true"]) {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      :host {
+        transition: none;
+      }
     }
     :host([data-theme="dark"]) {
       color-scheme: dark;
@@ -205,7 +216,6 @@ export function createToolbarStyles(): string {
     .obv-cell-icon,
     .obv-cell-link,
     .obv-cell-meta,
-    .obv-cell-count,
     .obv-cell-status {
       padding: 0 10px;
     }
@@ -241,13 +251,44 @@ export function createToolbarStyles(): string {
     .obv-cell-primary {
       color: var(--obv-text);
     }
+    .obv-cell-comment-action {
+      gap: 6px;
+    }
+    .obv-cell-count-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 999px;
+      background: var(--obv-divider);
+      color: var(--obv-text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      pointer-events: none;
+    }
+    .obv-cell-primary:hover:not(:disabled) .obv-cell-count-badge {
+      color: var(--obv-accent-text);
+      background: rgba(250, 204, 21, 0.18);
+    }
+    .obv-cell-picking .obv-cell-count-badge {
+      color: var(--obv-accent-text);
+      background: rgba(250, 204, 21, 0.22);
+    }
     .obv-cell-send {
       color: var(--obv-accent-foreground);
       background: var(--obv-accent);
       border-radius: 999px;
       margin: 4px 2px;
-      padding: 0 12px;
+      padding: 0 10px;
       box-shadow: inset 0 0 0 0 var(--obv-divider);
+      white-space: nowrap;
+    }
+    .obv-cell-send .obv-cell-label {
+      font-size: 12px;
     }
     .obv-cell-send:disabled {
       cursor: progress;
@@ -255,12 +296,6 @@ export function createToolbarStyles(): string {
     }
     .obv-cell-send:hover:not(:disabled) {
       background: #fde047;
-    }
-    .obv-cell-count {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--obv-text-muted);
-      pointer-events: none;
     }
     .obv-cell-meta {
       display: inline-flex;
