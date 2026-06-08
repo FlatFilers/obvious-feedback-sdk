@@ -1,6 +1,6 @@
 /**
  * Reusable drag controller for SDK overlays. Tracks pointer down/move/up on a
- * dedicated handle, applies translate3d to a target element, clamps the result
+ * drag surface, applies translate3d to a target element, clamps the result
  * to stay inside the viewport, and optionally persists the final position to
  * localStorage so the user's choice survives reloads.
  */
@@ -57,6 +57,7 @@ interface DragState {
   startClientY: number;
   startPosition: DraggablePosition;
   hasMovedPastThreshold: boolean;
+  captureTarget: HTMLElement;
 }
 
 const DEFAULT_VIEWPORT_MARGIN_PX = 12;
@@ -73,6 +74,7 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
   let dragState: DragState | null = null;
   let isDestroyed = false;
   let handle = options.handle;
+  let suppressNextClick = false;
 
   applyPosition(options.target, position);
 
@@ -83,15 +85,15 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
     if (!event.isPrimary) {
       return;
     }
-    handle.setPointerCapture?.(event.pointerId);
     dragState = {
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
       startPosition: { ...position },
       hasMovedPastThreshold: false,
+      captureTarget: handle,
     };
-    event.preventDefault();
+    attachWindowDragListeners();
   }
 
   function handlePointerMove(event: PointerEvent): void {
@@ -105,11 +107,13 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
       (Math.abs(deltaX) > dragThreshold || Math.abs(deltaY) > dragThreshold)
     ) {
       dragState.hasMovedPastThreshold = true;
+      dragState.captureTarget.setPointerCapture?.(event.pointerId);
       options.onDragStart?.();
     }
     if (!dragState.hasMovedPastThreshold) {
       return;
     }
+    event.preventDefault();
     const next = clampPositionForElement(
       {
         x: dragState.startPosition.x + deltaX,
@@ -128,9 +132,15 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
       return;
     }
     const wasDragging = dragState.hasMovedPastThreshold;
+    const captureTarget = dragState.captureTarget;
     dragState = null;
-    handle.releasePointerCapture?.(event.pointerId);
+    detachWindowDragListeners();
+    captureTarget.releasePointerCapture?.(event.pointerId);
     if (wasDragging) {
+      suppressNextClick = true;
+      window.setTimeout(() => {
+        suppressNextClick = false;
+      }, 0);
       writeStoredPosition(options.storageKey, position);
       options.onDragEnd?.(position);
     }
@@ -140,22 +150,41 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
     if (!dragState || event.pointerId !== dragState.pointerId) {
       return;
     }
+    const captureTarget = dragState.captureTarget;
     dragState = null;
-    handle.releasePointerCapture?.(event.pointerId);
+    detachWindowDragListeners();
+    captureTarget.releasePointerCapture?.(event.pointerId);
+  }
+
+  function handleClick(event: MouseEvent): void {
+    if (!suppressNextClick) {
+      return;
+    }
+    suppressNextClick = false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
   }
 
   function attachHandleListeners(target: HTMLElement): void {
     target.addEventListener("pointerdown", handlePointerDown);
-    target.addEventListener("pointermove", handlePointerMove);
-    target.addEventListener("pointerup", handlePointerUp);
-    target.addEventListener("pointercancel", handlePointerCancel);
+    target.addEventListener("click", handleClick, { capture: true });
   }
 
   function detachHandleListeners(target: HTMLElement): void {
     target.removeEventListener("pointerdown", handlePointerDown);
-    target.removeEventListener("pointermove", handlePointerMove);
-    target.removeEventListener("pointerup", handlePointerUp);
-    target.removeEventListener("pointercancel", handlePointerCancel);
+    target.removeEventListener("click", handleClick, { capture: true });
+  }
+
+  function attachWindowDragListeners(): void {
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
+  }
+
+  function detachWindowDragListeners(): void {
+    window.removeEventListener("pointermove", handlePointerMove);
+    window.removeEventListener("pointerup", handlePointerUp);
+    window.removeEventListener("pointercancel", handlePointerCancel);
   }
 
   attachHandleListeners(handle);
@@ -185,6 +214,7 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
         return;
       }
       detachHandleListeners(handle);
+      detachWindowDragListeners();
       dragState = null;
       handle = nextHandle;
       attachHandleListeners(handle);
@@ -195,6 +225,7 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
       }
       isDestroyed = true;
       dragState = null;
+      detachWindowDragListeners();
       detachHandleListeners(handle);
     },
   };

@@ -77,6 +77,28 @@ describe("PinOverlay", () => {
     expect(counts).toEqual([0, 1, 2, 1]);
   });
 
+  it("subscribePopoverOpen fires immediately and when the popover opens or closes", () => {
+    overlay = new PinOverlay({ theme: "light" });
+    const states: boolean[] = [];
+    const unsubscribe = overlay.subscribePopoverOpen((open) => {
+      states.push(open);
+    });
+    expect(states).toEqual([false]);
+    const pin = overlay.addPin(makeAnchor(), null);
+    expect(states).toEqual([false, true]);
+    const host = document.querySelector("[data-obvious-feedback-pin-layer]");
+    const done = host?.shadowRoot?.querySelector('[data-pin-action="close"]');
+    if (!(done instanceof HTMLButtonElement)) {
+      throw new Error("done button was not rendered");
+    }
+    done.click();
+    expect(states).toEqual([false, true, false]);
+    overlay.removePin(pin.id);
+    unsubscribe();
+    overlay.addPin(makeAnchor(), null);
+    expect(states).toEqual([false, true, false]);
+  });
+
   it("opens a popover when a pin is added", () => {
     overlay = new PinOverlay({ theme: "light" });
     overlay.addPin(makeAnchor(), null);
@@ -135,6 +157,22 @@ describe("PinOverlay", () => {
     expect(styleText).toContain("stroke: currentColor");
   });
 
+  it("deletes a pin when the delete icon SVG is clicked", () => {
+    overlay = new PinOverlay({ theme: "light" });
+    overlay.addPin(makeAnchor(), null);
+    const host = document.querySelector("[data-obvious-feedback-pin-layer]");
+    const icon = host?.shadowRoot?.querySelector(
+      '[data-pin-action="delete"] .obv-icon',
+    );
+    expect(icon).toBeInstanceOf(SVGSVGElement);
+    if (!(icon instanceof SVGSVGElement)) {
+      throw new Error("delete icon was not rendered");
+    }
+    icon.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(overlay.getPinCount()).toBe(0);
+    expect(host?.shadowRoot?.querySelector(".obv-pin-popover")).toBeNull();
+  });
+
   it("closes the popover when Cmd/Ctrl+Enter is pressed in the textarea", () => {
     overlay = new PinOverlay({ theme: "light" });
     overlay.addPin(makeAnchor(), null);
@@ -178,14 +216,14 @@ describe("PinOverlay", () => {
         clientY: 0,
       }),
     );
-    handle.dispatchEvent(
+    window.dispatchEvent(
       new PointerEvent("pointermove", {
         pointerId: 1,
         clientX: 40,
         clientY: 24,
       }),
     );
-    handle.dispatchEvent(
+    window.dispatchEvent(
       new PointerEvent("pointerup", {
         pointerId: 1,
         clientX: 40,

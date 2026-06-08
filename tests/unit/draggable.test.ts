@@ -88,6 +88,7 @@ describe("createDraggable", () => {
         pointerId: 1,
         button: 0,
         isPrimary: true,
+        bubbles: true,
         clientX: 0,
         clientY: 0,
       }),
@@ -109,7 +110,7 @@ describe("createDraggable", () => {
         clientY: 0,
       }),
     );
-    secondHandle.dispatchEvent(
+    window.dispatchEvent(
       new PointerEvent("pointermove", {
         pointerId: 2,
         clientX: 60,
@@ -117,6 +118,99 @@ describe("createDraggable", () => {
       }),
     );
     expect(draggable.isDragging()).toBe(true);
+    draggable.destroy();
+  });
+
+  it("keeps clicks on interactive children when movement stays below the drag threshold", () => {
+    const target = document.createElement("div");
+    target.style.cssText = "position:fixed;width:200px;height:40px;";
+    document.body.appendChild(target);
+    const surface = document.createElement("div");
+    surface.style.cssText = "width:100%;height:100%;";
+    target.appendChild(surface);
+    const actionButton = document.createElement("button");
+    actionButton.setAttribute("data-toolbar-action", "comment");
+    surface.appendChild(actionButton);
+    let clicks = 0;
+    actionButton.addEventListener("click", () => {
+      clicks += 1;
+    });
+    const draggable = createDraggable({
+      target,
+      handle: surface,
+      initialPosition: { x: 0, y: 0 },
+      viewportMargin: 0,
+    });
+    actionButton.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        pointerId: 1,
+        button: 0,
+        isPrimary: true,
+        bubbles: true,
+        clientX: 0,
+        clientY: 0,
+      }),
+    );
+    actionButton.dispatchEvent(
+      new PointerEvent("pointerup", {
+        pointerId: 1,
+        bubbles: true,
+      }),
+    );
+    actionButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(clicks).toBe(1);
+    expect(draggable.isDragging()).toBe(false);
+    draggable.destroy();
+  });
+
+  it("suppresses the follow-up click after dragging from an interactive child", () => {
+    const target = document.createElement("div");
+    target.style.cssText = "position:fixed;width:200px;height:40px;";
+    document.body.appendChild(target);
+    const surface = document.createElement("div");
+    surface.style.cssText = "width:100%;height:100%;";
+    target.appendChild(surface);
+    const actionButton = document.createElement("button");
+    actionButton.setAttribute("data-toolbar-action", "comment");
+    surface.appendChild(actionButton);
+    let clicks = 0;
+    actionButton.addEventListener("click", () => {
+      clicks += 1;
+    });
+    const draggable = createDraggable({
+      target,
+      handle: surface,
+      initialPosition: { x: 0, y: 0 },
+      viewportMargin: 0,
+    });
+    actionButton.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        pointerId: 1,
+        button: 0,
+        isPrimary: true,
+        bubbles: true,
+        clientX: 0,
+        clientY: 0,
+      }),
+    );
+    window.dispatchEvent(
+      new PointerEvent("pointermove", {
+        pointerId: 1,
+        clientX: 80,
+        clientY: 80,
+      }),
+    );
+    expect(draggable.isDragging()).toBe(true);
+    window.dispatchEvent(
+      new PointerEvent("pointerup", {
+        pointerId: 1,
+      }),
+    );
+    const wasClickAllowed = actionButton.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    expect(wasClickAllowed).toBe(false);
+    expect(clicks).toBe(0);
     draggable.destroy();
   });
 

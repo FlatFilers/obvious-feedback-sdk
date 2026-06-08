@@ -4,7 +4,7 @@
  * anywhere on screen with viewport clamping and localStorage persistence.
  *
  * Cells (left to right): drag handle, branch label, PR link, thread link,
- * draft pin counter, Feedback, Send. Cells without data hide automatically.
+ * draft pin counter + Feedback action (merged), Fix with Autobuild. Cells without data hide automatically.
  */
 
 import type { FeedbackContext, FeedbackSdkTheme } from "../public-types";
@@ -51,6 +51,7 @@ interface FeedbackToolbarState {
   pinCount: number;
   status: FeedbackToolbarStatus;
   errorMessage: string | null;
+  hidden: boolean;
 }
 
 export class FeedbackToolbar {
@@ -73,6 +74,7 @@ export class FeedbackToolbar {
       pinCount: options.initialPinCount,
       status: "idle",
       errorMessage: null,
+      hidden: false,
     };
 
     this.host = document.createElement("div");
@@ -83,10 +85,9 @@ export class FeedbackToolbar {
     this.shadowRoot.innerHTML = `<style>${createToolbarStyles()}</style>`;
     document.body.appendChild(this.host);
     this.render();
-
     this.draggable = createDraggable({
       target: this.host,
-      handle: this.requireHandle(),
+      handle: this.requireDragSurface(),
       initialPosition: computeDefaultPosition(this.host),
       storageKey: getPositionStorageKey(),
       onDragEnd: () => {
@@ -96,7 +97,6 @@ export class FeedbackToolbar {
         this.host.setAttribute("data-dragging", "true");
       },
     });
-
     this.resizeListener = (): void => this.draggable?.reclamp();
     window.addEventListener("resize", this.resizeListener);
 
@@ -136,6 +136,14 @@ export class FeedbackToolbar {
     this.render();
   }
 
+  setHidden(hidden: boolean): void {
+    if (this.state.hidden === hidden) {
+      return;
+    }
+    this.state = { ...this.state, hidden };
+    this.host.setAttribute("data-hidden", hidden ? "true" : "false");
+  }
+
   setStatus(status: FeedbackToolbarStatus, errorMessage?: string | null): void {
     if (this.statusResetTimer !== null) {
       window.clearTimeout(this.statusResetTimer);
@@ -167,25 +175,46 @@ export class FeedbackToolbar {
     this.draggable?.setPosition(position);
   }
 
-  private requireHandle(): HTMLElement {
-    const element = this.shadowRoot.querySelector("[data-obv-drag-handle]");
+  private requireDragSurface(): HTMLElement {
+    const element = this.shadowRoot.querySelector(".obv-toolbar");
     if (!(element instanceof HTMLElement)) {
-      throw new Error("[ObviousFeedback] toolbar drag handle missing.");
+      throw new Error("[ObviousFeedback] toolbar drag surface missing.");
     }
     return element;
   }
 
   private render(): void {
+    const previousRect =
+      this.draggable !== null ? this.host.getBoundingClientRect() : null;
     this.host.setAttribute("data-theme", this.state.theme);
     this.host.setAttribute("data-status", this.state.status);
+    this.host.setAttribute("data-hidden", this.state.hidden ? "true" : "false");
     const styleMarkup = `<style>${createToolbarStyles()}</style>`;
     this.shadowRoot.innerHTML = `${styleMarkup}${this.renderToolbarHtml()}`;
     this.bindEvents();
-    // The drag handle DOM is replaced on every render, so retarget the
-    // draggable controller at the freshly-mounted handle. Without this,
-    // pointer events on the new handle have no listeners attached and
-    // dragging silently no-ops after the first state change.
-    this.draggable?.setHandle(this.requireHandle());
+    // The toolbar DOM is replaced on every render, so retarget the draggable
+    // controller at the freshly-mounted surface. Without this, pointer events
+    // on the new toolbar have no listeners attached and dragging silently no-ops
+    // after the first state change.
+    this.draggable?.setHandle(this.requireDragSurface());
+    this.preserveToolbarCenter(previousRect);
+  }
+
+  private preserveToolbarCenter(previousRect: DOMRect | null): void {
+    if (!previousRect || !this.draggable) {
+      return;
+    }
+    const nextRect = this.host.getBoundingClientRect();
+    const widthDelta = nextRect.width - previousRect.width;
+    if (Math.abs(widthDelta) < 0.5) {
+      return;
+    }
+    const currentPosition = this.draggable.getPosition();
+    const nextPosition = {
+      x: currentPosition.x - widthDelta / 2,
+      y: currentPosition.y,
+    };
+    this.draggable.setPosition(nextPosition);
   }
 
   private renderToolbarHtml(): string {
@@ -210,7 +239,6 @@ export class FeedbackToolbar {
         </div>
 
         <div class="obv-group obv-group-end">
-          ${this.renderPinCount()}
           ${this.renderCommentControl()}
           ${this.renderStatusLabel()}
           ${this.renderSendButton()}
@@ -220,25 +248,36 @@ export class FeedbackToolbar {
   }
 
   private renderCommentControl(): string {
+    const countBadge = this.renderCommentCountBadge();
     if (this.state.status === "picking") {
       return `
-        <div class="obv-cell obv-cell-status obv-cell-picking" role="status" aria-live="polite">
+        <div class="obv-cell obv-cell-status obv-cell-picking" role="status" aria-live="polite" aria-label="${escapeHtml(this.getCommentAriaLabel())}">
           ${createIcon("comment")}
           <span class="obv-cell-label">Picking…</span>
+          ${countBadge}
         </div>
       `;
     }
+    const actionLabel = this.getCommentActionLabel();
     return `
       <button
         type="button"
-        class="obv-cell obv-cell-text obv-cell-primary"
+        class="obv-cell obv-cell-text obv-cell-primary obv-cell-comment-action"
         data-toolbar-action="comment"
         aria-label="${escapeHtml(this.getCommentAriaLabel())}"
       >
         ${createIcon("comment")}
-        <span class="obv-cell-label">${escapeHtml(this.getCommentLabel())}</span>
+        <span class="obv-cell-label">${escapeHtml(actionLabel)}</span>
+        ${countBadge}
       </button>
     `;
+  }
+
+  private renderCommentCountBadge(): string {
+    if (this.state.pinCount <= 0) {
+      return "";
+    }
+    return `<span class="obv-cell-count-badge" aria-hidden="true">${escapeHtml(String(this.state.pinCount))}</span>`;
   }
 
   /**
@@ -252,9 +291,9 @@ export class FeedbackToolbar {
     const prUrl = getSafeExternalUrl(this.state.context?.prUrl);
     let cta = "";
     if (threadUrl) {
-      cta = `<a class="obv-sent-cta" href="${escapeHtml(threadUrl)}" target="_blank" rel="noopener noreferrer" aria-label="View progress in a new tab" title="View progress in a new tab"><span>View progress</span>${createIcon("arrow-up-right")}</a>`;
+      cta = `<a class="obv-sent-cta" href="${escapeHtml(threadUrl)}" target="_blank" rel="noopener noreferrer" aria-label="View progress in a new tab" title="View progress in a new tab"><span>View Progress</span>${createIcon("arrow-up-right")}</a>`;
     } else if (prUrl) {
-      cta = `<a class="obv-sent-cta" href="${escapeHtml(prUrl)}" target="_blank" rel="noopener noreferrer" aria-label="View pull request in a new tab" title="View pull request in a new tab"><span>View PR</span>${createIcon("arrow-up-right")}</a>`;
+      cta = `<a class="obv-sent-cta" href="${escapeHtml(prUrl)}" target="_blank" rel="noopener noreferrer" aria-label="View progress in a new tab" title="View progress in a new tab"><span>View Progress</span>${createIcon("arrow-up-right")}</a>`;
     }
     return `
       <div class="obv-toolbar obv-toolbar-sent" role="status" aria-label="Feedback sent">
@@ -268,21 +307,13 @@ export class FeedbackToolbar {
     `;
   }
 
-  private renderPinCount(): string {
-    if (this.state.pinCount <= 0) {
-      return "";
-    }
-    const label = `${this.state.pinCount} comment${this.state.pinCount === 1 ? "" : "s"}`;
-    return `<div class="obv-cell obv-cell-count" aria-live="polite">${escapeHtml(label)}</div>`;
-  }
-
   private renderSendButton(): string {
     if (this.state.pinCount <= 0) {
       return "";
     }
     const isSending = this.state.status === "sending";
     const disabled = isSending ? 'disabled aria-disabled="true"' : "";
-    const label = isSending ? "Sending…" : "Send";
+    const label = isSending ? "Starting Autobuild…" : "Fix with Autobuild";
     return `
       <button
         type="button"
@@ -355,23 +386,30 @@ export class FeedbackToolbar {
       });
   }
 
-  private getCommentLabel(): string {
-    if (this.state.status === "picking") {
-      return "Picking…";
-    }
-    if (this.state.pinCount > 0) {
-      return "Add another";
-    }
+  private getCommentActionLabel(): string {
     return "Feedback";
+  }
+
+  private getCommentCountSummary(): string {
+    if (this.state.pinCount <= 0) {
+      return "";
+    }
+    return `${this.state.pinCount} comment${this.state.pinCount === 1 ? "" : "s"}`;
   }
 
   private getCommentAriaLabel(): string {
     if (this.state.status === "picking") {
+      const countSummary = this.getCommentCountSummary();
+      if (countSummary) {
+        return `Cancel element picker, ${countSummary} drafted`;
+      }
       return "Cancel element picker";
     }
-    return this.state.pinCount > 0
-      ? "Pick another element to give feedback on"
-      : "Pick an element to give feedback on";
+    const countSummary = this.getCommentCountSummary();
+    if (countSummary) {
+      return `Pick another element to give feedback on, ${countSummary} drafted`;
+    }
+    return "Pick an element to give feedback on";
   }
 }
 
