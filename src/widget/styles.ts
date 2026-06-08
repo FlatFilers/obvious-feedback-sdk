@@ -183,10 +183,6 @@ export function createToolbarStyles(): string {
       .obv-cell-send {
         transition: none;
       }
-      .obv-cell-send:hover:not(:disabled),
-      .obv-cell-send:active:not(:disabled) {
-        transform: none;
-      }
     }
     @keyframes obv-toolbar-fade-in {
       from { opacity: 0; transform: translateY(8px); }
@@ -303,10 +299,10 @@ export function createToolbarStyles(): string {
       padding: 0 10px;
       box-shadow: 0 1px 2px rgba(24, 24, 27, 0.08);
       white-space: nowrap;
+      cursor: pointer;
       transition:
         background 140ms ease,
-        box-shadow 140ms ease,
-        transform 140ms ease;
+        box-shadow 140ms ease;
     }
     .obv-cell-send .obv-cell-label {
       font-size: 12px;
@@ -316,16 +312,16 @@ export function createToolbarStyles(): string {
       opacity: 0.7;
     }
     .obv-cell-send:hover:not(:disabled) {
-      background: #fde047;
+      background: var(--obv-accent);
       box-shadow:
-        0 2px 10px rgba(250, 204, 21, 0.38),
-        0 0 0 1px rgba(250, 204, 21, 0.45);
-      transform: translateY(-1px);
+        0 1px 2px rgba(24, 24, 27, 0.08),
+        0 0 0 1px rgba(161, 98, 7, 0.28);
     }
     .obv-cell-send:active:not(:disabled) {
-      background: #facc15;
-      box-shadow: 0 1px 4px rgba(250, 204, 21, 0.28);
-      transform: translateY(0);
+      background: #fde047;
+      box-shadow:
+        0 1px 2px rgba(24, 24, 27, 0.08),
+        0 0 0 1px rgba(161, 98, 7, 0.4);
     }
     .obv-cell-meta {
       display: inline-flex;
