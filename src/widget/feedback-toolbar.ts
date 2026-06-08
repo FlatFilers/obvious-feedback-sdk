@@ -4,7 +4,7 @@
  * anywhere on screen with viewport clamping and localStorage persistence.
  *
  * Cells (left to right): drag handle, branch label, PR link, thread link,
- * draft pin counter, Comment, Send. Cells without data hide automatically.
+ * draft pin counter, Feedback, Send. Cells without data hide automatically.
  */
 
 import type { FeedbackContext, FeedbackSdkTheme } from "../public-types";
@@ -194,7 +194,7 @@ export class FeedbackToolbar {
     }
     const branchLabel = this.renderBranchLabel();
     const contextLinks = this.renderContextLinks();
-    // When there's nothing between the grip and the Comment button (no branch,
+    // When there's nothing between the grip and the Feedback button (no branch,
     // PR, or thread), collapse to a content-sized bar and drop the divider that
     // would otherwise frame an empty middle section.
     const isCompact = !branchLabel && !contextLinks;
@@ -362,7 +362,7 @@ export class FeedbackToolbar {
     if (this.state.pinCount > 0) {
       return "Add another";
     }
-    return "Comment";
+    return "Feedback";
   }
 
   private getCommentAriaLabel(): string {
@@ -370,8 +370,8 @@ export class FeedbackToolbar {
       return "Cancel element picker";
     }
     return this.state.pinCount > 0
-      ? "Pick another element to comment on"
-      : "Pick an element to comment on";
+      ? "Pick another element to give feedback on"
+      : "Pick an element to give feedback on";
   }
 }
 

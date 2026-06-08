@@ -84,6 +84,37 @@ describe("PinOverlay", () => {
     expect(host?.shadowRoot?.querySelector(".obv-pin-popover")).not.toBeNull();
   });
 
+  it("outlines the selected live element while its popover is open", () => {
+    overlay = new PinOverlay({ theme: "light" });
+    const target = document.createElement("h1");
+    target.getBoundingClientRect = () => new DOMRect(24, 32, 300, 48);
+    document.body.appendChild(target);
+
+    overlay.addPin(makeAnchor("h1"), target);
+
+    const host = document.querySelector("[data-obvious-feedback-pin-layer]");
+    const outline = host?.shadowRoot?.querySelector(".obv-pin-target-outline");
+    expect(outline).toBeInstanceOf(HTMLElement);
+    if (!(outline instanceof HTMLElement)) {
+      throw new Error("target outline was not rendered");
+    }
+    expect(outline.style.transform).toBe("translate3d(24px, 32px, 0)");
+    expect(outline.style.width).toBe("300px");
+    expect(outline.style.height).toBe("48px");
+    const marker = host?.shadowRoot?.querySelector(".obv-pin");
+    expect(marker?.getAttribute("data-active")).toBe("true");
+
+    const done = host?.shadowRoot?.querySelector('[data-pin-action="close"]');
+    expect(done).toBeInstanceOf(HTMLButtonElement);
+    if (!(done instanceof HTMLButtonElement)) {
+      throw new Error("done button was not rendered");
+    }
+    done.click();
+
+    expect(host?.shadowRoot?.querySelector(".obv-pin-target-outline")).toBeNull();
+    expect(marker?.getAttribute("data-active")).toBeNull();
+  });
+
   it("renders a dedicated drag handle and X delete action in the popover header", () => {
     overlay = new PinOverlay({ theme: "light" });
     overlay.addPin(makeAnchor(), null);

@@ -138,6 +138,7 @@ export class PinOverlay {
   private destroyed = false;
   private activePopoverId: string | null = null;
   private activePopoverDrag: DraggableHandle | null = null;
+  private activeElementOutline: HTMLDivElement | null = null;
   private readonly popoverPositions = new Map<string, DraggablePosition>();
   private rafHandle: number | null = null;
   private readonly resizeObserver: ResizeObserver | null;
@@ -175,6 +176,7 @@ export class PinOverlay {
     this.uninstallListeners();
     this.activePopoverDrag?.destroy();
     this.activePopoverDrag = null;
+    this.removeActiveElementOutline();
     this.resizeObserver?.disconnect();
     if (this.rafHandle !== null) {
       window.cancelAnimationFrame(this.rafHandle);
@@ -458,6 +460,7 @@ export class PinOverlay {
       entry.marker.style.transform = `translate3d(${point.x - PIN_RADIUS_PX}px, ${point.y - PIN_RADIUS_PX}px, 0)`;
     }
     if (this.activePopoverId) {
+      this.updateActiveElementOutline(this.activePopoverId);
       this.repositionPopover(this.activePopoverId);
     }
   }
@@ -471,6 +474,8 @@ export class PinOverlay {
     const popover = this.createPopover(entry);
     this.layer.appendChild(popover);
     this.activePopoverId = id;
+    entry.marker.setAttribute("data-active", "true");
+    this.updateActiveElementOutline(id);
     const initialPosition = this.repositionPopover(id);
     if (initialPosition) {
       this.bindPopoverDrag(popover, id, initialPosition);
@@ -486,9 +491,52 @@ export class PinOverlay {
   private closePopover(): void {
     this.activePopoverDrag?.destroy();
     this.activePopoverDrag = null;
+    if (this.activePopoverId) {
+      this.pins.get(this.activePopoverId)?.marker.removeAttribute("data-active");
+    }
+    this.removeActiveElementOutline();
     const popover = this.layer.querySelector(".obv-pin-popover");
     popover?.remove();
     this.activePopoverId = null;
+  }
+
+  private ensureActiveElementOutline(): HTMLDivElement {
+    if (this.activeElementOutline?.isConnected) {
+      return this.activeElementOutline;
+    }
+    const outline = document.createElement("div");
+    outline.className = "obv-pin-target-outline";
+    outline.setAttribute("aria-hidden", "true");
+    this.layer.appendChild(outline);
+    this.activeElementOutline = outline;
+    return outline;
+  }
+
+  private removeActiveElementOutline(): void {
+    this.activeElementOutline?.remove();
+    this.activeElementOutline = null;
+  }
+
+  private updateActiveElementOutline(id: string): void {
+    const entry = this.pins.get(id);
+    if (!entry) {
+      this.removeActiveElementOutline();
+      return;
+    }
+    const live = this.resolveLiveElement(entry);
+    if (!live) {
+      this.removeActiveElementOutline();
+      return;
+    }
+    const rect = live.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      this.removeActiveElementOutline();
+      return;
+    }
+    const outline = this.ensureActiveElementOutline();
+    outline.style.transform = `translate3d(${rect.left}px, ${rect.top}px, 0)`;
+    outline.style.width = `${rect.width}px`;
+    outline.style.height = `${rect.height}px`;
   }
 
   private refreshPopoverHeader(id: string): void {
@@ -1387,6 +1435,7 @@ function createPinStyles(): string {
       position: absolute;
       top: 0;
       left: 0;
+      z-index: 2;
       width: ${PIN_RADIUS_PX * 2}px;
       height: ${PIN_RADIUS_PX * 2}px;
       border-radius: 999px;
@@ -1409,14 +1458,32 @@ function createPinStyles(): string {
     .obv-pin:hover {
       box-shadow: 0 4px 10px rgba(0, 0, 0, 0.28);
     }
+    .obv-pin[data-active="true"] {
+      opacity: 0;
+      pointer-events: none;
+    }
     .obv-pin:focus-visible {
       outline: 2px solid #facc15;
       outline-offset: 2px;
+    }
+    .obv-pin-target-outline {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+      box-sizing: border-box;
+      border: 2px solid #facc15;
+      border-radius: 10px;
+      background: rgba(250, 204, 21, 0.1);
+      box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.22), 0 8px 24px rgba(250, 204, 21, 0.16);
+      pointer-events: none;
+      will-change: transform, width, height;
     }
     .obv-pin-popover {
       position: absolute;
       top: 0;
       left: 0;
+      z-index: 3;
       width: ${POPOVER_WIDTH_PX}px;
       background: #ffffff;
       color: #111827;
