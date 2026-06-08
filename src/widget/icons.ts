@@ -8,6 +8,7 @@ export function createIcon(
     | "grip"
     | "send"
     | "sparkle"
+    | "trash"
     | "thread",
 ): string {
   const paths: Record<typeof name, string> = {
@@ -24,6 +25,8 @@ export function createIcon(
     send: '<path d="m22 2-7 20-4-9-9-4 20-7Z" /><path d="m22 2-11 11" />',
     sparkle:
       '<path d="M12 3v3" /><path d="M12 18v3" /><path d="M3 12h3" /><path d="M18 12h3" /><path d="m5.6 5.6 2.1 2.1" /><path d="m16.3 16.3 2.1 2.1" /><path d="m5.6 18.4 2.1-2.1" /><path d="m16.3 7.7 2.1-2.1" />',
+    trash:
+      '<path d="M7 7h10" /><path d="M10 7V5.75C10 4.8 10.8 4 11.75 4h.5C13.2 4 14 4.8 14 5.75V7" /><path d="M8.5 10.5v6.25A2.25 2.25 0 0 0 10.75 19h2.5a2.25 2.25 0 0 0 2.25-2.25V10.5" />',
     thread:
       '<path d="M21 15a4 4 0 0 1-4 4H8l-4 3V6a4 4 0 0 1 4-4h9a4 4 0 0 1 4 4Z" /><path d="M8 9h9" /><path d="M8 13h6" />',
   };

@@ -3,10 +3,8 @@
  * bar docked at the bottom-center of the viewport by default, draggable
  * anywhere on screen with viewport clamping and localStorage persistence.
  *
- * Cells (left to right): drag handle, Comment, draft pin counter, Send,
- * branch • sha label, PR link, thread link, collapse. Cells without data
- * (links missing, zero pins, no branch) hide automatically. Collapsed mode
- * shrinks to drag handle + Comment + expand button.
+ * Cells (left to right): drag handle, branch label, PR link, thread link,
+ * draft pin counter, Feedback, Send. Cells without data hide automatically.
  */
 
 import type { FeedbackContext, FeedbackSdkTheme } from "../public-types";
@@ -196,7 +194,7 @@ export class FeedbackToolbar {
     }
     const branchLabel = this.renderBranchLabel();
     const contextLinks = this.renderContextLinks();
-    // When there's nothing between the grip and the Comment button (no branch,
+    // When there's nothing between the grip and the Feedback button (no branch,
     // PR, or thread), collapse to a content-sized bar and drop the divider that
     // would otherwise frame an empty middle section.
     const isCompact = !branchLabel && !contextLinks;
@@ -212,21 +210,34 @@ export class FeedbackToolbar {
         </div>
 
         <div class="obv-group obv-group-end">
-          <button
-            type="button"
-            class="obv-cell obv-cell-text obv-cell-primary"
-            data-toolbar-action="comment"
-            aria-label="${escapeHtml(this.getCommentAriaLabel())}"
-          >
-            ${createIcon("comment")}
-            <span class="obv-cell-label">${escapeHtml(this.getCommentLabel())}</span>
-          </button>
-
           ${this.renderPinCount()}
+          ${this.renderCommentControl()}
           ${this.renderStatusLabel()}
           ${this.renderSendButton()}
         </div>
       </div>
+    `;
+  }
+
+  private renderCommentControl(): string {
+    if (this.state.status === "picking") {
+      return `
+        <div class="obv-cell obv-cell-status obv-cell-picking" role="status" aria-live="polite">
+          ${createIcon("comment")}
+          <span class="obv-cell-label">Picking…</span>
+        </div>
+      `;
+    }
+    return `
+      <button
+        type="button"
+        class="obv-cell obv-cell-text obv-cell-primary"
+        data-toolbar-action="comment"
+        aria-label="${escapeHtml(this.getCommentAriaLabel())}"
+      >
+        ${createIcon("comment")}
+        <span class="obv-cell-label">${escapeHtml(this.getCommentLabel())}</span>
+      </button>
     `;
   }
 
@@ -288,31 +299,11 @@ export class FeedbackToolbar {
 
   private renderBranchLabel(): string {
     const context = this.state.context;
-    if (!context?.branch && !context?.commitSha && !context?.buildId) {
+    if (!context?.branch) {
       return "";
     }
-    const sha = context.commitSha ? shortSha(context.commitSha) : null;
-    const segments = [
-      context.branch
-        ? `<span class="obv-meta-item obv-meta-branch">${escapeHtml(context.branch)}</span>`
-        : null,
-      sha ? `<span class="obv-meta-item">${escapeHtml(sha)}</span>` : null,
-      context.buildId
-        ? `<span class="obv-meta-item">Build ${escapeHtml(context.buildId)}</span>`
-        : null,
-    ].filter((segment): segment is string => Boolean(segment));
-    if (segments.length === 0) {
-      return "";
-    }
-    const content = segments.join(
-      `<span class="obv-meta-separator" aria-hidden="true">•</span>`,
-    );
-    const tooltipParts = [
-      context.branch ? `Branch ${context.branch}` : null,
-      context.commitSha ? `Commit ${context.commitSha}` : null,
-      context.buildId ? `Build ${context.buildId}` : null,
-    ].filter((segment): segment is string => Boolean(segment));
-    return `<div class="obv-cell obv-cell-meta" title="${escapeHtml(tooltipParts.join(" · "))}">${content}</div>`;
+    const label = `<span class="obv-meta-item obv-meta-branch">${escapeHtml(context.branch)}</span>`;
+    return `<div class="obv-cell obv-cell-meta" title="Branch ${escapeHtml(context.branch)}">${label}</div>`;
   }
 
   private renderContextLinks(): string {
@@ -371,7 +362,7 @@ export class FeedbackToolbar {
     if (this.state.pinCount > 0) {
       return "Add another";
     }
-    return "Comment";
+    return "Feedback";
   }
 
   private getCommentAriaLabel(): string {
@@ -379,13 +370,9 @@ export class FeedbackToolbar {
       return "Cancel element picker";
     }
     return this.state.pinCount > 0
-      ? "Pick another element to comment on"
-      : "Pick an element to comment on";
+      ? "Pick another element to give feedback on"
+      : "Pick an element to give feedback on";
   }
-}
-
-function shortSha(value: string): string {
-  return value.length > 7 ? value.slice(0, 7) : value;
 }
 
 function getPositionStorageKey(): string {

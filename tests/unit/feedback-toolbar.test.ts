@@ -94,8 +94,36 @@ describe("FeedbackToolbar", () => {
         ?.innerHTML ?? "";
     expect(html).toContain('data-toolbar-action="send"');
     expect(html).toContain("2 comments");
+    expect(html.indexOf("2 comments")).toBeLessThan(
+      html.indexOf("Add another"),
+    );
     expect(html).not.toContain("2 drafts");
     expect(html).not.toContain("2 pins");
+    expect(html).not.toContain('data-toolbar-action="clear-all"');
+  });
+
+  it("renders picking state as passive status text instead of a button", () => {
+    let commentClicks = 0;
+    toolbar = new FeedbackToolbar({
+      context: undefined,
+      theme: "light",
+      initialPinCount: 1,
+      onCommentClick: () => {
+        commentClicks += 1;
+      },
+      onSendClick: createNoop(),
+    });
+    toolbar.setStatus("picking");
+    const root = document.querySelector("[data-obvious-feedback-toolbar]")
+      ?.shadowRoot;
+    const picking = root?.querySelector(".obv-cell-picking");
+    expect(picking).toBeInstanceOf(HTMLDivElement);
+    expect(picking?.textContent).toContain("Picking…");
+    expect(root?.querySelector('[data-toolbar-action="comment"]')).toBeNull();
+    expect(root?.querySelector("style")?.textContent ?? "").not.toContain(
+      ':host([data-status="picking"]) .obv-cell-primary',
+    );
+    expect(commentClicks).toBe(0);
   });
 
   it("singularizes the comment counter to '1 comment' when there is exactly one pin", () => {
@@ -165,7 +193,7 @@ describe("FeedbackToolbar", () => {
     expect(html).toContain(">Thread<");
   });
 
-  it("renders branch, commit, and build context when provided", () => {
+  it("renders only the branch label from preview context", () => {
     toolbar = new FeedbackToolbar({
       context: {
         branch: "local-feedback-sdk-preview",
@@ -181,8 +209,24 @@ describe("FeedbackToolbar", () => {
       document.querySelector("[data-obvious-feedback-toolbar]")?.shadowRoot
         ?.innerHTML ?? "";
     expect(html).toContain("local-feedback-sdk-preview");
-    expect(html).toContain("e51dbe7");
-    expect(html).toContain("Build local-13446");
+    expect(html).not.toContain("e51dbe7");
+    expect(html).not.toContain("Build local-13446");
+  });
+
+  it("omits preview metadata when no branch is available", () => {
+    toolbar = new FeedbackToolbar({
+      context: {
+        commitSha: "e51dbe7705abcdef",
+        buildId: "local-13446",
+      },
+      theme: "light",
+      initialPinCount: 0,
+      onCommentClick: createNoop(),
+      onSendClick: createNoop(),
+    });
+    const root = document.querySelector("[data-obvious-feedback-toolbar]")
+      ?.shadowRoot;
+    expect(root?.querySelector(".obv-cell-meta")).toBeNull();
   });
 
   it("skips invalid javascript: URLs in context links", () => {

@@ -70,6 +70,7 @@ export class ObviousFeedbackWidget {
   private readonly listeners = new Set<(count: number) => void>();
   private readonly themeQuery: MediaQueryList | null;
   private themeListener: ((event: MediaQueryListEvent) => void) | null = null;
+  private navigationCleanup: (() => void) | null = null;
   private theme: FeedbackSdkTheme;
   private destroyed = false;
   private submitting = false;
@@ -116,6 +117,10 @@ export class ObviousFeedbackWidget {
       this.toolbar.setPinCount(count);
       this.notifyCount(count);
     });
+
+    this.navigationCleanup = observeLocationChanges(() =>
+      this.handleLocationChanged(),
+    );
   }
 
   destroy(): void {
@@ -127,6 +132,8 @@ export class ObviousFeedbackWidget {
       this.themeQuery.removeEventListener("change", this.themeListener);
     }
     this.themeListener = null;
+    this.navigationCleanup?.();
+    this.navigationCleanup = null;
     this.annotation.destroy();
     this.toolbar.destroy();
     this.pinOverlay.destroy();
@@ -221,6 +228,23 @@ export class ObviousFeedbackWidget {
       return;
     }
     this.enterAnnotationMode();
+  }
+
+  private clearDraftFeedback(): void {
+    if (this.submitting) {
+      return;
+    }
+    this.exitAnnotationMode();
+    this.pinOverlay.clearAll();
+    this.grabs.length = 0;
+    this.toolbar.setStatus("idle");
+  }
+
+  private handleLocationChanged(): void {
+    if (this.destroyed) {
+      return;
+    }
+    this.clearDraftFeedback();
   }
 
   private handleAnnotationCanceled(): void {
@@ -399,6 +423,50 @@ function resolveThemeQuery(theme: FeedbackSdkTheme): MediaQueryList | null {
   } catch {
     return null;
   }
+}
+
+function observeLocationChanges(onChange: () => void): () => void {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+  let currentHref = window.location.href;
+  const notifyIfChanged = (): void => {
+    const nextHref = window.location.href;
+    if (nextHref === currentHref) {
+      return;
+    }
+    currentHref = nextHref;
+    onChange();
+  };
+
+  const originalPushState = window.history.pushState;
+  const originalReplaceState = window.history.replaceState;
+  window.history.pushState = function pushState(
+    data: unknown,
+    unused: string,
+    url?: string | URL | null,
+  ): void {
+    originalPushState.call(window.history, data, unused, url);
+    notifyIfChanged();
+  };
+  window.history.replaceState = function replaceState(
+    data: unknown,
+    unused: string,
+    url?: string | URL | null,
+  ): void {
+    originalReplaceState.call(window.history, data, unused, url);
+    notifyIfChanged();
+  };
+
+  window.addEventListener("popstate", notifyIfChanged);
+  window.addEventListener("hashchange", notifyIfChanged);
+
+  return () => {
+    window.history.pushState = originalPushState;
+    window.history.replaceState = originalReplaceState;
+    window.removeEventListener("popstate", notifyIfChanged);
+    window.removeEventListener("hashchange", notifyIfChanged);
+  };
 }
 
 function buildRoundItem(
