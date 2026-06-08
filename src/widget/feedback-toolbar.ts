@@ -194,12 +194,21 @@ export class FeedbackToolbar {
     if (this.state.status === "sent") {
       return this.renderSentBanner();
     }
+    const branchLabel = this.renderBranchLabel();
+    const contextLinks = this.renderContextLinks();
+    // When there's nothing between the grip and the Comment button (no branch,
+    // PR, or thread), collapse to a content-sized bar and drop the divider that
+    // would otherwise frame an empty middle section.
+    const isCompact = !branchLabel && !contextLinks;
+    const toolbarClass = isCompact
+      ? "obv-toolbar obv-toolbar-compact"
+      : "obv-toolbar";
     return `
-      <div class="obv-toolbar" role="toolbar" aria-label="Obvious feedback toolbar">
+      <div class="${toolbarClass}" role="toolbar" aria-label="Obvious feedback toolbar">
         <div class="obv-group obv-group-start">
           <button type="button" class="obv-cell obv-cell-grip" data-obv-drag-handle aria-label="Drag toolbar">${createIcon("grip")}</button>
-          ${this.renderBranchLabel()}
-          ${this.renderContextLinks()}
+          ${branchLabel}
+          ${contextLinks}
         </div>
 
         <div class="obv-group obv-group-end">
@@ -224,7 +233,7 @@ export class FeedbackToolbar {
   /**
    * Full-bar takeover shown after a successful Send. Reuses the toolbar host
    * (so the drag handle still works) but replaces the cells with a centered
-   * "Autobuild is working on it" banner + CTA link to the autobuild thread.
+   * "Autobuild is on it" banner + CTA link to the autobuild thread.
    * Falls back to the PR link, then a CTA-less message, when context is sparse.
    */
   private renderSentBanner(): string {
@@ -232,16 +241,16 @@ export class FeedbackToolbar {
     const prUrl = getSafeExternalUrl(this.state.context?.prUrl);
     let cta = "";
     if (threadUrl) {
-      cta = `<a class="obv-sent-cta" href="${escapeHtml(threadUrl)}" target="_blank" rel="noopener noreferrer" title="Open autobuild thread"><span>View progress</span>${createIcon("arrow-up-right")}</a>`;
+      cta = `<a class="obv-sent-cta" href="${escapeHtml(threadUrl)}" target="_blank" rel="noopener noreferrer" aria-label="View progress in a new tab" title="View progress in a new tab"><span>View progress</span>${createIcon("arrow-up-right")}</a>`;
     } else if (prUrl) {
-      cta = `<a class="obv-sent-cta" href="${escapeHtml(prUrl)}" target="_blank" rel="noopener noreferrer" title="Open pull request"><span>View PR</span>${createIcon("arrow-up-right")}</a>`;
+      cta = `<a class="obv-sent-cta" href="${escapeHtml(prUrl)}" target="_blank" rel="noopener noreferrer" aria-label="View pull request in a new tab" title="View pull request in a new tab"><span>View PR</span>${createIcon("arrow-up-right")}</a>`;
     }
     return `
       <div class="obv-toolbar obv-toolbar-sent" role="status" aria-label="Feedback sent">
         <button type="button" class="obv-cell obv-cell-grip" data-obv-drag-handle aria-label="Drag toolbar">${createIcon("grip")}</button>
         <div class="obv-sent-banner">
           <span class="obv-sent-icon" aria-hidden="true">${createIcon("sparkle")}</span>
-          <span class="obv-sent-text">Autobuild is working on it</span>
+          <span class="obv-sent-text">Autobuild is on it.</span>
           ${cta}
         </div>
       </div>
@@ -279,23 +288,31 @@ export class FeedbackToolbar {
 
   private renderBranchLabel(): string {
     const context = this.state.context;
-    if (!context?.branch && !context?.commitSha) {
+    if (!context?.branch && !context?.commitSha && !context?.buildId) {
       return "";
     }
     const sha = context.commitSha ? shortSha(context.commitSha) : null;
     const segments = [
-      context.branch ? truncate(context.branch, 24) : null,
-      sha,
+      context.branch
+        ? `<span class="obv-meta-item obv-meta-branch">${escapeHtml(context.branch)}</span>`
+        : null,
+      sha ? `<span class="obv-meta-item">${escapeHtml(sha)}</span>` : null,
+      context.buildId
+        ? `<span class="obv-meta-item">Build ${escapeHtml(context.buildId)}</span>`
+        : null,
     ].filter((segment): segment is string => Boolean(segment));
     if (segments.length === 0) {
       return "";
     }
-    const text = segments.join(" • ");
+    const content = segments.join(
+      `<span class="obv-meta-separator" aria-hidden="true">•</span>`,
+    );
     const tooltipParts = [
       context.branch ? `Branch ${context.branch}` : null,
       context.commitSha ? `Commit ${context.commitSha}` : null,
+      context.buildId ? `Build ${context.buildId}` : null,
     ].filter((segment): segment is string => Boolean(segment));
-    return `<div class="obv-cell obv-cell-meta" title="${escapeHtml(tooltipParts.join(" · "))}">${escapeHtml(text)}</div>`;
+    return `<div class="obv-cell obv-cell-meta" title="${escapeHtml(tooltipParts.join(" · "))}">${content}</div>`;
   }
 
   private renderContextLinks(): string {
@@ -369,10 +386,6 @@ export class FeedbackToolbar {
 
 function shortSha(value: string): string {
   return value.length > 7 ? value.slice(0, 7) : value;
-}
-
-function truncate(value: string, max: number): string {
-  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
 function getPositionStorageKey(): string {

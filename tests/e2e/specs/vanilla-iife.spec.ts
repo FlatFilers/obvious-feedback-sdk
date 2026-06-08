@@ -5,21 +5,15 @@ test.describe('Vanilla IIFE host', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
   })
 
-  test('SDK initializes and shows trigger button', async ({ page }) => {
+  test('SDK initializes and shows the feedback toolbar', async ({ page }) => {
     await expect(page.locator('#status')).toHaveText('SDK initialized successfully.')
-    const trigger = page.locator('div').last().locator('css=.obv-trigger >> nth=0')
-    const shadowHost = page.locator('body > div').last()
-    await expect(shadowHost).toBeAttached()
+    await expect(page.locator('[data-obvious-feedback-toolbar]')).toBeAttached()
+    await expect(page.locator('[data-toolbar-action="comment"]')).toBeVisible()
   })
 
-  test('trigger button is visible and clickable', async ({ page }) => {
-    const shadowHost = page.locator('body > div').last()
-    await expect(shadowHost).toBeAttached()
-  })
-
-  test('keyboard shortcut opens feedback card', async ({ page }) => {
-    await page.keyboard.press('Meta+Shift+Period')
-    await page.waitForTimeout(500)
+  test('comment button enters annotation mode', async ({ page }) => {
+    await page.locator('[data-toolbar-action="comment"]').click()
+    await expect(page.locator('[data-obvious-feedback-pick-overlay="true"]')).toBeAttached()
   })
 
   test('page does not have console errors on load', async ({ page }) => {

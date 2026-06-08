@@ -14,6 +14,7 @@ export type {
   FeedbackContextCiStatus,
   FeedbackContextPrStatus,
   FeedbackContextReviewStatus,
+  FeedbackDesignSystemConfig,
   FeedbackIssueLinks,
   FeedbackIssueSeverity,
   FeedbackIssueType,
@@ -24,7 +25,12 @@ export type {
   FeedbackStatusResponse,
   FeedbackSubmissionInput,
   FeedbackVisualSuggestion,
+  FeedbackVisualSuggestionIntent,
   FeedbackVisualSuggestionProperty,
+  FeedbackVisualSuggestionSource,
+  FeedbackVisualSuggestionToken,
+  FeedbackVisualSuggestionTokenCategory,
+  FeedbackVisualSuggestionTokenSource,
   FeedbackWorkerThreadLink,
   SessionReplayUrlResolver,
 } from "./public-types";
@@ -43,12 +49,18 @@ export const ObviousFeedback = {
         activeWidget?.destroy();
         activeWidget = null;
       },
+      open: () => activeWidget?.enterAnnotationMode(),
       enterAnnotationMode: () => activeWidget?.enterAnnotationMode(),
       exitAnnotationMode: () => activeWidget?.exitAnnotationMode(),
       submit: () => activeWidget?.submit() ?? Promise.resolve(),
       getDraftPinCount: () => activeWidget?.getDraftPinCount() ?? 0,
       subscribeToDraftPinCount: (listener) =>
         activeWidget?.subscribeToDraftPinCount(listener) ?? (() => {}),
+      getOpenIssueCount: () => 0,
+      subscribeToOpenIssueCount: (listener) => {
+        listener(0);
+        return () => {};
+      },
     };
   },
 };

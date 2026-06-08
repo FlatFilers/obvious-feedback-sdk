@@ -93,6 +93,7 @@ export class ObviousFeedbackWidget {
 
     this.pinOverlay = new PinOverlay({
       theme: this.getResolvedTheme(),
+      designSystem: this.config.designSystem,
     });
 
     this.toolbar = new FeedbackToolbar({
@@ -329,7 +330,7 @@ export class ObviousFeedbackWidget {
           identityToken: this.config.identityToken,
           sessionReplayUrl,
           env: this.config.env,
-          prNumber: this.config.context?.prNumber,
+          prNumber: this.config.context?.prNumber ?? this.config.prNumber,
           sourceUrl: redactUrl(window.location.href),
           sdkVersion: SDK_VERSION,
           items,
@@ -372,6 +373,11 @@ export class ObviousFeedbackWidget {
 }
 
 function normalizeConfig(config: FeedbackSdkConfig): FeedbackSdkConfig {
+  const context = config.context
+    ? { ...config.context, prNumber: config.context.prNumber ?? config.prNumber }
+    : config.prNumber
+      ? { prNumber: config.prNumber }
+      : undefined;
   return {
     ...config,
     apiBaseUrl: config.apiBaseUrl ?? DEFAULT_API_BASE_URL,
@@ -380,6 +386,7 @@ function normalizeConfig(config: FeedbackSdkConfig): FeedbackSdkConfig {
     captureConsole: config.captureConsole ?? false,
     captureNetwork: config.captureNetwork ?? false,
     theme: config.theme ?? "light",
+    context,
   };
 }
 

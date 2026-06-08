@@ -12,47 +12,48 @@
  */
 
 import type {
+  FeedbackDesignSystemConfig,
   FeedbackSdkTheme,
   FeedbackVisualSuggestion,
+  FeedbackVisualSuggestionIntent,
   FeedbackVisualSuggestionProperty,
+  FeedbackVisualSuggestionSource,
+  FeedbackVisualSuggestionToken,
 } from "../public-types";
 import { escapeHtml } from "../utils/html";
+import {
+  buildDesignTokenCatalog,
+  type DesignToken,
+  mergeTokenCatalogs,
+  type TokenCatalog,
+} from "./design-token-inference";
+import {
+  createDraggable,
+  type DraggableHandle,
+  type DraggablePosition,
+} from "./draggable";
 import { createIcon } from "./icons";
+import { buildObviousTokenManifestCatalog } from "./obvious-token-manifest";
+import {
+  planTweakControls,
+  type TweakControlPlan,
+  type TweakTokenChip,
+} from "./tweak-control-planner";
 import {
   cssColorToHex,
-  getApplicableProperties,
   getComputedSuggestionValue,
-  getSliderConfig,
   isColorProperty,
   parseNumericValue,
   sanitizeSuggestionValue,
   VISUAL_SUGGESTION_PROPERTIES,
-  VISUAL_SUGGESTION_PROPERTY_LABELS,
 } from "./visual-suggestions";
 
 const PIN_LAYER_Z_INDEX = 2147483646;
-const PIN_RADIUS_PX = 14;
-const POPOVER_WIDTH_PX = 320;
+const PIN_RADIUS_PX = 11;
+const POPOVER_WIDTH_PX = 340;
 const POPOVER_OFFSET_PX = 12;
 const VIEWPORT_MARGIN_PX = 12;
 const STORAGE_KEY = "obvious.feedback.draftPins";
-
-/**
- * Curated palette covering the most common feedback intents
- * ("make it red", "make it green", brand yellow, etc). Tuned so each row
- * fits in the popover without scrolling. The native browser color picker
- * stays accessible behind the trailing custom trigger for arbitrary hex.
- */
-const COLOR_SWATCHES: ReadonlyArray<{ name: string; value: string }> = [
-  { name: "White", value: "#ffffff" },
-  { name: "Slate", value: "#1e293b" },
-  { name: "Red", value: "#ef4444" },
-  { name: "Orange", value: "#f97316" },
-  { name: "Yellow", value: "#facc15" },
-  { name: "Green", value: "#22c55e" },
-  { name: "Blue", value: "#3b82f6" },
-  { name: "Purple", value: "#a855f7" },
-];
 
 type PinAnchor = {
   selector: string;
@@ -66,6 +67,26 @@ interface OriginalStyleEntry {
   previousInline: string | null;
 }
 
+interface OverrideRecord {
+  /** Value applied via `element.style.setProperty(property, ...)`. */
+  appliedValue: string;
+  /** What the agent should do with this override on the backend. */
+  source: FeedbackVisualSuggestionSource;
+  /** Token metadata when `source === "token"`. */
+  token?: FeedbackVisualSuggestionToken;
+  /** Intent identifier when `source === "intent"`. */
+  intent?: FeedbackVisualSuggestionIntent;
+  /** Conservative preview value (matches `appliedValue` when source is intent). */
+  previewValue?: string;
+}
+
+export interface OverrideOptions {
+  source?: FeedbackVisualSuggestionSource;
+  token?: FeedbackVisualSuggestionToken;
+  intent?: FeedbackVisualSuggestionIntent;
+  previewValue?: string;
+}
+
 export interface DraftPinSnapshot {
   id: string;
   number: number;
@@ -77,11 +98,12 @@ export interface DraftPinSnapshot {
 
 export interface PinOverlayOptions {
   theme: FeedbackSdkTheme;
+  designSystem?: FeedbackDesignSystemConfig;
   /** Per-origin storage key suffix; pins persist while the host page is open. */
   storageNamespace?: string;
 }
 
-interface PinViewport {
+export interface PinViewport {
   scrollX: number;
   scrollY: number;
   innerWidth: number;
@@ -96,12 +118,14 @@ interface PinElement {
   marker: HTMLButtonElement;
   /** Live HTML element for visual mutations; may go stale on host re-render. */
   liveElement: HTMLElement | null;
+  /** Per-property control plan computed once when the pin is created. */
+  controlPlans: TweakControlPlan[];
   /** Properties relevant for this element (filtered by tag/role/style). */
   applicableProperties: FeedbackVisualSuggestionProperty[];
   /** Original computed value + previous inline value at pick time. */
   originals: Map<FeedbackVisualSuggestionProperty, OriginalStyleEntry>;
-  /** Currently-applied override values by property. */
-  overrides: Map<FeedbackVisualSuggestionProperty, string>;
+  /** Currently-applied override records keyed by property. */
+  overrides: Map<FeedbackVisualSuggestionProperty, OverrideRecord>;
 }
 
 export class PinOverlay {
@@ -113,12 +137,17 @@ export class PinOverlay {
   private theme: FeedbackSdkTheme;
   private destroyed = false;
   private activePopoverId: string | null = null;
+  private activePopoverDrag: DraggableHandle | null = null;
+  private readonly popoverPositions = new Map<string, DraggablePosition>();
   private rafHandle: number | null = null;
   private readonly resizeObserver: ResizeObserver | null;
   private readonly listeners = new Set<(count: number) => void>();
+  private readonly designSystem: FeedbackDesignSystemConfig | undefined;
+  private cachedCatalog: TokenCatalog | null = null;
 
   constructor(options: PinOverlayOptions) {
     this.theme = options.theme;
+    this.designSystem = options.designSystem;
     this.host = document.createElement("div");
     this.host.setAttribute("data-obvious-feedback-pin-layer", "true");
     this.host.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:${PIN_LAYER_Z_INDEX};`;
@@ -144,6 +173,8 @@ export class PinOverlay {
     }
     this.destroyed = true;
     this.uninstallListeners();
+    this.activePopoverDrag?.destroy();
+    this.activePopoverDrag = null;
     this.resizeObserver?.disconnect();
     if (this.rafHandle !== null) {
       window.cancelAnimationFrame(this.rafHandle);
@@ -169,9 +200,9 @@ export class PinOverlay {
     const number = this.nextNumber;
     this.nextNumber += 1;
     const id = `pin_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    const applicableProperties = liveElement
-      ? getApplicableProperties(liveElement)
-      : [];
+    const catalog = this.getCatalog();
+    const controlPlans = liveElement ? planTweakControls(liveElement, catalog) : [];
+    const applicableProperties = controlPlans.map((plan) => plan.property);
     const originals = liveElement
       ? captureOriginals(liveElement, applicableProperties)
       : new Map<FeedbackVisualSuggestionProperty, OriginalStyleEntry>();
@@ -184,6 +215,7 @@ export class PinOverlay {
       anchor,
       marker,
       liveElement,
+      controlPlans,
       applicableProperties,
       originals,
       overrides: new Map(),
@@ -195,6 +227,18 @@ export class PinOverlay {
     return this.snapshotPin(pin);
   }
 
+  private getCatalog(): TokenCatalog {
+    if (this.cachedCatalog) {
+      return this.cachedCatalog;
+    }
+    const runtimeCatalog = buildDesignTokenCatalog();
+    const manifestCatalog = buildObviousTokenManifestCatalog(
+      this.designSystem?.tokensMarkdown,
+    );
+    this.cachedCatalog = mergeTokenCatalogs(manifestCatalog, runtimeCatalog);
+    return this.cachedCatalog;
+  }
+
   removePin(id: string): void {
     const entry = this.pins.get(id);
     if (!entry) {
@@ -203,6 +247,7 @@ export class PinOverlay {
     this.restorePinStyles(entry);
     entry.marker.remove();
     this.pins.delete(id);
+    this.popoverPositions.delete(id);
     this.renumber();
     this.notifyCount();
     if (this.activePopoverId === id) {
@@ -222,6 +267,7 @@ export class PinOverlay {
     id: string,
     property: FeedbackVisualSuggestionProperty,
     value: string,
+    options?: OverrideOptions,
   ): void {
     const entry = this.pins.get(id);
     if (!entry) {
@@ -238,11 +284,22 @@ export class PinOverlay {
     if (!original) {
       return;
     }
-    if (sanitized === original.computed) {
+    const resolvedSource: FeedbackVisualSuggestionSource =
+      options?.source ?? "raw";
+    if (resolvedSource === "raw" && sanitized === original.computed) {
       this.clearOverride(id, property);
       return;
     }
-    entry.overrides.set(property, sanitized);
+    const record: OverrideRecord = {
+      appliedValue: sanitized,
+      source: resolvedSource,
+      ...(options?.token ? { token: options.token } : {}),
+      ...(options?.intent ? { intent: options.intent } : {}),
+      ...(options?.previewValue
+        ? { previewValue: options.previewValue }
+        : {}),
+    };
+    entry.overrides.set(property, record);
     const live = this.resolveLiveElement(entry);
     if (live) {
       try {
@@ -270,10 +327,12 @@ export class PinOverlay {
     const original = entry.originals.get(property);
     if (live && original) {
       try {
-        if (original.previousInline !== null) {
+        // Remove first so a previous `var(--token)` value can't linger when
+        // we re-set the original literal — some style engines short-circuit
+        // identity writes.
+        live.style.removeProperty(property);
+        if (original.previousInline !== null && original.previousInline !== "") {
           live.style.setProperty(property, original.previousInline);
-        } else {
-          live.style.removeProperty(property);
         }
       } catch {
         // Ignore — element may have detached.
@@ -287,6 +346,7 @@ export class PinOverlay {
       entry.marker.remove();
     }
     this.pins.clear();
+    this.popoverPositions.clear();
     this.nextNumber = 1;
     this.closePopover();
     this.notifyCount();
@@ -318,16 +378,27 @@ export class PinOverlay {
 
   private snapshotPin(entry: PinElement): DraftPinSnapshot {
     const overrides: FeedbackVisualSuggestion[] = [];
-    for (const [property, value] of entry.overrides) {
+    for (const [property, record] of entry.overrides) {
       const original = entry.originals.get(property);
       if (!original) {
         continue;
       }
-      overrides.push({
+      const suggestion: FeedbackVisualSuggestion = {
         property,
         originalValue: original.computed,
-        suggestedValue: value,
-      });
+        suggestedValue: record.appliedValue,
+        source: record.source,
+      };
+      if (record.token) {
+        suggestion.token = record.token;
+      }
+      if (record.intent) {
+        suggestion.intent = record.intent;
+      }
+      if (record.previewValue) {
+        suggestion.previewValue = record.previewValue;
+      }
+      overrides.push(suggestion);
     }
     return {
       id: entry.id,
@@ -400,7 +471,10 @@ export class PinOverlay {
     const popover = this.createPopover(entry);
     this.layer.appendChild(popover);
     this.activePopoverId = id;
-    this.repositionPopover(id);
+    const initialPosition = this.repositionPopover(id);
+    if (initialPosition) {
+      this.bindPopoverDrag(popover, id, initialPosition);
+    }
     const textarea = popover.querySelector("textarea");
     if (textarea instanceof HTMLTextAreaElement) {
       textarea.focus();
@@ -410,6 +484,8 @@ export class PinOverlay {
   }
 
   private closePopover(): void {
+    this.activePopoverDrag?.destroy();
+    this.activePopoverDrag = null;
     const popover = this.layer.querySelector(".obv-pin-popover");
     popover?.remove();
     this.activePopoverId = null;
@@ -437,7 +513,9 @@ export class PinOverlay {
     wrapper.style.pointerEvents = "auto";
     wrapper.innerHTML = `
       <div class="obv-pin-popover-header">
-        <span class="obv-pin-popover-title">Pin ${pin.number} of ${this.pins.size}</span>
+        <div class="obv-pin-popover-drag-handle" data-pin-drag-handle title="Drag popover">
+          <span class="obv-pin-popover-title">Pin ${pin.number} of ${this.pins.size}</span>
+        </div>
         <div class="obv-pin-popover-actions">
           <button type="button" class="obv-pin-icon-button" data-pin-action="delete" aria-label="Delete pin ${pin.number}">${createIcon("close")}</button>
         </div>
@@ -451,7 +529,7 @@ export class PinOverlay {
       >${escapeHtml(pin.comment)}</textarea>
       ${this.renderTweakPanel(pin)}
       <div class="obv-pin-popover-footer">
-        <span class="obv-pin-popover-hint">Press Esc to close</span>
+        <span class="obv-pin-popover-hint">Esc to close · ⌘/Ctrl+Enter to finish</span>
         <button type="button" class="obv-pin-popover-done" data-pin-action="close">Done</button>
       </div>
     `;
@@ -459,12 +537,40 @@ export class PinOverlay {
     return wrapper;
   }
 
+  private bindPopoverDrag(
+    popover: HTMLDivElement,
+    pinId: string,
+    initialPosition: DraggablePosition,
+  ): void {
+    const handle = popover.querySelector("[data-pin-drag-handle]");
+    if (!(handle instanceof HTMLElement)) {
+      return;
+    }
+    this.activePopoverDrag?.destroy();
+    this.activePopoverDrag = createDraggable({
+      target: popover,
+      handle,
+      initialPosition,
+      viewportMargin: VIEWPORT_MARGIN_PX,
+      onDragStart: () => {
+        popover.setAttribute("data-dragging", "true");
+      },
+      onDragMove: (position) => {
+        this.popoverPositions.set(pinId, position);
+      },
+      onDragEnd: (position) => {
+        popover.removeAttribute("data-dragging");
+        this.popoverPositions.set(pinId, position);
+      },
+    });
+  }
+
   private renderTweakPanel(pin: PinElement): string {
-    if (pin.applicableProperties.length === 0) {
+    if (pin.controlPlans.length === 0) {
       return "";
     }
-    const rows = pin.applicableProperties
-      .map((property) => this.renderTweakRow(pin, property))
+    const rows = pin.controlPlans
+      .map((plan) => this.renderTweakRow(pin, plan))
       .filter((row) => row.length > 0)
       .join("");
     if (!rows) {
@@ -477,107 +583,42 @@ export class PinOverlay {
     `;
   }
 
-  private renderTweakRow(
-    pin: PinElement,
-    property: FeedbackVisualSuggestionProperty,
-  ): string {
-    const label = VISUAL_SUGGESTION_PROPERTY_LABELS[property];
+  private renderTweakRow(pin: PinElement, plan: TweakControlPlan): string {
+    const property = plan.property;
     const original = pin.originals.get(property);
     if (!original) {
       return "";
     }
-    const currentValue = pin.overrides.get(property) ?? original.computed;
-    const hasOverride = pin.overrides.has(property);
+    // Tokens-only contract: when no design-system tokens cover this property
+    // we hide the row. The user comments in prose instead of inventing
+    // free-form values that don't map back to the design system.
+    if (plan.tokenChips.length === 0) {
+      return "";
+    }
+    const record = pin.overrides.get(property);
+    const hasOverride = record !== undefined;
+    const activeTokenName = record?.token?.name ?? "";
+    const headerValue = renderHeaderValue(plan, original.computed, record);
     const resetAttr = hasOverride ? "" : "hidden";
-
-    if (isColorProperty(property)) {
-      const hex = cssColorToHex(currentValue);
-      const isCustom = !COLOR_SWATCHES.some(
-        (entry) => entry.value.toLowerCase() === hex.toLowerCase(),
-      );
-      const swatchButtons = COLOR_SWATCHES.map((entry) => {
-        const isActive =
-          entry.value.toLowerCase() === hex.toLowerCase() ? "true" : "false";
-        return `
-          <button
-            type="button"
-            class="obv-pin-tweak-swatch"
-            data-prop="${escapeHtml(property)}"
-            data-color="${escapeHtml(entry.value)}"
-            data-active="${isActive}"
-            style="background:${escapeHtml(entry.value)}"
-            aria-label="${escapeHtml(entry.name)}"
-            title="${escapeHtml(entry.name)} ${escapeHtml(entry.value)}"
-          ></button>
-        `;
-      }).join("");
-      return `
-        <div class="obv-pin-tweak-row obv-pin-tweak-row--color" data-prop="${escapeHtml(property)}">
-          <label class="obv-pin-tweak-label">${escapeHtml(label)}</label>
-          <div class="obv-pin-tweak-swatches" role="radiogroup" aria-label="${escapeHtml(label)} color">
-            ${swatchButtons}
-            <button
-              type="button"
-              class="obv-pin-tweak-swatch obv-pin-tweak-swatch--custom"
-              data-prop="${escapeHtml(property)}"
-              data-tweak-action="custom-color"
-              data-active="${isCustom ? "true" : "false"}"
-              aria-label="Custom color"
-              title="Custom color (${escapeHtml(hex)})"
-            ></button>
-            <input
-              type="color"
-              class="obv-pin-tweak-color-input"
-              data-prop="${escapeHtml(property)}"
-              value="${escapeHtml(hex)}"
-              tabindex="-1"
-              aria-hidden="true"
-            />
-          </div>
+    const tokenChips = plan.tokenChips
+      .map((chip) => renderTokenChip(chip, activeTokenName))
+      .join("");
+    return `
+      <div class="obv-pin-tweak-row" data-prop="${escapeHtml(property)}">
+        <div class="obv-pin-tweak-row-header">
+          <span class="obv-pin-tweak-label">${escapeHtml(plan.label)}</span>
+          <span class="obv-pin-tweak-row-meta">${headerValue}</span>
           <button
             type="button"
             class="obv-pin-tweak-reset"
             data-tweak-action="reset"
             data-prop="${escapeHtml(property)}"
-            aria-label="Reset ${escapeHtml(label)}"
+            aria-label="Reset ${escapeHtml(plan.label)}"
             title="Reset"
             ${resetAttr}
           >×</button>
         </div>
-      `;
-    }
-
-    const slider = getSliderConfig(property);
-    if (!slider) {
-      return "";
-    }
-    const parsed = parseNumericValue(currentValue);
-    const numeric = parsed !== null ? parsed.value : slider.min;
-    const clamped = Math.min(Math.max(numeric, slider.min), slider.max);
-    const display = formatSliderValue(clamped, slider.unit);
-    return `
-      <div class="obv-pin-tweak-row obv-pin-tweak-row--slider" data-prop="${escapeHtml(property)}">
-        <label class="obv-pin-tweak-label">${escapeHtml(label)}</label>
-        <input
-          type="range"
-          class="obv-pin-tweak-slider"
-          data-prop="${escapeHtml(property)}"
-          min="${slider.min}"
-          max="${slider.max}"
-          step="${slider.step}"
-          value="${clamped}"
-          aria-label="${escapeHtml(label)}"
-        />
-        <output class="obv-pin-tweak-value">${escapeHtml(display)}</output>
-        <button
-          type="button"
-          class="obv-pin-tweak-reset"
-          data-tweak-action="reset"
-          data-prop="${escapeHtml(property)}"
-          aria-label="Reset ${escapeHtml(label)}"
-          title="Reset"
-          ${resetAttr}
-        >×</button>
+        <div class="obv-pin-tweak-chip-row" role="group" aria-label="${escapeHtml(plan.label)} tokens">${tokenChips}</div>
       </div>
     `;
   }
@@ -591,6 +632,16 @@ export class PinOverlay {
       });
       textarea.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
+          event.preventDefault();
+          this.closePopover();
+          return;
+        }
+        if (
+          event.key === "Enter" &&
+          (event.metaKey || event.ctrlKey) &&
+          !event.shiftKey &&
+          !event.altKey
+        ) {
           event.preventDefault();
           this.closePopover();
         }
@@ -613,28 +664,18 @@ export class PinOverlay {
           }
           return;
         }
-        if (action === "custom-color" && propertyAttr) {
-          event.preventDefault();
-          if (isVisualSuggestionProperty(propertyAttr)) {
-            this.openNativeColorPicker(propertyAttr, wrapper);
-          }
-          return;
-        }
       }
-      const swatch = target.closest(".obv-pin-tweak-swatch");
-      if (
-        swatch instanceof HTMLElement &&
-        !swatch.classList.contains("obv-pin-tweak-swatch--custom")
-      ) {
-        const propertyAttr = swatch.getAttribute("data-prop");
-        const colorAttr = swatch.getAttribute("data-color");
+      const tokenChip = target.closest(".obv-pin-tweak-token-chip");
+      if (tokenChip instanceof HTMLElement) {
+        const propertyAttr = tokenChip.getAttribute("data-prop");
+        const tokenName = tokenChip.getAttribute("data-token-name");
         if (
           propertyAttr &&
-          colorAttr &&
+          tokenName &&
           isVisualSuggestionProperty(propertyAttr)
         ) {
           event.preventDefault();
-          this.handleSwatchPick(pin.id, propertyAttr, colorAttr, wrapper);
+          this.handleTokenChipPick(pin.id, propertyAttr, tokenName, wrapper);
         }
         return;
       }
@@ -647,88 +688,35 @@ export class PinOverlay {
         this.closePopover();
       }
     });
-
-    const sliders = Array.from(wrapper.querySelectorAll(".obv-pin-tweak-slider"));
-    for (const node of sliders) {
-      if (!(node instanceof HTMLInputElement)) {
-        continue;
-      }
-      node.addEventListener("input", (event) => {
-        const propertyAttr = node.getAttribute("data-prop");
-        if (!propertyAttr || !isVisualSuggestionProperty(propertyAttr)) {
-          return;
-        }
-        const slider = getSliderConfig(propertyAttr);
-        if (!slider) {
-          return;
-        }
-        const numeric = Number.parseFloat(node.value);
-        if (!Number.isFinite(numeric)) {
-          return;
-        }
-        const value = formatSliderValue(numeric, slider.unit);
-        this.setOverride(pin.id, propertyAttr, value);
-        const row = node.closest(".obv-pin-tweak-row");
-        updateRowAfterChange(row, value, true);
-        event.stopPropagation();
-      });
-    }
-
-    const colorInputs = Array.from(wrapper.querySelectorAll(".obv-pin-tweak-color-input"));
-    for (const node of colorInputs) {
-      if (!(node instanceof HTMLInputElement)) {
-        continue;
-      }
-      const handler = (): void => {
-        const propertyAttr = node.getAttribute("data-prop");
-        if (!propertyAttr || !isVisualSuggestionProperty(propertyAttr)) {
-          return;
-        }
-        const value = node.value;
-        if (!value) {
-          return;
-        }
-        this.setOverride(pin.id, propertyAttr, value);
-        const row = node.closest(".obv-pin-tweak-row");
-        updateColorRowState(row, value, true);
-      };
-      node.addEventListener("input", handler);
-      node.addEventListener("change", handler);
-    }
   }
 
-  /** Apply a color from a curated swatch and refresh active-state styling. */
-  private handleSwatchPick(
+  private handleTokenChipPick(
     pinId: string,
     property: FeedbackVisualSuggestionProperty,
-    color: string,
+    tokenName: string,
     wrapper: HTMLDivElement,
   ): void {
-    this.setOverride(pinId, property, color);
-    const row = wrapper.querySelector(
-      `.obv-pin-tweak-row--color[data-prop="${cssEscape(property)}"]`,
-    );
     const entry = this.pins.get(pinId);
-    const stillHasOverride = entry?.overrides.has(property) ?? false;
-    updateColorRowState(row, color, stillHasOverride);
-    const input = row?.querySelector(".obv-pin-tweak-color-input");
-    if (input instanceof HTMLInputElement) {
-      input.value = cssColorToHex(color);
+    if (!entry) {
+      return;
     }
-  }
-
-  /** Programmatically open the native picker for free-form hex selection. */
-  private openNativeColorPicker(
-    property: FeedbackVisualSuggestionProperty,
-    wrapper: HTMLDivElement,
-  ): void {
-    const row = wrapper.querySelector(
-      `.obv-pin-tweak-row--color[data-prop="${cssEscape(property)}"]`,
-    );
-    const input = row?.querySelector(".obv-pin-tweak-color-input");
-    if (input instanceof HTMLInputElement) {
-      input.click();
+    const plan = entry.controlPlans.find((candidate) => candidate.property === property);
+    const chip = plan?.tokenChips.find((candidate) => candidate.token.name === tokenName);
+    if (!plan || !chip) {
+      return;
     }
+    const existing = entry.overrides.get(property);
+    if (existing && existing.token?.name === tokenName) {
+      this.clearOverride(pinId, property);
+      this.refreshTweakRow(pinId, property, wrapper);
+      return;
+    }
+    this.setOverride(pinId, property, chip.applyValue, {
+      source: "token",
+      token: toPublicToken(chip.token),
+      previewValue: chip.token.applyValue ?? chip.applyValue,
+    });
+    this.refreshTweakRow(pinId, property, wrapper);
   }
 
   private handleReset(
@@ -737,42 +725,54 @@ export class PinOverlay {
     wrapper: HTMLDivElement,
   ): void {
     this.clearOverride(pinId, property);
+    this.refreshTweakRow(pinId, property, wrapper);
+  }
+
+  private refreshTweakRow(
+    pinId: string,
+    property: FeedbackVisualSuggestionProperty,
+    wrapper: HTMLDivElement,
+  ): void {
     const entry = this.pins.get(pinId);
     if (!entry) {
+      return;
+    }
+    const plan = entry.controlPlans.find(
+      (candidate) => candidate.property === property,
+    );
+    if (!plan) {
+      return;
+    }
+    const row = wrapper.querySelector(
+      `.obv-pin-tweak-row[data-prop="${cssEscape(property)}"]`,
+    );
+    if (!(row instanceof HTMLElement)) {
       return;
     }
     const original = entry.originals.get(property);
     if (!original) {
       return;
     }
-    const row = wrapper.querySelector(
-      `.obv-pin-tweak-row[data-prop="${cssEscape(property)}"]`,
+    const record = entry.overrides.get(property);
+    const meta = row.querySelector(".obv-pin-tweak-row-meta");
+    if (meta instanceof HTMLElement) {
+      meta.innerHTML = renderHeaderValue(plan, original.computed, record);
+    }
+    const tokenChips = Array.from(
+      row.querySelectorAll(".obv-pin-tweak-token-chip"),
     );
-    if (!row) {
-      return;
-    }
-    if (isColorProperty(property)) {
-      const hex = cssColorToHex(original.computed);
-      const input = row.querySelector(".obv-pin-tweak-color-input");
-      if (input instanceof HTMLInputElement) {
-        input.value = hex;
+    const activeTokenName = record?.token?.name ?? "";
+    for (const chip of tokenChips) {
+      if (!(chip instanceof HTMLElement)) {
+        continue;
       }
-      updateColorRowState(row, hex, false);
-      return;
+      const tokenName = chip.getAttribute("data-token-name") ?? "";
+      chip.setAttribute(
+        "data-active",
+        tokenName && tokenName === activeTokenName ? "true" : "false",
+      );
     }
-    const slider = row.querySelector(".obv-pin-tweak-slider");
-    if (slider instanceof HTMLInputElement) {
-      const config = getSliderConfig(property);
-      const parsed = parseNumericValue(original.computed);
-      const numeric =
-        parsed !== null && config !== null
-          ? Math.min(Math.max(parsed.value, config.min), config.max)
-          : config?.min ?? 0;
-      slider.value = String(numeric);
-      const display =
-        config !== null ? formatSliderValue(numeric, config.unit) : original.computed;
-      updateRowAfterChange(row, display, false);
-    }
+    toggleResetVisibility(row, record !== undefined);
   }
 
   private resolveLiveElement(entry: PinElement): HTMLElement | null {
@@ -802,10 +802,9 @@ export class PinOverlay {
       const original = entry.originals.get(property);
       if (live && original) {
         try {
-          if (original.previousInline !== null) {
+          live.style.removeProperty(property);
+          if (original.previousInline !== null && original.previousInline !== "") {
             live.style.setProperty(property, original.previousInline);
-          } else {
-            live.style.removeProperty(property);
           }
         } catch {
           // Ignore — element may have detached.
@@ -821,35 +820,47 @@ export class PinOverlay {
     }
   }
 
-  private repositionPopover(id: string): void {
+  private repositionPopover(id: string): DraggablePosition | null {
     const popover = this.layer.querySelector(".obv-pin-popover");
     if (!(popover instanceof HTMLElement)) {
-      return;
+      return null;
     }
     const entry = this.pins.get(id);
     if (!entry) {
-      return;
+      return null;
     }
     const viewport = readViewport();
-    const anchorPoint = resolveAnchorPoint(entry.anchor, viewport);
-    const popoverHeight = popover.offsetHeight || 200;
+    const live = this.resolveLiveElement(entry);
+    const elementRect = live ? live.getBoundingClientRect() : null;
+    const popoverHeight = popover.offsetHeight || 380;
     const popoverWidth = POPOVER_WIDTH_PX;
-    let left = anchorPoint.x + POPOVER_OFFSET_PX;
-    let top = anchorPoint.y + POPOVER_OFFSET_PX;
-    if (left + popoverWidth + VIEWPORT_MARGIN_PX > viewport.innerWidth) {
-      left = anchorPoint.x - popoverWidth - POPOVER_OFFSET_PX;
+    const storedPosition = this.popoverPositions.get(id);
+    const placement: DraggablePosition = storedPosition
+      ? clampPopoverPosition(
+          storedPosition,
+          popoverWidth,
+          popoverHeight,
+          viewport,
+          VIEWPORT_MARGIN_PX,
+        )
+      : toDraggablePosition(
+          placePopover({
+            elementRect,
+            fallbackPoint: resolveAnchorPoint(entry.anchor, viewport),
+            popoverWidth,
+            popoverHeight,
+            viewport,
+            gap: POPOVER_OFFSET_PX,
+            margin: VIEWPORT_MARGIN_PX,
+          }),
+        );
+    if (storedPosition) {
+      this.popoverPositions.set(id, placement);
     }
-    if (left < VIEWPORT_MARGIN_PX) {
-      left = VIEWPORT_MARGIN_PX;
-    }
-    if (top + popoverHeight + VIEWPORT_MARGIN_PX > viewport.innerHeight) {
-      top = anchorPoint.y - popoverHeight - POPOVER_OFFSET_PX;
-    }
-    if (top < VIEWPORT_MARGIN_PX) {
-      top = VIEWPORT_MARGIN_PX;
-    }
-    popover.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+    popover.style.transform = `translate3d(${placement.x}px, ${placement.y}px, 0)`;
     popover.style.width = `${popoverWidth}px`;
+    this.activePopoverDrag?.setPosition(placement);
+    return placement;
   }
 
   private notifyCount(): void {
@@ -925,70 +936,124 @@ function isVisualSuggestionProperty(
   return VISUAL_SUGGESTION_PROPERTIES.some((property) => property === value);
 }
 
-function formatSliderValue(value: number, unit: "px"): string {
-  const rounded = Number.isInteger(value)
-    ? value.toString()
-    : value.toFixed(2).replace(/\.?0+$/, "");
-  return `${rounded}${unit}`;
+function renderTokenChip(chip: TweakTokenChip, activeTokenName: string): string {
+  const isActive = chip.token.name === activeTokenName ? "true" : "false";
+  if (chip.token.valueKind === "color") {
+    const swatch = chip.token.resolvedValue || "transparent";
+    return `
+      <button
+        type="button"
+        class="obv-pin-tweak-token-chip obv-pin-tweak-token-chip--color"
+        data-prop="${escapeHtml(chip.property)}"
+        data-token-name="${escapeHtml(chip.token.name)}"
+        data-active="${isActive}"
+        title="${escapeHtml(chip.token.shortName)} (${escapeHtml(chip.token.resolvedValue)})"
+        aria-label="Use ${escapeHtml(chip.token.shortName)}"
+      >
+        <span class="obv-pin-tweak-token-chip-swatch" style="background:${escapeHtml(swatch)}"></span>
+        <span class="obv-pin-tweak-token-chip-label">${escapeHtml(chip.label)}</span>
+      </button>
+    `;
+  }
+  return `
+    <button
+      type="button"
+      class="obv-pin-tweak-token-chip obv-pin-tweak-token-chip--length"
+      data-prop="${escapeHtml(chip.property)}"
+      data-token-name="${escapeHtml(chip.token.name)}"
+      data-active="${isActive}"
+      title="${escapeHtml(chip.token.shortName)} (${escapeHtml(chip.token.resolvedValue)})"
+      aria-label="Use ${escapeHtml(chip.token.shortName)}"
+    >
+      <span class="obv-pin-tweak-token-chip-label">${escapeHtml(chip.label)}</span>
+      <span class="obv-pin-tweak-token-chip-value">${escapeHtml(chip.token.resolvedValue)}</span>
+    </button>
+  `;
 }
 
-function updateRowAfterChange(
-  row: Element | null,
-  display: string,
-  hasOverride: boolean,
-): void {
-  if (!(row instanceof HTMLElement)) {
-    return;
+function renderHeaderValue(
+  plan: TweakControlPlan,
+  originalComputed: string,
+  record: OverrideRecord | undefined,
+): string {
+  if (!record) {
+    return escapeHtml(formatHeaderValue(plan, originalComputed));
   }
-  const output = row.querySelector(".obv-pin-tweak-value");
-  if (output instanceof HTMLElement) {
-    output.textContent = display;
+  if (record.source === "token" && record.token) {
+    return `<span class="obv-pin-tweak-row-token">${escapeHtml(record.token.shortName)}</span>`;
   }
-  toggleResetVisibility(row, hasOverride);
+  if (record.source === "intent" && record.intent) {
+    return `<span class="obv-pin-tweak-row-intent">${escapeHtml(record.intent.replace(/-/g, " "))}</span>`;
+  }
+  return escapeHtml(formatHeaderValue(plan, record.appliedValue));
 }
 
 /**
- * Refresh active swatch + custom-trigger highlight + reset visibility for a
- * color row whenever the underlying value changes (swatch click, native
- * picker, or programmatic reset).
+ * Header value formatter — keeps the row header scannable regardless of
+ * what the browser returned for the computed style.
+ *
+ * Handles three pathological cases that surfaced from real `getComputedStyle`
+ * output:
+ *   - Padding shorthand (`6px 12px 6px 12px`) — we display the first edge.
+ *     Rendering the full shorthand felt noisy and most reporters scan the
+ *     top number.
+ *   - Implausibly large numbers (e.g. `1.67772e+07px` for unset border-radius
+ *     in some browsers) — we collapse to `—` so the header doesn't flicker
+ *     to nonsense.
+ *   - Transparent / `none` / 0-alpha rgba — we collapse to `—` rather than
+ *     showing `#000000`, which would imply an actual color.
  */
-function updateColorRowState(
-  row: Element | null,
-  rawValue: string,
-  hasOverride: boolean,
-): void {
-  if (!(row instanceof HTMLElement)) {
-    return;
+function formatHeaderValue(plan: TweakControlPlan, value: string): string {
+  return formatHeaderRaw(plan.property, value);
+}
+
+function formatHeaderRaw(
+  property: FeedbackVisualSuggestionProperty,
+  value: string,
+): string {
+  if (!value) {
+    return "—";
   }
-  const hex = cssColorToHex(rawValue).toLowerCase();
-  let matchedPreset = false;
-  const swatches = Array.from(row.querySelectorAll(".obv-pin-tweak-swatch"));
-  for (const swatch of swatches) {
-    if (!(swatch instanceof HTMLElement)) {
-      continue;
+  const trimmed = value.trim();
+  if (isColorProperty(property)) {
+    if (!trimmed || /^(transparent|none|inherit|initial|unset|currentcolor)$/i.test(trimmed)) {
+      return "—";
     }
-    if (swatch.classList.contains("obv-pin-tweak-swatch--custom")) {
-      continue;
+    if (/^rgba?\([^)]*?,\s*0(?:\.0+)?\s*\)$/i.test(trimmed)) {
+      return "—";
     }
-    const swatchValue = (swatch.getAttribute("data-color") ?? "").toLowerCase();
-    const isActive = swatchValue === hex;
-    swatch.setAttribute("data-active", isActive ? "true" : "false");
-    if (isActive) {
-      matchedPreset = true;
+    const hex = cssColorToHex(trimmed);
+    if (hex === "#000000" && !trimmed.startsWith("#") && !/^rgb/i.test(trimmed)) {
+      return "—";
     }
+    return hex.toUpperCase();
   }
-  const customTrigger = row.querySelector(".obv-pin-tweak-swatch--custom");
-  if (customTrigger instanceof HTMLElement) {
-    customTrigger.setAttribute(
-      "data-active",
-      matchedPreset ? "false" : "true",
-    );
-    customTrigger.setAttribute(
-      "title",
-      `Custom color (${hex})`,
-    );
+  const first = trimmed.split(/\s+/)[0] ?? "";
+  if (!first) {
+    return "—";
   }
-  toggleResetVisibility(row, hasOverride);
+  const parsed = parseNumericValue(first);
+  if (parsed === null) {
+    return first;
+  }
+  if (!Number.isFinite(parsed.value) || Math.abs(parsed.value) > 10000) {
+    return "—";
+  }
+  const num = Number.isInteger(parsed.value)
+    ? parsed.value.toString()
+    : parsed.value.toFixed(2).replace(/\.?0+$/, "");
+  return `${num}${parsed.unit}`;
+}
+
+function toPublicToken(token: DesignToken): FeedbackVisualSuggestionToken {
+  return {
+    shortName: token.shortName,
+    name: token.name,
+    resolvedValue: token.resolvedValue,
+    category: token.category,
+    semanticScore: token.semanticScore,
+    source: token.source ?? "runtime",
+  };
 }
 
 function toggleResetVisibility(row: HTMLElement, hasOverride: boolean): void {
@@ -1017,6 +1082,176 @@ function readViewport(): PinViewport {
     innerWidth: window.innerWidth,
     innerHeight: window.innerHeight,
   };
+}
+
+export interface PopoverPlacementRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
+export interface PopoverPlacementInput {
+  /** Live bounding rect of the picked element, or null when the selector lost its target. */
+  elementRect: PopoverPlacementRect | null;
+  /** Anchor point fallback when no live rect is available. */
+  fallbackPoint: { x: number; y: number };
+  popoverWidth: number;
+  popoverHeight: number;
+  viewport: PinViewport;
+  /** Gap between popover and the picked element. */
+  gap: number;
+  /** Minimum gap between popover and viewport edges. */
+  margin: number;
+}
+
+/**
+ * Position the tweak popover so it never sits on top of the picked element.
+ * The user is editing live styles — they need to *see* the element react.
+ *
+ * Resolution order:
+ *   1. Right of the element (preferred — natural reading order, body still visible).
+ *   2. Left of the element.
+ *   3. Below the element.
+ *   4. Above the element.
+ *   5. If none of those fit (huge or full-bleed element), pin to the viewport
+ *      corner farthest from the element's center; the user gets the most
+ *      uncovered visible area possible.
+ *
+ * When no live rect is available, fall back to the captured anchor point and
+ * clamp into the viewport — the same behaviour the SDK had before.
+ */
+export function placePopover(input: PopoverPlacementInput): {
+  left: number;
+  top: number;
+} {
+  const {
+    elementRect,
+    fallbackPoint,
+    popoverWidth,
+    popoverHeight,
+    viewport,
+    gap,
+    margin,
+  } = input;
+  const minLeft = margin;
+  const maxLeft = Math.max(margin, viewport.innerWidth - popoverWidth - margin);
+  const minTop = margin;
+  const maxTop = Math.max(
+    margin,
+    viewport.innerHeight - popoverHeight - margin,
+  );
+
+  if (elementRect) {
+    const fitsRight =
+      elementRect.right + gap + popoverWidth + margin <= viewport.innerWidth;
+    if (fitsRight) {
+      return {
+        left: elementRect.right + gap,
+        top: clampNumber(elementRect.top, minTop, maxTop),
+      };
+    }
+    const fitsLeft = elementRect.left - gap - popoverWidth >= margin;
+    if (fitsLeft) {
+      return {
+        left: elementRect.left - gap - popoverWidth,
+        top: clampNumber(elementRect.top, minTop, maxTop),
+      };
+    }
+    const fitsBelow =
+      elementRect.bottom + gap + popoverHeight + margin <=
+      viewport.innerHeight;
+    if (fitsBelow) {
+      return {
+        left: clampNumber(elementRect.left, minLeft, maxLeft),
+        top: elementRect.bottom + gap,
+      };
+    }
+    const fitsAbove = elementRect.top - gap - popoverHeight >= margin;
+    if (fitsAbove) {
+      return {
+        left: clampNumber(elementRect.left, minLeft, maxLeft),
+        top: elementRect.top - gap - popoverHeight,
+      };
+    }
+    // Element fills the available space: drop the popover into the corner
+    // furthest from the element's centre so as much of the page stays
+    // visible as possible.
+    return cornerPlacement(
+      elementRect,
+      viewport,
+      popoverWidth,
+      popoverHeight,
+      margin,
+    );
+  }
+
+  return {
+    left: clampNumber(fallbackPoint.x + gap, minLeft, maxLeft),
+    top: clampNumber(fallbackPoint.y + gap, minTop, maxTop),
+  };
+}
+
+function cornerPlacement(
+  elementRect: PopoverPlacementRect,
+  viewport: PinViewport,
+  popoverWidth: number,
+  popoverHeight: number,
+  margin: number,
+): { left: number; top: number } {
+  const elementCenterX = (elementRect.left + elementRect.right) / 2;
+  const elementCenterY = (elementRect.top + elementRect.bottom) / 2;
+  const onLeftHalf = elementCenterX < viewport.innerWidth / 2;
+  const onTopHalf = elementCenterY < viewport.innerHeight / 2;
+  const leftCorner = Math.max(
+    margin,
+    viewport.innerWidth - popoverWidth - margin,
+  );
+  const topCorner = Math.max(
+    margin,
+    viewport.innerHeight - popoverHeight - margin,
+  );
+  return {
+    left: onLeftHalf ? leftCorner : margin,
+    top: onTopHalf ? topCorner : margin,
+  };
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (value < min) {
+    return min;
+  }
+  if (value > max) {
+    return max;
+  }
+  return value;
+}
+
+function clampPopoverPosition(
+  position: DraggablePosition,
+  popoverWidth: number,
+  popoverHeight: number,
+  viewport: PinViewport,
+  margin: number,
+): DraggablePosition {
+  return {
+    x: clampNumber(
+      position.x,
+      margin,
+      Math.max(margin, viewport.innerWidth - popoverWidth - margin),
+    ),
+    y: clampNumber(
+      position.y,
+      margin,
+      Math.max(margin, viewport.innerHeight - popoverHeight - margin),
+    ),
+  };
+}
+
+function toDraggablePosition(position: { left: number; top: number }): DraggablePosition {
+  return { x: position.left, y: position.top };
 }
 
 function resolveAnchorPoint(
@@ -1075,9 +1310,9 @@ function createPinStyles(): string {
       height: ${PIN_RADIUS_PX * 2}px;
       border-radius: 999px;
       background: #facc15;
-      border: 2px solid rgba(0, 0, 0, 0.18);
+      border: 1px solid rgba(0, 0, 0, 0.22);
       color: #1f2937;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
       line-height: 1;
       cursor: pointer;
@@ -1112,6 +1347,10 @@ function createPinStyles(): string {
       gap: 10px;
       will-change: transform;
     }
+    .obv-pin-popover[data-dragging="true"] {
+      user-select: none;
+      cursor: grabbing;
+    }
     .obv-pin-layer[data-theme="dark"] .obv-pin-popover {
       background: #18181b;
       color: #f4f4f5;
@@ -1122,6 +1361,27 @@ function createPinStyles(): string {
       align-items: center;
       justify-content: space-between;
       gap: 8px;
+    }
+    .obv-pin-popover-drag-handle {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+      border-radius: 6px;
+      padding: 2px 4px;
+      margin: -2px -4px;
+    }
+    .obv-pin-popover-drag-handle:active {
+      cursor: grabbing;
+    }
+    .obv-pin-popover-drag-handle:hover {
+      background: rgba(15, 23, 42, 0.05);
+    }
+    .obv-pin-layer[data-theme="dark"] .obv-pin-popover-drag-handle:hover {
+      background: rgba(255, 255, 255, 0.06);
     }
     .obv-pin-popover-title {
       font-size: 12px;
@@ -1183,6 +1443,9 @@ function createPinStyles(): string {
       padding-top: 8px;
       margin-top: 2px;
       border-top: 1px solid rgba(15, 23, 42, 0.08);
+      max-height: min(420px, 60vh);
+      overflow-y: auto;
+      overflow-x: hidden;
     }
     .obv-pin-layer[data-theme="dark"] .obv-pin-popover-tweaks {
       border-top-color: rgba(255, 255, 255, 0.08);
@@ -1200,147 +1463,133 @@ function createPinStyles(): string {
     }
     .obv-pin-tweak-row {
       display: flex;
-      align-items: center;
-      gap: 10px;
+      flex-direction: column;
+      gap: 6px;
       font-size: 12px;
-      min-height: 24px;
+      padding: 4px 0;
     }
-    .obv-pin-tweak-label {
-      flex: 0 0 60px;
-      color: rgba(15, 23, 42, 0.65);
+    .obv-pin-tweak-row + .obv-pin-tweak-row {
+      border-top: 1px dashed rgba(15, 23, 42, 0.06);
+      padding-top: 8px;
     }
-    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-label {
-      color: rgba(244, 244, 245, 0.65);
+    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-row + .obv-pin-tweak-row {
+      border-top-color: rgba(255, 255, 255, 0.06);
     }
-    .obv-pin-tweak-slider {
-      -webkit-appearance: none;
-      appearance: none;
-      flex: 1 1 auto;
-      min-width: 0;
-      height: 3px;
-      background: rgba(15, 23, 42, 0.12);
-      border-radius: 999px;
-      outline: none;
-      cursor: pointer;
-    }
-    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-slider {
-      background: rgba(255, 255, 255, 0.14);
-    }
-    .obv-pin-tweak-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #facc15;
-      border: none;
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
-      cursor: pointer;
-    }
-    .obv-pin-tweak-slider::-moz-range-thumb {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #facc15;
-      border: none;
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
-      cursor: pointer;
-    }
-    .obv-pin-tweak-slider:hover::-webkit-slider-thumb {
-      transform: scale(1.15);
-    }
-    .obv-pin-tweak-slider:hover::-moz-range-thumb {
-      transform: scale(1.15);
-    }
-    .obv-pin-tweak-slider:focus-visible {
-      outline: 2px solid #facc15;
-      outline-offset: 4px;
-    }
-    .obv-pin-tweak-swatches {
-      flex: 1 1 auto;
+    .obv-pin-tweak-row-header {
       display: flex;
       align-items: center;
-      gap: 5px;
-      min-width: 0;
+      gap: 8px;
     }
-    .obv-pin-tweak-swatch {
-      width: 16px;
-      height: 16px;
-      flex: 0 0 16px;
-      padding: 0;
-      border: 1px solid rgba(15, 23, 42, 0.18);
+    .obv-pin-tweak-label {
+      flex: 0 0 auto;
+      font-weight: 600;
+      color: rgba(15, 23, 42, 0.85);
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-label {
+      color: rgba(244, 244, 245, 0.85);
+    }
+    .obv-pin-tweak-row-meta {
+      flex: 1 1 auto;
+      font-size: 11px;
+      color: rgba(15, 23, 42, 0.55);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-row-meta {
+      color: rgba(244, 244, 245, 0.6);
+    }
+    .obv-pin-tweak-row-token,
+    .obv-pin-tweak-row-intent {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 10.5px;
+      color: rgba(15, 23, 42, 0.85);
+    }
+    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-row-token,
+    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-row-intent {
+      color: rgba(244, 244, 245, 0.85);
+    }
+    .obv-pin-tweak-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .obv-pin-tweak-token-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
       border-radius: 999px;
       background: transparent;
-      cursor: pointer;
-      transition: transform 120ms ease, box-shadow 120ms ease;
-    }
-    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-swatch {
-      border-color: rgba(255, 255, 255, 0.22);
-    }
-    .obv-pin-tweak-swatch:hover {
-      transform: scale(1.15);
-    }
-    .obv-pin-tweak-swatch[data-active="true"] {
-      box-shadow: 0 0 0 2px #facc15, 0 0 0 3px rgba(15, 23, 42, 0.08);
-      transform: scale(1.05);
-    }
-    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-swatch[data-active="true"] {
-      box-shadow: 0 0 0 2px #facc15, 0 0 0 3px rgba(255, 255, 255, 0.08);
-    }
-    .obv-pin-tweak-swatch:focus-visible {
-      outline: none;
-      box-shadow: 0 0 0 2px #facc15, 0 0 0 3px rgba(15, 23, 42, 0.08);
-    }
-    .obv-pin-tweak-swatch--custom {
-      background: conic-gradient(
-        from 90deg,
-        #ef4444,
-        #f97316,
-        #facc15,
-        #22c55e,
-        #3b82f6,
-        #a855f7,
-        #ec4899,
-        #ef4444
-      );
-      position: relative;
-      margin-left: 2px;
-    }
-    .obv-pin-tweak-swatch--custom::after {
-      content: "";
-      position: absolute;
-      inset: 3px;
-      border-radius: 999px;
-      background: var(--obv-pin-popover-bg, #ffffff);
-      opacity: 0.85;
-    }
-    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-swatch--custom::after {
-      background: #18181b;
-    }
-    .obv-pin-tweak-swatch--custom[data-active="true"]::after {
-      opacity: 0;
-    }
-    .obv-pin-tweak-color-input {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
-      border: 0;
-      overflow: hidden;
-      clip: rect(0 0 0 0);
-      pointer-events: none;
-      opacity: 0;
-    }
-    .obv-pin-tweak-value {
-      flex: 0 0 50px;
-      font-variant-numeric: tabular-nums;
+      color: inherit;
+      font-family: inherit;
       font-size: 11px;
-      color: rgba(15, 23, 42, 0.7);
-      text-align: right;
+      cursor: pointer;
+      transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+      max-width: 100%;
+      min-width: 0;
     }
-    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-value {
-      color: rgba(244, 244, 245, 0.7);
+    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-token-chip {
+      border-color: rgba(255, 255, 255, 0.16);
+    }
+    .obv-pin-tweak-token-chip:hover {
+      border-color: rgba(15, 23, 42, 0.3);
+      background: rgba(15, 23, 42, 0.04);
+    }
+    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-token-chip:hover {
+      border-color: rgba(255, 255, 255, 0.32);
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .obv-pin-tweak-token-chip[data-active="true"] {
+      border-color: #facc15;
+      background: rgba(250, 204, 21, 0.18);
+      color: #92400e;
+    }
+    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-token-chip[data-active="true"] {
+      color: #fde68a;
+      background: rgba(250, 204, 21, 0.18);
+    }
+    .obv-pin-tweak-token-chip:focus-visible {
+      outline: 2px solid #facc15;
+      outline-offset: 1px;
+    }
+    .obv-pin-tweak-token-chip-swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 23, 42, 0.16);
+      flex: 0 0 12px;
+    }
+    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-token-chip-swatch {
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+    .obv-pin-tweak-token-chip-label {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 10.5px;
+      letter-spacing: -0.01em;
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .obv-pin-tweak-token-chip-value {
+      font-size: 10px;
+      color: rgba(15, 23, 42, 0.5);
+      font-variant-numeric: tabular-nums;
+    }
+    .obv-pin-layer[data-theme="dark"] .obv-pin-tweak-token-chip-value {
+      color: rgba(244, 244, 245, 0.55);
+    }
+    .obv-pin-tweak-token-chip[data-active="true"] .obv-pin-tweak-token-chip-value {
+      color: inherit;
     }
     .obv-pin-tweak-reset {
       flex: 0 0 18px;

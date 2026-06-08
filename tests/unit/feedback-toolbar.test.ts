@@ -36,6 +36,33 @@ describe("FeedbackToolbar", () => {
     expect(html).not.toContain('data-toolbar-action="expand"');
   });
 
+  it("uses the compact toolbar when there is no branch or context content", () => {
+    toolbar = new FeedbackToolbar({
+      context: undefined,
+      theme: "light",
+      initialPinCount: 0,
+      onCommentClick: createNoop(),
+      onSendClick: createNoop(),
+    });
+    const root = document.querySelector("[data-obvious-feedback-toolbar]")
+      ?.shadowRoot;
+    expect(root?.querySelector(".obv-toolbar-compact")).not.toBeNull();
+  });
+
+  it("keeps the full-width toolbar when branch or context content is present", () => {
+    toolbar = new FeedbackToolbar({
+      context: { branch: "feat/foo" },
+      theme: "light",
+      initialPinCount: 0,
+      onCommentClick: createNoop(),
+      onSendClick: createNoop(),
+    });
+    const root = document.querySelector("[data-obvious-feedback-toolbar]")
+      ?.shadowRoot;
+    expect(root?.querySelector(".obv-toolbar")).not.toBeNull();
+    expect(root?.querySelector(".obv-toolbar-compact")).toBeNull();
+  });
+
   it("hides Send and the pin counter when there are no pins", () => {
     toolbar = new FeedbackToolbar({
       context: undefined,
@@ -138,6 +165,26 @@ describe("FeedbackToolbar", () => {
     expect(html).toContain(">Thread<");
   });
 
+  it("renders branch, commit, and build context when provided", () => {
+    toolbar = new FeedbackToolbar({
+      context: {
+        branch: "local-feedback-sdk-preview",
+        commitSha: "e51dbe7705abcdef",
+        buildId: "local-13446",
+      },
+      theme: "light",
+      initialPinCount: 0,
+      onCommentClick: createNoop(),
+      onSendClick: createNoop(),
+    });
+    const html =
+      document.querySelector("[data-obvious-feedback-toolbar]")?.shadowRoot
+        ?.innerHTML ?? "";
+    expect(html).toContain("local-feedback-sdk-preview");
+    expect(html).toContain("e51dbe7");
+    expect(html).toContain("Build local-13446");
+  });
+
   it("skips invalid javascript: URLs in context links", () => {
     toolbar = new FeedbackToolbar({
       context: {
@@ -206,7 +253,7 @@ describe("FeedbackToolbar", () => {
       expect(root?.querySelector(".obv-sent-banner")).not.toBeNull();
       expect(root?.querySelector(".obv-group-end")).toBeNull();
       expect(root?.querySelector(".obv-sent-text")?.textContent ?? "").toContain(
-        "Autobuild is working on it",
+        "Autobuild is on it.",
       );
     });
 

@@ -10,6 +10,16 @@ Embeddable browser widget that lets users submit feedback from any web app. Feed
 npm install @obvi/feedback-sdk
 ```
 
+### Internal beta / prerelease
+
+For internal testing before promoting a release to all customers, install a pinned beta version:
+
+```bash
+npm install @obvi/feedback-sdk@1.5.0-beta.0
+```
+
+Beta builds are published under the `beta` npm dist-tag, not `latest`, so normal installs and customer semver ranges do not receive them automatically. Prefer pinning the exact beta version in internal apps instead of depending on the moving `beta` tag.
+
 ### Script tag (CDN)
 
 ```html

@@ -62,8 +62,11 @@ describe("ObviousFeedback.init", () => {
       },
     });
     const host = document.querySelector("[data-obvious-feedback-toolbar]");
-    const html = host?.shadowRoot?.innerHTML ?? "";
-    expect(html).toContain("feat/sdk-redesign • abcdef1");
+    const root = host?.shadowRoot;
+    const metaText = root?.querySelector(".obv-cell-meta")?.textContent ?? "";
+    const html = root?.innerHTML ?? "";
+    expect(metaText).toContain("feat/sdk-redesign");
+    expect(metaText).toContain("abcdef1");
     expect(html).toContain("github.com/example/repo/pull/14125");
   });
 });

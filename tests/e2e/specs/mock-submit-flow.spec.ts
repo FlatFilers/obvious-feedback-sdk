@@ -73,7 +73,7 @@ test.describe("Mock submit flow", () => {
     expect(response.data.attachmentToken).toBeTruthy();
   });
 
-  test("empty compose row remains after cancelling measure spacing", async ({
+  test("toolbar pin round submits element grab to the mock API", async ({
     page,
   }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -81,83 +81,7 @@ test.describe("Mock submit flow", () => {
       "SDK initialized successfully.",
     );
 
-    await page.locator(".obv-trigger").click();
-    const composeInput = page.locator('[data-item-input="__new"]');
-    await expect(composeInput).toBeVisible();
-    await composeInput.click();
-
-    await page.locator('[data-measure-start="true"]').click();
-    await page.locator('[data-measure-cancel="true"]').click();
-
-    await expect(page.locator('[data-item-input="__new"]')).toBeVisible();
-    await expect(page.locator('[data-item-input="__new"]')).toHaveValue("");
-  });
-
-  test("empty inserted row remains after cancelling measure spacing", async ({
-    page,
-  }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#status")).toHaveText(
-      "SDK initialized successfully.",
-    );
-
-    await page.locator(".obv-trigger").click();
-    await page.locator('[data-item-input="__new"]').fill("First item");
-    await page.locator('[data-item-input="__new"]').press("Enter");
-
-    const inputs = page.locator(".obv-list-row .obv-row-input");
-    await expect(inputs).toHaveCount(2);
-    await expect(inputs.nth(1)).toHaveValue("");
-
-    await page.locator('[data-measure-start="true"]').click();
-    await page.locator('[data-measure-cancel="true"]').click();
-
-    await expect(page.locator(".obv-list-row .obv-row-input")).toHaveCount(2);
-    await expect(page.locator(".obv-list-row .obv-row-input").nth(1)).toHaveValue(
-      "",
-    );
-  });
-
-  test("measurement from an empty inserted row attaches to that row", async ({
-    page,
-  }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#status")).toHaveText(
-      "SDK initialized successfully.",
-    );
-
-    await page.locator(".obv-trigger").click();
-    await page.locator('[data-item-input="__new"]').fill("First item");
-    await page.locator('[data-item-input="__new"]').press("Enter");
-
-    const inputs = page.locator(".obv-list-row .obv-row-input");
-    await expect(inputs).toHaveCount(2);
-    await inputs.nth(1).click();
-
-    await page.locator('[data-measure-start="true"]').click();
-    await page.mouse.click(100, 100);
-    await page.mouse.click(180, 100);
-    await page.locator('[data-measure-done="true"]').click();
-
-    await expect(page.locator(".obv-list-row .obv-row-input")).toHaveCount(2);
-    await expect(page.locator(".obv-list-row .obv-row-input").nth(1)).toHaveValue(
-      "",
-    );
-    await expect(page.locator(".obv-row-pill").last()).toContainText("px");
-  });
-
-  test("selected elements can submit without visual edits", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#status")).toHaveText(
-      "SDK initialized successfully.",
-    );
-
-    await page.locator(".obv-trigger").click();
-    await page
-      .locator('[data-item-input="__new"]')
-      .fill("Point at the fixture paragraph");
-    await page.locator('[data-element-select-start="true"]').click();
-
+    await page.locator('[data-toolbar-action="comment"]').click();
     const targetBox = await page.locator("#visual-target").boundingBox();
     expect(targetBox).not.toBeNull();
     if (!targetBox) return;
@@ -166,13 +90,10 @@ test.describe("Mock submit flow", () => {
       targetBox.y + targetBox.height / 2,
     );
 
-    await expect(page.locator(".obv-vs-palette")).toBeVisible();
-    await page.locator('[data-vs-close="true"]').click();
-    await expect(page.locator(".obv-row-pill-vs")).toHaveCount(0);
-    await expect(page.locator(".obv-row-pill")).toContainText("<p>");
-
-    await page.locator('[data-item-input="__new"]').press("Enter");
-    await page.locator('[data-submit-round="true"]').click();
+    const popover = page.locator(".obv-pin-popover");
+    await popover.locator("textarea").fill("Point at the fixture paragraph");
+    await popover.locator('[data-pin-action="close"]').click();
+    await page.locator('[data-toolbar-action="send"]').click();
 
     await expect
       .poll(async () => {
@@ -185,122 +106,18 @@ test.describe("Mock submit flow", () => {
       })
       .toMatchObject({
         data: {
-          description: "Point at the fixture paragraph",
-          elementGrabs: [
+          items: [
             {
-              tagName: "P",
-              cssSelector: "#visual-target",
+              description: "Point at the fixture paragraph",
+              elementGrabs: [
+                {
+                  tagName: "P",
+                  cssSelector: "#visual-target",
+                },
+              ],
             },
           ],
         },
       });
-  });
-
-  test("visual suggestions preview live and submit with feedback context", async ({
-    page,
-  }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#status")).toHaveText(
-      "SDK initialized successfully.",
-    );
-
-    await page.locator(".obv-trigger").click();
-    await page
-      .locator('[data-item-input="__new"]')
-      .fill("Make the fixture paragraph larger");
-    await page.locator('[data-element-select-start="true"]').click();
-
-    const targetBox = await page.locator("#visual-target").boundingBox();
-    expect(targetBox).not.toBeNull();
-    await page.mouse.click(
-      targetBox!.x + targetBox!.width / 2,
-      targetBox!.y + targetBox!.height / 2,
-    );
-
-    const fontSizeSlider = page.locator('[data-vs-slider="font-size"]');
-    await expect(fontSizeSlider).toBeVisible();
-    await fontSizeSlider.evaluate((element) => {
-      const input = element as HTMLInputElement;
-      input.value = "28";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-
-    await expect(page.locator("#visual-target")).toHaveCSS("font-size", "28px");
-    await page.locator('[data-vs-close="true"]').click();
-    await expect(page.locator(".obv-vs-chip")).toHaveCount(0);
-    await expect(page.locator(".obv-row-pill-vs")).toContainText(
-      "Text · Font size",
-    );
-    await page.locator(".obv-row-pill-vs").click();
-    await expect(fontSizeSlider).toBeVisible();
-
-    await page.locator('[data-item-input="__new"]').press("Enter");
-    await page.locator('[data-submit-round="true"]').click();
-
-    await expect
-      .poll(async () => {
-        return page.evaluate(async () => {
-          const res = await fetch(
-            "http://localhost:4444/_test/last-submission",
-          );
-          return res.json();
-        });
-      })
-      .toMatchObject({
-        data: {
-          context: {
-            visualSuggestions: {
-              version: 1,
-              suggestions: [
-                {
-                  property: "font-size",
-                  originalValue: "16px",
-                  suggestedValue: "28px",
-                },
-              ],
-            },
-          },
-        },
-      });
-  });
-
-  test("visual suggestions resize card text when the title is clicked", async ({
-    page,
-  }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#status")).toHaveText(
-      "SDK initialized successfully.",
-    );
-
-    await page.locator(".obv-trigger").click();
-    await page
-      .locator('[data-item-input="__new"]')
-      .fill("Make the card title larger");
-    await page.locator('[data-element-select-start="true"]').click();
-
-    const titleBox = await page.locator("#card-title").boundingBox();
-    expect(titleBox).not.toBeNull();
-    await page.mouse.click(
-      titleBox!.x + titleBox!.width / 2,
-      titleBox!.y + titleBox!.height / 2,
-    );
-
-    await expect(page.locator(".obv-vs-target")).toContainText("Text");
-
-    const fontSizeSlider = page.locator('[data-vs-slider="font-size"]');
-    await expect(fontSizeSlider).toBeVisible();
-    await fontSizeSlider.evaluate((element) => {
-      const input = element as HTMLInputElement;
-      input.value = "28";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-
-    await expect(page.locator("#card-title")).toHaveCSS("font-size", "28px");
-    await expect(page.locator("#card-target")).not.toHaveCSS(
-      "font-size",
-      "28px",
-    );
   });
 });

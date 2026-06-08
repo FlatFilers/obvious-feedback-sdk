@@ -53,7 +53,8 @@ export function createToolbarStyles(): string {
       display: inline-flex;
       align-items: stretch;
       height: ${TOOLBAR_HEIGHT_PX}px;
-      min-width: 480px;
+      max-width: calc(100vw - 24px);
+      min-width: 0;
       padding: 0 4px;
       gap: 0;
       background: var(--obv-bg);
@@ -71,7 +72,7 @@ export function createToolbarStyles(): string {
       align-items: stretch;
     }
     .obv-group-start {
-      flex: 1 1 auto;
+      flex: 0 1 auto;
       min-width: 0;
     }
     .obv-group-end {
@@ -80,15 +81,26 @@ export function createToolbarStyles(): string {
       box-shadow: inset 1px 0 0 var(--obv-divider);
       padding-left: 2px;
     }
+    .obv-toolbar-compact {
+      min-width: 0;
+    }
+    .obv-toolbar-compact .obv-group-start {
+      flex: 0 0 auto;
+    }
+    .obv-toolbar-compact .obv-group-end {
+      margin-left: 0;
+      box-shadow: none;
+      padding-left: 0;
+    }
     :host([data-dragging="true"]) .obv-toolbar {
       box-shadow: var(--obv-shadow), 0 0 0 1px var(--obv-border), 0 0 0 4px rgba(250, 204, 21, 0.25);
     }
     .obv-toolbar-sent {
-      min-width: 480px;
+      min-width: 0;
       padding-right: 8px;
     }
     .obv-sent-banner {
-      flex: 1 1 auto;
+      flex: 0 1 auto;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -262,12 +274,29 @@ export function createToolbarStyles(): string {
       pointer-events: none;
     }
     .obv-cell-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       font-size: 12px;
       color: var(--obv-text-muted);
-      max-width: 220px;
+      max-width: min(560px, calc(100vw - 260px));
+      overflow: visible;
+      pointer-events: none;
+    }
+    .obv-meta-item {
+      display: inline-block;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
-      pointer-events: none;
+      white-space: nowrap;
+    }
+    .obv-meta-branch {
+      max-width: min(320px, 36vw);
+    }
+    .obv-meta-separator {
+      color: var(--obv-text-muted);
+      opacity: 0.65;
+      flex: 0 0 auto;
     }
     .obv-cell-status {
       font-size: 12px;
