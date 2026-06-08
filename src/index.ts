@@ -10,6 +10,11 @@ export type {
   ElementSourceStackFrame,
   FeedbackAiSummary,
   FeedbackClientStatus,
+  FeedbackContext,
+  FeedbackContextCiStatus,
+  FeedbackContextPrStatus,
+  FeedbackContextReviewStatus,
+  FeedbackDesignSystemConfig,
   FeedbackIssueLinks,
   FeedbackIssueSeverity,
   FeedbackIssueType,
@@ -20,12 +25,12 @@ export type {
   FeedbackStatusResponse,
   FeedbackSubmissionInput,
   FeedbackVisualSuggestion,
-  FeedbackVisualSuggestionElementRef,
+  FeedbackVisualSuggestionIntent,
   FeedbackVisualSuggestionProperty,
-  FeedbackVisualSuggestionScope,
-  FeedbackVisualSuggestionScopeKind,
-  FeedbackVisualSuggestionsConfig,
-  FeedbackVisualSuggestionsPayload,
+  FeedbackVisualSuggestionSource,
+  FeedbackVisualSuggestionToken,
+  FeedbackVisualSuggestionTokenCategory,
+  FeedbackVisualSuggestionTokenSource,
   FeedbackWorkerThreadLink,
   SessionReplayUrlResolver,
 } from "./public-types";
@@ -44,10 +49,18 @@ export const ObviousFeedback = {
         activeWidget?.destroy();
         activeWidget = null;
       },
-      open: () => activeWidget?.open(),
-      getOpenIssueCount: () => activeWidget?.getOpenIssueCount() ?? 0,
-      subscribeToOpenIssueCount: (listener) =>
-        activeWidget?.subscribeToOpenIssueCount(listener) ?? (() => {}),
+      open: () => activeWidget?.enterAnnotationMode(),
+      enterAnnotationMode: () => activeWidget?.enterAnnotationMode(),
+      exitAnnotationMode: () => activeWidget?.exitAnnotationMode(),
+      submit: () => activeWidget?.submit() ?? Promise.resolve(),
+      getDraftPinCount: () => activeWidget?.getDraftPinCount() ?? 0,
+      subscribeToDraftPinCount: (listener) =>
+        activeWidget?.subscribeToDraftPinCount(listener) ?? (() => {}),
+      getOpenIssueCount: () => 0,
+      subscribeToOpenIssueCount: (listener) => {
+        listener(0);
+        return () => {};
+      },
     };
   },
 };
@@ -67,10 +80,6 @@ function initFromCurrentScript(): void {
     apiBaseUrl: script.dataset.apiBaseUrl,
     identityToken: script.dataset.identityToken,
     env: script.dataset.env,
-    prNumber: script.dataset.prNumber
-      ? Number(script.dataset.prNumber)
-      : undefined,
-    triggerLabel: script.dataset.triggerLabel,
     theme:
       dataTheme === "light" || dataTheme === "dark" || dataTheme === "system"
         ? dataTheme

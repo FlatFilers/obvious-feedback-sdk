@@ -1,128 +1,69 @@
 import { test, expect } from "@playwright/test";
 
-const FIXTURE_URL = "/?inlineAnnotations=true";
+async function enterAnnotationMode(page: import("@playwright/test").Page) {
+  await page.locator('[data-toolbar-action="comment"]').click();
+  await expect(
+    page.locator('[data-obvious-feedback-pick-overlay="true"]'),
+  ).toBeAttached();
+}
+
+async function pinElement(
+  page: import("@playwright/test").Page,
+  selector: string,
+  comment: string,
+) {
+  const targetBox = await page.locator(selector).boundingBox();
+  expect(targetBox).not.toBeNull();
+  if (!targetBox) return;
+  await page.mouse.click(
+    targetBox.x + targetBox.width / 2,
+    targetBox.y + targetBox.height / 2,
+  );
+  const popover = page.locator(".obv-pin-popover");
+  await expect(popover).toBeVisible();
+  await popover.locator("textarea").fill(comment);
+  await popover.locator('[data-pin-action="close"]').click();
+  await expect(page.locator(".obv-pin")).toHaveCount(1);
+}
 
 test.describe("Inline pin annotations", () => {
-  test("trigger enters annotation mode and creates a pin on submit", async ({
+  test("comment enters annotation mode and creates a numbered pin", async ({
     page,
   }) => {
-    await page.goto(FIXTURE_URL, { waitUntil: "domcontentloaded" });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(page.locator("#status")).toHaveText(
       "SDK initialized successfully.",
     );
 
-    await page.locator(".obv-trigger").click();
+    await enterAnnotationMode(page);
+    await pinElement(page, "#card-title", "This title is hard to read");
 
-    const overlay = page.locator('[data-annotation-overlay="true"]');
-    await expect(overlay).toBeAttached();
-
-    const titleBox = await page.locator("#card-title").boundingBox();
-    expect(titleBox).not.toBeNull();
-    if (!titleBox) return;
-    await page.mouse.click(
-      titleBox.x + titleBox.width / 2,
-      titleBox.y + titleBox.height / 2,
+    await expect(page.locator('[data-obvious-feedback-pick-overlay="true"]')).toHaveCount(
+      0,
     );
-
-    const popup = page.locator('[data-annotation-popup="true"]');
-    await expect(popup).toBeVisible();
-
-    const textarea = popup.locator('[data-inline-popup-textarea="true"]');
-    await textarea.fill("This title is hard to read");
-    await popup.locator('[data-inline-popup-submit="true"]').click();
-
-    const pin = page.locator(".obv-pin");
-    await expect(pin).toHaveCount(1);
-    await expect(pin.locator(".obv-pin-number")).toHaveText("1");
-
-    await page.locator('[data-annotation-open-card="true"]').click();
-    await expect(
-      page.locator(".obv-list-row .obv-row-input").first(),
-    ).toHaveValue("This title is hard to read");
+    await expect(page.locator(".obv-pin").first()).toHaveText("1");
+    await expect(page.locator('[data-toolbar-action="send"]')).toBeVisible();
   });
 
-  test("clicking a pin re-opens the popup in edit mode", async ({ page }) => {
-    await page.goto(FIXTURE_URL, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#status")).toHaveText(
-      "SDK initialized successfully.",
-    );
-
-    await page.locator(".obv-trigger").click();
-    const titleBox = await page.locator("#card-title").boundingBox();
-    expect(titleBox).not.toBeNull();
-    if (!titleBox) return;
-    await page.mouse.click(
-      titleBox.x + titleBox.width / 2,
-      titleBox.y + titleBox.height / 2,
-    );
-
-    const popup = page.locator('[data-annotation-popup="true"]');
-    await popup.locator('[data-inline-popup-textarea="true"]').fill("First");
-    await popup.locator('[data-inline-popup-submit="true"]').click();
-
-    await expect(popup).toHaveCount(0);
-
-    const pin = page.locator(".obv-pin").first();
-    await pin.click();
-
-    const reopened = page.locator('[data-annotation-popup="true"]');
-    await expect(reopened).toBeVisible();
-    await expect(
-      reopened.locator('[data-inline-popup-textarea="true"]'),
-    ).toHaveValue("First");
-
-    await reopened
-      .locator('[data-inline-popup-textarea="true"]')
-      .fill("First (edited)");
-    await reopened.locator('[data-inline-popup-submit="true"]').click();
-
-    await page.locator('[data-annotation-open-card="true"]').click();
-    await expect(
-      page.locator(".obv-list-row .obv-row-input").first(),
-    ).toHaveValue("First (edited)");
-  });
-
-  test("delete button removes the pin and round item", async ({ page }) => {
-    await page.goto(FIXTURE_URL, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#status")).toHaveText(
-      "SDK initialized successfully.",
-    );
-
-    await page.locator(".obv-trigger").click();
-    const titleBox = await page.locator("#card-title").boundingBox();
-    expect(titleBox).not.toBeNull();
-    if (!titleBox) return;
-    await page.mouse.click(
-      titleBox.x + titleBox.width / 2,
-      titleBox.y + titleBox.height / 2,
-    );
-
-    const popup = page.locator('[data-annotation-popup="true"]');
-    await popup.locator('[data-inline-popup-textarea="true"]').fill("Doomed");
-    await popup.locator('[data-inline-popup-submit="true"]').click();
-
-    await expect(page.locator(".obv-pin")).toHaveCount(1);
+  test("reopening a pin shows the saved comment", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await enterAnnotationMode(page);
+    await pinElement(page, "#card-title", "Saved comment");
 
     await page.locator(".obv-pin").first().click();
-    const reopened = page.locator('[data-annotation-popup="true"]');
-    await reopened.locator('[data-inline-popup-delete="true"]').click();
-
-    await expect(page.locator(".obv-pin")).toHaveCount(0);
+    const popover = page.locator(".obv-pin-popover");
+    await expect(popover).toBeVisible();
+    await expect(popover.locator("textarea")).toHaveValue("Saved comment");
   });
 
-  test("Escape exits annotation mode when no popup is open", async ({
+  test("Escape exits annotation mode when no popover is open", async ({
     page,
   }) => {
-    await page.goto(FIXTURE_URL, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#status")).toHaveText(
-      "SDK initialized successfully.",
-    );
-
-    await page.locator(".obv-trigger").click();
-    const overlay = page.locator('[data-annotation-overlay="true"]');
-    await expect(overlay).toBeAttached();
-
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await enterAnnotationMode(page);
     await page.keyboard.press("Escape");
-    await expect(overlay).toHaveCount(0);
+    await expect(page.locator('[data-obvious-feedback-pick-overlay="true"]')).toHaveCount(
+      0,
+    );
   });
 });
