@@ -52,4 +52,9 @@ jobs:
         run: npm --version
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          if node -p "require('./package.json').version" | grep -q beta; then
+            npm publish --provenance --access public --tag beta
+          else
+            npm publish --provenance --access public
+          fi
