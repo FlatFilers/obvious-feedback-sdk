@@ -85,7 +85,6 @@ export class FeedbackToolbar {
     this.shadowRoot.innerHTML = `<style>${createToolbarStyles()}</style>`;
     document.body.appendChild(this.host);
     this.render();
-
     this.draggable = createDraggable({
       target: this.host,
       handle: this.requireDragSurface(),
@@ -98,7 +97,6 @@ export class FeedbackToolbar {
         this.host.setAttribute("data-dragging", "true");
       },
     });
-
     this.resizeListener = (): void => this.draggable?.reclamp();
     window.addEventListener("resize", this.resizeListener);
 
@@ -186,6 +184,8 @@ export class FeedbackToolbar {
   }
 
   private render(): void {
+    const previousRect =
+      this.draggable !== null ? this.host.getBoundingClientRect() : null;
     this.host.setAttribute("data-theme", this.state.theme);
     this.host.setAttribute("data-status", this.state.status);
     this.host.setAttribute("data-hidden", this.state.hidden ? "true" : "false");
@@ -197,6 +197,24 @@ export class FeedbackToolbar {
     // on the new toolbar have no listeners attached and dragging silently no-ops
     // after the first state change.
     this.draggable?.setHandle(this.requireDragSurface());
+    this.preserveToolbarCenter(previousRect);
+  }
+
+  private preserveToolbarCenter(previousRect: DOMRect | null): void {
+    if (!previousRect || !this.draggable) {
+      return;
+    }
+    const nextRect = this.host.getBoundingClientRect();
+    const widthDelta = nextRect.width - previousRect.width;
+    if (Math.abs(widthDelta) < 0.5) {
+      return;
+    }
+    const currentPosition = this.draggable.getPosition();
+    const nextPosition = {
+      x: currentPosition.x - widthDelta / 2,
+      y: currentPosition.y,
+    };
+    this.draggable.setPosition(nextPosition);
   }
 
   private renderToolbarHtml(): string {
