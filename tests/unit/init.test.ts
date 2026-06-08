@@ -7,6 +7,7 @@ describe("ObviousFeedback.init", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
     window.localStorage.clear();
+    window.history.replaceState(null, "", "/");
   });
 
   afterEach(() => {
@@ -51,7 +52,7 @@ describe("ObviousFeedback.init", () => {
     ).toBeNull();
   });
 
-  it("renders branch and short sha when context provides them", () => {
+  it("renders only the branch when preview context provides branch and sha", () => {
     handle = ObviousFeedback.init({
       publicKey: "fsk_pub_test",
       context: {
@@ -66,7 +67,38 @@ describe("ObviousFeedback.init", () => {
     const metaText = root?.querySelector(".obv-cell-meta")?.textContent ?? "";
     const html = root?.innerHTML ?? "";
     expect(metaText).toContain("feat/sdk-redesign");
-    expect(metaText).toContain("abcdef1");
+    expect(metaText).not.toContain("abcdef1");
     expect(html).toContain("github.com/example/repo/pull/14125");
+  });
+
+  it("clears draft pins when SPA navigation changes the URL", () => {
+    handle = ObviousFeedback.init({ publicKey: "fsk_pub_test" });
+    const target = document.createElement("button");
+    target.textContent = "Target";
+    document.body.appendChild(target);
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: (): Element | null => target,
+    });
+
+    handle.enterAnnotationMode();
+    document.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 10,
+      }),
+    );
+    expect(handle.getDraftPinCount()).toBe(1);
+
+    window.history.pushState(null, "", "/next-page");
+
+    expect(handle.getDraftPinCount()).toBe(0);
+    expect(
+      document
+        .querySelector("[data-obvious-feedback-pin-layer]")
+        ?.shadowRoot?.querySelector(".obv-pin"),
+    ).toBeNull();
   });
 });

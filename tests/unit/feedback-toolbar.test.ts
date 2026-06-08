@@ -98,6 +98,30 @@ describe("FeedbackToolbar", () => {
     expect(html).not.toContain("2 pins");
   });
 
+  it("shows an icon-only clear-all control when pin count > 0", () => {
+    let clearClicks = 0;
+    toolbar = new FeedbackToolbar({
+      context: undefined,
+      theme: "light",
+      initialPinCount: 2,
+      onCommentClick: createNoop(),
+      onSendClick: createNoop(),
+      onClearAllClick: () => {
+        clearClicks += 1;
+      },
+    });
+    const button = document
+      .querySelector("[data-obvious-feedback-toolbar]")
+      ?.shadowRoot?.querySelector<HTMLButtonElement>(
+        '[data-toolbar-action="clear-all"]',
+      );
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute("aria-label")).toBe("Clear all comments");
+    expect(button?.innerHTML ?? "").toContain("obv-icon");
+    button?.click();
+    expect(clearClicks).toBe(1);
+  });
+
   it("singularizes the comment counter to '1 comment' when there is exactly one pin", () => {
     toolbar = new FeedbackToolbar({
       context: undefined,
@@ -165,7 +189,7 @@ describe("FeedbackToolbar", () => {
     expect(html).toContain(">Thread<");
   });
 
-  it("renders branch, commit, and build context when provided", () => {
+  it("renders only the branch label from preview context", () => {
     toolbar = new FeedbackToolbar({
       context: {
         branch: "local-feedback-sdk-preview",
@@ -181,8 +205,24 @@ describe("FeedbackToolbar", () => {
       document.querySelector("[data-obvious-feedback-toolbar]")?.shadowRoot
         ?.innerHTML ?? "";
     expect(html).toContain("local-feedback-sdk-preview");
-    expect(html).toContain("e51dbe7");
-    expect(html).toContain("Build local-13446");
+    expect(html).not.toContain("e51dbe7");
+    expect(html).not.toContain("Build local-13446");
+  });
+
+  it("omits preview metadata when no branch is available", () => {
+    toolbar = new FeedbackToolbar({
+      context: {
+        commitSha: "e51dbe7705abcdef",
+        buildId: "local-13446",
+      },
+      theme: "light",
+      initialPinCount: 0,
+      onCommentClick: createNoop(),
+      onSendClick: createNoop(),
+    });
+    const root = document.querySelector("[data-obvious-feedback-toolbar]")
+      ?.shadowRoot;
+    expect(root?.querySelector(".obv-cell-meta")).toBeNull();
   });
 
   it("skips invalid javascript: URLs in context links", () => {

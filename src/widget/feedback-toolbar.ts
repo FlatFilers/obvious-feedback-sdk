@@ -3,10 +3,8 @@
  * bar docked at the bottom-center of the viewport by default, draggable
  * anywhere on screen with viewport clamping and localStorage persistence.
  *
- * Cells (left to right): drag handle, Comment, draft pin counter, Send,
- * branch • sha label, PR link, thread link, collapse. Cells without data
- * (links missing, zero pins, no branch) hide automatically. Collapsed mode
- * shrinks to drag handle + Comment + expand button.
+ * Cells (left to right): drag handle, branch label, PR link, thread link,
+ * Comment, draft pin counter, Send. Cells without data hide automatically.
  */
 
 import type { FeedbackContext, FeedbackSdkTheme } from "../public-types";
@@ -42,6 +40,7 @@ export interface FeedbackToolbarOptions {
   initialPinCount: number;
   onCommentClick: () => void;
   onSendClick: () => void;
+  onClearAllClick?: () => void;
   /** Called when the toolbar mounts; receives the host element so the parent
    * can register it as an "ignore-me" target for the picker overlay. */
   onMounted?: (host: HTMLElement) => void;
@@ -64,11 +63,13 @@ export class FeedbackToolbar {
   private destroyed = false;
   private readonly onCommentClick: () => void;
   private readonly onSendClick: () => void;
+  private readonly onClearAllClick: () => void;
   private statusResetTimer: number | null = null;
 
   constructor(options: FeedbackToolbarOptions) {
     this.onCommentClick = options.onCommentClick;
     this.onSendClick = options.onSendClick;
+    this.onClearAllClick = options.onClearAllClick ?? (() => undefined);
     this.state = {
       context: options.context,
       theme: options.theme,
@@ -223,6 +224,7 @@ export class FeedbackToolbar {
           </button>
 
           ${this.renderPinCount()}
+          ${this.renderClearAllButton()}
           ${this.renderStatusLabel()}
           ${this.renderSendButton()}
         </div>
@@ -286,33 +288,33 @@ export class FeedbackToolbar {
     `;
   }
 
+  private renderClearAllButton(): string {
+    if (this.state.pinCount <= 0) {
+      return "";
+    }
+    const isSending = this.state.status === "sending";
+    const disabled = isSending ? 'disabled aria-disabled="true"' : "";
+    return `
+      <button
+        type="button"
+        class="obv-cell obv-cell-clear"
+        data-toolbar-action="clear-all"
+        aria-label="Clear all comments"
+        title="Clear all comments"
+        ${disabled}
+      >
+        ${createIcon("trash")}
+      </button>
+    `;
+  }
+
   private renderBranchLabel(): string {
     const context = this.state.context;
-    if (!context?.branch && !context?.commitSha && !context?.buildId) {
+    if (!context?.branch) {
       return "";
     }
-    const sha = context.commitSha ? shortSha(context.commitSha) : null;
-    const segments = [
-      context.branch
-        ? `<span class="obv-meta-item obv-meta-branch">${escapeHtml(context.branch)}</span>`
-        : null,
-      sha ? `<span class="obv-meta-item">${escapeHtml(sha)}</span>` : null,
-      context.buildId
-        ? `<span class="obv-meta-item">Build ${escapeHtml(context.buildId)}</span>`
-        : null,
-    ].filter((segment): segment is string => Boolean(segment));
-    if (segments.length === 0) {
-      return "";
-    }
-    const content = segments.join(
-      `<span class="obv-meta-separator" aria-hidden="true">•</span>`,
-    );
-    const tooltipParts = [
-      context.branch ? `Branch ${context.branch}` : null,
-      context.commitSha ? `Commit ${context.commitSha}` : null,
-      context.buildId ? `Build ${context.buildId}` : null,
-    ].filter((segment): segment is string => Boolean(segment));
-    return `<div class="obv-cell obv-cell-meta" title="${escapeHtml(tooltipParts.join(" · "))}">${content}</div>`;
+    const label = `<span class="obv-meta-item obv-meta-branch">${escapeHtml(context.branch)}</span>`;
+    return `<div class="obv-cell obv-cell-meta" title="Branch ${escapeHtml(context.branch)}">${label}</div>`;
   }
 
   private renderContextLinks(): string {
@@ -356,6 +358,9 @@ export class FeedbackToolbar {
           if (action === "comment") {
             event.preventDefault();
             this.onCommentClick();
+          } else if (action === "clear-all") {
+            event.preventDefault();
+            this.onClearAllClick();
           } else if (action === "send") {
             event.preventDefault();
             this.onSendClick();
@@ -382,10 +387,6 @@ export class FeedbackToolbar {
       ? "Pick another element to comment on"
       : "Pick an element to comment on";
   }
-}
-
-function shortSha(value: string): string {
-  return value.length > 7 ? value.slice(0, 7) : value;
 }
 
 function getPositionStorageKey(): string {

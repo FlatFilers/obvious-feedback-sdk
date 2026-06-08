@@ -513,11 +513,13 @@ export class PinOverlay {
     wrapper.style.pointerEvents = "auto";
     wrapper.innerHTML = `
       <div class="obv-pin-popover-header">
-        <div class="obv-pin-popover-drag-handle" data-pin-drag-handle title="Drag popover">
-          <span class="obv-pin-popover-title">Pin ${pin.number} of ${this.pins.size}</span>
-        </div>
+        <button type="button" class="obv-pin-popover-drag-handle" data-pin-drag-handle aria-label="Drag pin comment card" title="Drag card">
+          ${createIcon("grip")}
+          <span class="obv-pin-popover-drag-label">Drag</span>
+        </button>
+        <span class="obv-pin-popover-title">Pin ${pin.number} of ${this.pins.size}</span>
         <div class="obv-pin-popover-actions">
-          <button type="button" class="obv-pin-icon-button" data-pin-action="delete" aria-label="Delete pin ${pin.number}">${createIcon("close")}</button>
+          <button type="button" class="obv-pin-icon-button" data-pin-action="delete" aria-label="Delete pin ${pin.number}" title="Delete pin">${createIcon("close")}</button>
         </div>
       </div>
       <textarea
@@ -597,7 +599,7 @@ export class PinOverlay {
     }
     const record = pin.overrides.get(property);
     const hasOverride = record !== undefined;
-    const activeTokenName = record?.token?.name ?? "";
+    const activeTokenName = getSelectedTokenName(plan, original.computed, record);
     const headerValue = renderHeaderValue(plan, original.computed, record);
     const resetAttr = hasOverride ? "" : "hidden";
     const tokenChips = plan.tokenChips
@@ -711,6 +713,10 @@ export class PinOverlay {
       this.refreshTweakRow(pinId, property, wrapper);
       return;
     }
+    const original = entry.originals.get(property);
+    if (!existing && original && tokenMatchesValue(chip, original.computed)) {
+      return;
+    }
     this.setOverride(pinId, property, chip.applyValue, {
       source: "token",
       token: toPublicToken(chip.token),
@@ -761,7 +767,7 @@ export class PinOverlay {
     const tokenChips = Array.from(
       row.querySelectorAll(".obv-pin-tweak-token-chip"),
     );
-    const activeTokenName = record?.token?.name ?? "";
+    const activeTokenName = getSelectedTokenName(plan, original.computed, record);
     for (const chip of tokenChips) {
       if (!(chip instanceof HTMLElement)) {
         continue;
@@ -769,6 +775,10 @@ export class PinOverlay {
       const tokenName = chip.getAttribute("data-token-name") ?? "";
       chip.setAttribute(
         "data-active",
+        tokenName && tokenName === activeTokenName ? "true" : "false",
+      );
+      chip.setAttribute(
+        "aria-pressed",
         tokenName && tokenName === activeTokenName ? "true" : "false",
       );
     }
@@ -938,6 +948,8 @@ function isVisualSuggestionProperty(
 
 function renderTokenChip(chip: TweakTokenChip, activeTokenName: string): string {
   const isActive = chip.token.name === activeTokenName ? "true" : "false";
+  const pressedAttr =
+    isActive === "true" ? 'aria-pressed="true"' : 'aria-pressed="false"';
   if (chip.token.valueKind === "color") {
     const swatch = chip.token.resolvedValue || "transparent";
     return `
@@ -947,6 +959,7 @@ function renderTokenChip(chip: TweakTokenChip, activeTokenName: string): string 
         data-prop="${escapeHtml(chip.property)}"
         data-token-name="${escapeHtml(chip.token.name)}"
         data-active="${isActive}"
+        ${pressedAttr}
         title="${escapeHtml(chip.token.shortName)} (${escapeHtml(chip.token.resolvedValue)})"
         aria-label="Use ${escapeHtml(chip.token.shortName)}"
       >
@@ -962,6 +975,7 @@ function renderTokenChip(chip: TweakTokenChip, activeTokenName: string): string 
       data-prop="${escapeHtml(chip.property)}"
       data-token-name="${escapeHtml(chip.token.name)}"
       data-active="${isActive}"
+      ${pressedAttr}
       title="${escapeHtml(chip.token.shortName)} (${escapeHtml(chip.token.resolvedValue)})"
       aria-label="Use ${escapeHtml(chip.token.shortName)}"
     >
@@ -969,6 +983,73 @@ function renderTokenChip(chip: TweakTokenChip, activeTokenName: string): string 
       <span class="obv-pin-tweak-token-chip-value">${escapeHtml(chip.token.resolvedValue)}</span>
     </button>
   `;
+}
+
+function getSelectedTokenName(
+  plan: TweakControlPlan,
+  originalComputed: string,
+  record: OverrideRecord | undefined,
+): string {
+  if (record?.token?.name) {
+    return record.token.name;
+  }
+  const matchingChip = plan.tokenChips.find((chip) =>
+    tokenMatchesValue(chip, originalComputed),
+  );
+  return matchingChip?.token.name ?? "";
+}
+
+function tokenMatchesValue(chip: TweakTokenChip, value: string): boolean {
+  return cssValuesMatch(chip.property, chip.token.resolvedValue, value);
+}
+
+function cssValuesMatch(
+  property: FeedbackVisualSuggestionProperty,
+  a: string,
+  b: string,
+): boolean {
+  if (isColorProperty(property)) {
+    return normalizeColorValue(a) === normalizeColorValue(b);
+  }
+  const aLength = normalizeLengthValue(a);
+  const bLength = normalizeLengthValue(b);
+  if (aLength !== null && bLength !== null) {
+    return Math.abs(aLength - bLength) < 0.01;
+  }
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function normalizeColorValue(value: string): string {
+  return cssColorToHex(value).toLowerCase();
+}
+
+function normalizeLengthValue(value: string): number | null {
+  const first = value.trim().split(/\s+/)[0] ?? "";
+  const parsed = parseNumericValue(first);
+  if (parsed === null) {
+    return null;
+  }
+  if (parsed.unit === "px" || parsed.unit === "") {
+    return parsed.value;
+  }
+  if (parsed.unit === "rem" || parsed.unit === "em") {
+    return parsed.value * getRootFontSizePx();
+  }
+  return null;
+}
+
+function getRootFontSizePx(): number {
+  try {
+    const parsed = parseNumericValue(
+      window.getComputedStyle(document.documentElement).fontSize,
+    );
+    if (parsed?.unit === "px") {
+      return parsed.value;
+    }
+  } catch {
+    return 16;
+  }
+  return 16;
 }
 
 function renderHeaderValue(
@@ -1359,34 +1440,60 @@ function createPinStyles(): string {
     .obv-pin-popover-header {
       display: flex;
       align-items: center;
-      justify-content: space-between;
       gap: 8px;
     }
     .obv-pin-popover-drag-handle {
-      flex: 1 1 auto;
-      min-width: 0;
       display: inline-flex;
       align-items: center;
+      justify-content: center;
+      gap: 5px;
+      height: 24px;
+      padding: 0 8px;
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      background: rgba(15, 23, 42, 0.04);
+      color: rgba(15, 23, 42, 0.58);
       cursor: grab;
       touch-action: none;
       user-select: none;
-      border-radius: 6px;
-      padding: 2px 4px;
-      margin: -2px -4px;
+      border-radius: 999px;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1;
     }
     .obv-pin-popover-drag-handle:active {
       cursor: grabbing;
     }
     .obv-pin-popover-drag-handle:hover {
-      background: rgba(15, 23, 42, 0.05);
+      background: rgba(15, 23, 42, 0.07);
+      color: rgba(15, 23, 42, 0.78);
+    }
+    .obv-pin-popover-drag-handle:focus-visible {
+      outline: 2px solid #facc15;
+      outline-offset: 2px;
+    }
+    .obv-pin-popover-drag-handle .obv-icon {
+      width: 14px;
+      height: 14px;
+    }
+    .obv-pin-layer[data-theme="dark"] .obv-pin-popover-drag-handle {
+      border-color: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(244, 244, 245, 0.68);
     }
     .obv-pin-layer[data-theme="dark"] .obv-pin-popover-drag-handle:hover {
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(244, 244, 245, 0.88);
     }
     .obv-pin-popover-title {
+      flex: 1 1 auto;
+      min-width: 0;
       font-size: 12px;
       font-weight: 600;
       color: rgba(15, 23, 42, 0.7);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .obv-pin-layer[data-theme="dark"] .obv-pin-popover-title {
       color: rgba(244, 244, 245, 0.65);
@@ -1399,19 +1506,40 @@ function createPinStyles(): string {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 24px;
-      height: 24px;
-      border-radius: 6px;
+      width: 28px;
+      height: 28px;
+      border-radius: 10px;
       border: none;
       background: transparent;
-      color: inherit;
+      color: rgba(15, 23, 42, 0.52);
       cursor: pointer;
+      transition: background-color 120ms ease, color 120ms ease;
     }
     .obv-pin-icon-button:hover {
-      background: rgba(15, 23, 42, 0.08);
+      background: rgba(239, 68, 68, 0.1);
+      color: #dc2626;
+    }
+    .obv-pin-icon-button:focus-visible {
+      outline: 2px solid #facc15;
+      outline-offset: 2px;
+    }
+    .obv-pin-layer[data-theme="dark"] .obv-pin-icon-button {
+      color: rgba(244, 244, 245, 0.58);
     }
     .obv-pin-layer[data-theme="dark"] .obv-pin-icon-button:hover {
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(248, 113, 113, 0.14);
+      color: #f87171;
+    }
+    .obv-pin-icon-button .obv-icon {
+      width: 17px;
+      height: 17px;
+    }
+    .obv-pin-layer .obv-icon {
+      stroke: currentColor;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
     }
     .obv-pin-popover-textarea {
       width: 100%;

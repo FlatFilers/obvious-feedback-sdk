@@ -203,6 +203,7 @@ export function createToolbarStyles(): string {
     }
     .obv-cell-grip,
     .obv-cell-icon,
+    .obv-cell-clear,
     .obv-cell-link,
     .obv-cell-meta,
     .obv-cell-count,
@@ -227,9 +228,21 @@ export function createToolbarStyles(): string {
     .obv-cell-icon {
       color: var(--obv-text-muted);
     }
-    .obv-cell-icon .obv-icon {
-      width: 16px;
-      height: 16px;
+    .obv-cell-icon .obv-icon,
+    .obv-cell-clear .obv-icon {
+      width: 17px;
+      height: 17px;
+    }
+    .obv-cell-clear {
+      color: var(--obv-text-muted);
+    }
+    .obv-cell-clear:hover:not(:disabled) {
+      color: var(--obv-danger);
+      background: transparent;
+    }
+    .obv-cell-clear:disabled {
+      cursor: progress;
+      opacity: 0.6;
     }
     .obv-cell-text {
       font-weight: 600;
@@ -336,6 +349,7 @@ export function createToolbarStyles(): string {
     }
     .obv-cell-link:focus-visible,
     .obv-cell-icon:focus-visible,
+    .obv-cell-clear:focus-visible,
     .obv-cell-text:focus-visible,
     .obv-cell-grip:focus-visible {
       outline: 2px solid var(--obv-accent);

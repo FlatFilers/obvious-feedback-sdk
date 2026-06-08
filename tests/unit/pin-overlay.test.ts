@@ -84,6 +84,26 @@ describe("PinOverlay", () => {
     expect(host?.shadowRoot?.querySelector(".obv-pin-popover")).not.toBeNull();
   });
 
+  it("renders a dedicated drag handle and X delete action in the popover header", () => {
+    overlay = new PinOverlay({ theme: "light" });
+    overlay.addPin(makeAnchor(), null);
+    const host = document.querySelector("[data-obvious-feedback-pin-layer]");
+    const popover = host?.shadowRoot?.querySelector(".obv-pin-popover");
+    expect(popover?.querySelector(".obv-pin-popover-title")?.textContent).toBe(
+      "Pin 1 of 1",
+    );
+    const handle = popover?.querySelector("[data-pin-drag-handle]");
+    expect(handle).toBeInstanceOf(HTMLButtonElement);
+    expect(handle?.textContent).toContain("Drag");
+    const deleteButton = popover?.querySelector('[data-pin-action="delete"]');
+    expect(deleteButton).toBeInstanceOf(HTMLButtonElement);
+    expect(deleteButton?.innerHTML ?? "").toContain("obv-icon");
+    expect(deleteButton?.innerHTML ?? "").toContain("M6 6l12 12");
+    const styleText = host?.shadowRoot?.querySelector("style")?.textContent ?? "";
+    expect(styleText).toContain(".obv-pin-layer .obv-icon");
+    expect(styleText).toContain("stroke: currentColor");
+  });
+
   it("closes the popover when Cmd/Ctrl+Enter is pressed in the textarea", () => {
     overlay = new PinOverlay({ theme: "light" });
     overlay.addPin(makeAnchor(), null);
@@ -190,6 +210,32 @@ describe("PinOverlay", () => {
       expect(refreshed?.querySelector(".obv-pin-popover-tweaks")).not.toBeNull();
       const rows = refreshed?.querySelectorAll(".obv-pin-tweak-row");
       expect((rows?.length ?? 0) >= 1).toBe(true);
+    });
+
+    it("highlights the token chip that matches the picked element's original value", () => {
+      document.documentElement.style.setProperty("--space-md", "1rem");
+      document.documentElement.style.setProperty("--space-lg", "1.5rem");
+      overlay = new PinOverlay({ theme: "light" });
+      const target = document.createElement("button");
+      target.style.padding = "16px";
+      document.body.appendChild(target);
+      overlay.addPin(makeAnchor("button"), target);
+
+      const host = document.querySelector("[data-obvious-feedback-pin-layer]");
+      const chip = host?.shadowRoot?.querySelector('[data-token-name="--space-md"]');
+      expect(chip).toBeInstanceOf(HTMLElement);
+      if (!(chip instanceof HTMLElement)) {
+        throw new Error("matching token chip was not rendered");
+      }
+
+      expect(chip.getAttribute("data-active")).toBe("true");
+      expect(chip.getAttribute("aria-pressed")).toBe("true");
+      expect(overlay.getPins()[0]?.overrides ?? []).toHaveLength(0);
+
+      chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      expect(overlay.getPins()[0]?.overrides ?? []).toHaveLength(0);
+      expect(target.style.getPropertyValue("padding")).toBe("16px");
     });
 
     it("does not render the tweak panel when the host has no design tokens for the picked element", () => {
