@@ -108,6 +108,8 @@ export interface FeedbackContext {
   prUrl?: string;
   /** Direct link to the autobuild thread (executable). Surfaces a thread icon link. */
   threadUrl?: string;
+  /** Direct link to the triage issue page returned after submit. */
+  issueUrl?: string;
   /** Lifecycle state of the PR. Reserved for future use; not surfaced on the flat toolbar. */
   status?: FeedbackContextPrStatus;
   /** CI state. Reserved for future use; not surfaced on the flat toolbar. */
@@ -132,6 +134,12 @@ export interface FeedbackSubmissionInput {
   sessionReplayUrl?: string;
   /** When set (including empty), used instead of compose-state attachment tokens (e.g. round item submit). */
   attachmentTokens?: string[];
+}
+
+export interface FeedbackRoundSubmitResponse {
+  issueId: string;
+  issueUrl: string;
+  workerThread?: FeedbackWorkerThreadLink;
 }
 
 export interface FeedbackStatusResponse {

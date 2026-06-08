@@ -19,6 +19,7 @@ export type {
   FeedbackIssueSeverity,
   FeedbackIssueType,
   FeedbackPullRequestLink,
+  FeedbackRoundSubmitResponse,
   FeedbackSdkConfig,
   FeedbackSdkHandle,
   FeedbackSdkTheme,

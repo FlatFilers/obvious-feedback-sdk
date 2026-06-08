@@ -48,6 +48,7 @@ import {
   buildPinAnchor,
   type DraftPinSnapshot,
 } from "./pin-overlay";
+import { normalizeFeedbackRoundSubmitResponse } from "./feedback-normalizers";
 import { createFeedbackRoundSubmitUrl } from "./transport";
 
 interface PinElementGrabPair {
@@ -181,7 +182,8 @@ export class ObviousFeedbackWidget {
     this.submitting = true;
     this.setStatus("sending");
     try {
-      await this.postRound(pins);
+      const submitResult = await this.postRound(pins);
+      this.applySubmitResultLinks(submitResult);
       this.pinOverlay.clearAll();
       this.grabs.length = 0;
       this.setStatus("sent");
@@ -345,7 +347,25 @@ export class ObviousFeedbackWidget {
     }
   }
 
-  private async postRound(pins: DraftPinSnapshot[]): Promise<void> {
+  private applySubmitResultLinks(
+    submitResult: ReturnType<typeof normalizeFeedbackRoundSubmitResponse>,
+  ): void {
+    if (!submitResult) {
+      return;
+    }
+    const nextContext: FeedbackContext = {
+      ...this.config.context,
+      issueUrl: submitResult.issueUrl,
+      ...(submitResult.workerThread
+        ? { threadUrl: submitResult.workerThread.url }
+        : {}),
+    };
+    this.toolbar.setContext(nextContext);
+  }
+
+  private async postRound(
+    pins: DraftPinSnapshot[],
+  ): Promise<ReturnType<typeof normalizeFeedbackRoundSubmitResponse>> {
     const sessionReplayUrl = await this.resolveSessionReplayUrl();
     const items = pins.map((pin) => buildRoundItem(pin, this.grabs));
     const response = await fetch(
@@ -371,6 +391,8 @@ export class ObviousFeedbackWidget {
     if (!response.ok) {
       throw new Error(`Feedback submission failed (${response.status})`);
     }
+    const payload: unknown = await response.json();
+    return normalizeFeedbackRoundSubmitResponse(payload);
   }
 
   private buildSubmissionContext(): Record<string, unknown> | undefined {

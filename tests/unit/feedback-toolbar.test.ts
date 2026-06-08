@@ -390,7 +390,27 @@ describe("FeedbackToolbar", () => {
       expect(cta?.textContent ?? "").toContain("View Progress");
     });
 
-    it("renders the banner without a CTA when no thread or PR URL is provided", () => {
+    it("falls back to the triage issue link when no thread or PR URL is present", () => {
+      toolbar = new FeedbackToolbar({
+        context: {
+          issueUrl: "https://app.obvious.ai/autobuild?issue=abi_test&tab=issues",
+        },
+        theme: "light",
+        initialPinCount: 0,
+        onCommentClick: createNoop(),
+        onSendClick: createNoop(),
+      });
+      toolbar.setStatus("sent");
+      const cta = document
+        .querySelector("[data-obvious-feedback-toolbar]")
+        ?.shadowRoot?.querySelector<HTMLAnchorElement>(".obv-sent-cta");
+      expect(cta?.getAttribute("href")).toBe(
+        "https://app.obvious.ai/autobuild?issue=abi_test&tab=issues",
+      );
+      expect(cta?.textContent ?? "").toContain("View Progress");
+    });
+
+    it("renders the banner without a CTA when no progress URL is provided", () => {
       toolbar = new FeedbackToolbar({
         context: undefined,
         theme: "light",
