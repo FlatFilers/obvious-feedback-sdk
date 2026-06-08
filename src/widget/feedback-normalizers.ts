@@ -2,6 +2,7 @@ import type {
   FeedbackAiSummary,
   FeedbackIssueLinks,
   FeedbackPullRequestLink,
+  FeedbackRoundSubmitResponse,
   FeedbackWorkerThreadLink,
 } from "../public-types";
 
@@ -127,5 +128,27 @@ export function getFeedbackIssueLinks(response: unknown): FeedbackIssueLinks | n
     normalizeFeedbackIssueLinks(response.links) ??
     normalizeFeedbackIssueLinks({ workerThread: response.workerThread })
   );
+}
+
+export function normalizeFeedbackRoundSubmitResponse(
+  value: unknown,
+): FeedbackRoundSubmitResponse | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const data = getRecordField(value, "data") ?? value;
+  if (!isRecord(data) || typeof data.issueId !== "string") {
+    return null;
+  }
+  const issueUrl = getSafeExternalUrl(
+    typeof data.issueUrl === "string" ? data.issueUrl : undefined,
+  );
+  if (!issueUrl) {
+    return null;
+  }
+  const workerThread = normalizeWorkerThreadLink(data.workerThread);
+  return workerThread
+    ? { issueId: data.issueId, issueUrl, workerThread }
+    : { issueId: data.issueId, issueUrl };
 }
 

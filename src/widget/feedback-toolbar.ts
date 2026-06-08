@@ -273,6 +273,18 @@ export class FeedbackToolbar {
     `;
   }
 
+  private resolveSentProgressUrl(): string | undefined {
+    const threadUrl = getSafeExternalUrl(this.state.context?.threadUrl);
+    if (threadUrl) {
+      return threadUrl;
+    }
+    const prUrl = getSafeExternalUrl(this.state.context?.prUrl);
+    if (prUrl) {
+      return prUrl;
+    }
+    return getSafeExternalUrl(this.state.context?.issueUrl);
+  }
+
   private renderCommentCountBadge(): string {
     if (this.state.pinCount <= 0) {
       return "";
@@ -284,17 +296,13 @@ export class FeedbackToolbar {
    * Full-bar takeover shown after a successful Send. Reuses the toolbar host
    * (so the drag handle still works) but replaces the cells with a centered
    * "Autobuild is on it" banner + CTA link to the autobuild thread.
-   * Falls back to the PR link, then a CTA-less message, when context is sparse.
+   * Falls back to the PR link, then the triage issue page, when context is sparse.
    */
   private renderSentBanner(): string {
-    const threadUrl = getSafeExternalUrl(this.state.context?.threadUrl);
-    const prUrl = getSafeExternalUrl(this.state.context?.prUrl);
-    let cta = "";
-    if (threadUrl) {
-      cta = `<a class="obv-sent-cta" href="${escapeHtml(threadUrl)}" target="_blank" rel="noopener noreferrer" aria-label="View progress in a new tab" title="View progress in a new tab"><span>View Progress</span>${createIcon("arrow-up-right")}</a>`;
-    } else if (prUrl) {
-      cta = `<a class="obv-sent-cta" href="${escapeHtml(prUrl)}" target="_blank" rel="noopener noreferrer" aria-label="View progress in a new tab" title="View progress in a new tab"><span>View Progress</span>${createIcon("arrow-up-right")}</a>`;
-    }
+    const progressUrl = this.resolveSentProgressUrl();
+    const cta = progressUrl
+      ? `<a class="obv-sent-cta" href="${escapeHtml(progressUrl)}" target="_blank" rel="noopener noreferrer" aria-label="View progress in a new tab" title="View progress in a new tab"><span>View Progress</span>${createIcon("arrow-up-right")}</a>`
+      : "";
     return `
       <div class="obv-toolbar obv-toolbar-sent" role="status" aria-label="Feedback sent">
         <button type="button" class="obv-cell obv-cell-grip" data-obv-drag-handle aria-label="Drag toolbar">${createIcon("grip")}</button>
