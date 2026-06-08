@@ -216,14 +216,14 @@ describe("PinOverlay", () => {
         clientY: 0,
       }),
     );
-    handle.dispatchEvent(
+    window.dispatchEvent(
       new PointerEvent("pointermove", {
         pointerId: 1,
         clientX: 40,
         clientY: 24,
       }),
     );
-    handle.dispatchEvent(
+    window.dispatchEvent(
       new PointerEvent("pointerup", {
         pointerId: 1,
         clientX: 40,
