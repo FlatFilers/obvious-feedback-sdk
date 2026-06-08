@@ -700,7 +700,7 @@ export class PinOverlay {
 
     wrapper.addEventListener("click", (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLElement)) {
+      if (!(target instanceof Element)) {
         return;
       }
       const tweakAction = target.closest("[data-tweak-action]");

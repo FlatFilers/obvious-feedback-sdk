@@ -135,6 +135,22 @@ describe("PinOverlay", () => {
     expect(styleText).toContain("stroke: currentColor");
   });
 
+  it("deletes a pin when the delete icon SVG is clicked", () => {
+    overlay = new PinOverlay({ theme: "light" });
+    overlay.addPin(makeAnchor(), null);
+    const host = document.querySelector("[data-obvious-feedback-pin-layer]");
+    const icon = host?.shadowRoot?.querySelector(
+      '[data-pin-action="delete"] .obv-icon',
+    );
+    expect(icon).toBeInstanceOf(SVGSVGElement);
+    if (!(icon instanceof SVGSVGElement)) {
+      throw new Error("delete icon was not rendered");
+    }
+    icon.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(overlay.getPinCount()).toBe(0);
+    expect(host?.shadowRoot?.querySelector(".obv-pin-popover")).toBeNull();
+  });
+
   it("closes the popover when Cmd/Ctrl+Enter is pressed in the textarea", () => {
     overlay = new PinOverlay({ theme: "light" });
     overlay.addPin(makeAnchor(), null);
