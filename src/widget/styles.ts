@@ -203,7 +203,6 @@ export function createToolbarStyles(): string {
     }
     .obv-cell-grip,
     .obv-cell-icon,
-    .obv-cell-clear,
     .obv-cell-link,
     .obv-cell-meta,
     .obv-cell-count,
@@ -228,21 +227,9 @@ export function createToolbarStyles(): string {
     .obv-cell-icon {
       color: var(--obv-text-muted);
     }
-    .obv-cell-icon .obv-icon,
-    .obv-cell-clear .obv-icon {
+    .obv-cell-icon .obv-icon {
       width: 17px;
       height: 17px;
-    }
-    .obv-cell-clear {
-      color: var(--obv-text-muted);
-    }
-    .obv-cell-clear:hover:not(:disabled) {
-      color: var(--obv-danger);
-      background: transparent;
-    }
-    .obv-cell-clear:disabled {
-      cursor: progress;
-      opacity: 0.6;
     }
     .obv-cell-text {
       font-weight: 600;
@@ -253,17 +240,6 @@ export function createToolbarStyles(): string {
     }
     .obv-cell-primary {
       color: var(--obv-text);
-    }
-    :host([data-status="picking"]) .obv-cell-primary {
-      color: var(--obv-accent-foreground);
-      background: var(--obv-accent);
-      border-radius: 999px;
-      margin: 4px 2px;
-      padding: 0 12px;
-      box-shadow: inset 0 0 0 0 var(--obv-divider);
-    }
-    :host([data-status="picking"]) .obv-cell-primary + .obv-cell {
-      box-shadow: none;
     }
     .obv-cell-send {
       color: var(--obv-accent-foreground);
@@ -317,6 +293,17 @@ export function createToolbarStyles(): string {
       pointer-events: none;
       color: var(--obv-text-muted);
     }
+    .obv-cell-picking {
+      gap: 6px;
+      color: var(--obv-accent-text);
+      font-weight: 600;
+      cursor: default;
+      pointer-events: auto;
+    }
+    .obv-cell-picking .obv-icon {
+      width: 14px;
+      height: 14px;
+    }
     .obv-cell-status[data-tone="success"] {
       color: var(--obv-success);
     }
@@ -343,13 +330,8 @@ export function createToolbarStyles(): string {
       color: var(--obv-accent-text);
       background: transparent;
     }
-    :host([data-status="picking"]) .obv-cell-primary:hover:not(:disabled) {
-      color: var(--obv-accent-foreground);
-      background: var(--obv-accent);
-    }
     .obv-cell-link:focus-visible,
     .obv-cell-icon:focus-visible,
-    .obv-cell-clear:focus-visible,
     .obv-cell-text:focus-visible,
     .obv-cell-grip:focus-visible {
       outline: 2px solid var(--obv-accent);

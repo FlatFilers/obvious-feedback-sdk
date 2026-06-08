@@ -4,7 +4,7 @@
  * anywhere on screen with viewport clamping and localStorage persistence.
  *
  * Cells (left to right): drag handle, branch label, PR link, thread link,
- * Comment, draft pin counter, Send. Cells without data hide automatically.
+ * draft pin counter, Comment, Send. Cells without data hide automatically.
  */
 
 import type { FeedbackContext, FeedbackSdkTheme } from "../public-types";
@@ -40,7 +40,6 @@ export interface FeedbackToolbarOptions {
   initialPinCount: number;
   onCommentClick: () => void;
   onSendClick: () => void;
-  onClearAllClick?: () => void;
   /** Called when the toolbar mounts; receives the host element so the parent
    * can register it as an "ignore-me" target for the picker overlay. */
   onMounted?: (host: HTMLElement) => void;
@@ -63,13 +62,11 @@ export class FeedbackToolbar {
   private destroyed = false;
   private readonly onCommentClick: () => void;
   private readonly onSendClick: () => void;
-  private readonly onClearAllClick: () => void;
   private statusResetTimer: number | null = null;
 
   constructor(options: FeedbackToolbarOptions) {
     this.onCommentClick = options.onCommentClick;
     this.onSendClick = options.onSendClick;
-    this.onClearAllClick = options.onClearAllClick ?? (() => undefined);
     this.state = {
       context: options.context,
       theme: options.theme,
@@ -213,22 +210,34 @@ export class FeedbackToolbar {
         </div>
 
         <div class="obv-group obv-group-end">
-          <button
-            type="button"
-            class="obv-cell obv-cell-text obv-cell-primary"
-            data-toolbar-action="comment"
-            aria-label="${escapeHtml(this.getCommentAriaLabel())}"
-          >
-            ${createIcon("comment")}
-            <span class="obv-cell-label">${escapeHtml(this.getCommentLabel())}</span>
-          </button>
-
           ${this.renderPinCount()}
-          ${this.renderClearAllButton()}
+          ${this.renderCommentControl()}
           ${this.renderStatusLabel()}
           ${this.renderSendButton()}
         </div>
       </div>
+    `;
+  }
+
+  private renderCommentControl(): string {
+    if (this.state.status === "picking") {
+      return `
+        <div class="obv-cell obv-cell-status obv-cell-picking" role="status" aria-live="polite">
+          ${createIcon("comment")}
+          <span class="obv-cell-label">Picking…</span>
+        </div>
+      `;
+    }
+    return `
+      <button
+        type="button"
+        class="obv-cell obv-cell-text obv-cell-primary"
+        data-toolbar-action="comment"
+        aria-label="${escapeHtml(this.getCommentAriaLabel())}"
+      >
+        ${createIcon("comment")}
+        <span class="obv-cell-label">${escapeHtml(this.getCommentLabel())}</span>
+      </button>
     `;
   }
 
@@ -288,26 +297,6 @@ export class FeedbackToolbar {
     `;
   }
 
-  private renderClearAllButton(): string {
-    if (this.state.pinCount <= 0) {
-      return "";
-    }
-    const isSending = this.state.status === "sending";
-    const disabled = isSending ? 'disabled aria-disabled="true"' : "";
-    return `
-      <button
-        type="button"
-        class="obv-cell obv-cell-clear"
-        data-toolbar-action="clear-all"
-        aria-label="Clear all comments"
-        title="Clear all comments"
-        ${disabled}
-      >
-        ${createIcon("trash")}
-      </button>
-    `;
-  }
-
   private renderBranchLabel(): string {
     const context = this.state.context;
     if (!context?.branch) {
@@ -358,9 +347,6 @@ export class FeedbackToolbar {
           if (action === "comment") {
             event.preventDefault();
             this.onCommentClick();
-          } else if (action === "clear-all") {
-            event.preventDefault();
-            this.onClearAllClick();
           } else if (action === "send") {
             event.preventDefault();
             this.onSendClick();

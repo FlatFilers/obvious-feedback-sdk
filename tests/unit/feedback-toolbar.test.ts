@@ -94,32 +94,36 @@ describe("FeedbackToolbar", () => {
         ?.innerHTML ?? "";
     expect(html).toContain('data-toolbar-action="send"');
     expect(html).toContain("2 comments");
+    expect(html.indexOf("2 comments")).toBeLessThan(
+      html.indexOf("Add another"),
+    );
     expect(html).not.toContain("2 drafts");
     expect(html).not.toContain("2 pins");
+    expect(html).not.toContain('data-toolbar-action="clear-all"');
   });
 
-  it("shows an icon-only clear-all control when pin count > 0", () => {
-    let clearClicks = 0;
+  it("renders picking state as passive status text instead of a button", () => {
+    let commentClicks = 0;
     toolbar = new FeedbackToolbar({
       context: undefined,
       theme: "light",
-      initialPinCount: 2,
-      onCommentClick: createNoop(),
-      onSendClick: createNoop(),
-      onClearAllClick: () => {
-        clearClicks += 1;
+      initialPinCount: 1,
+      onCommentClick: () => {
+        commentClicks += 1;
       },
+      onSendClick: createNoop(),
     });
-    const button = document
-      .querySelector("[data-obvious-feedback-toolbar]")
-      ?.shadowRoot?.querySelector<HTMLButtonElement>(
-        '[data-toolbar-action="clear-all"]',
-      );
-    expect(button).not.toBeNull();
-    expect(button?.getAttribute("aria-label")).toBe("Clear all comments");
-    expect(button?.innerHTML ?? "").toContain("obv-icon");
-    button?.click();
-    expect(clearClicks).toBe(1);
+    toolbar.setStatus("picking");
+    const root = document.querySelector("[data-obvious-feedback-toolbar]")
+      ?.shadowRoot;
+    const picking = root?.querySelector(".obv-cell-picking");
+    expect(picking).toBeInstanceOf(HTMLDivElement);
+    expect(picking?.textContent).toContain("Picking…");
+    expect(root?.querySelector('[data-toolbar-action="comment"]')).toBeNull();
+    expect(root?.querySelector("style")?.textContent ?? "").not.toContain(
+      ':host([data-status="picking"]) .obv-cell-primary',
+    );
+    expect(commentClicks).toBe(0);
   });
 
   it("singularizes the comment counter to '1 comment' when there is exactly one pin", () => {

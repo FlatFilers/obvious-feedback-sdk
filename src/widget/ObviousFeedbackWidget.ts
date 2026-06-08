@@ -105,7 +105,6 @@ export class ObviousFeedbackWidget {
       onSendClick: () => {
         void this.submit();
       },
-      onClearAllClick: () => this.clearDraftFeedback(),
     });
 
     this.annotation = new AnnotationMode({
