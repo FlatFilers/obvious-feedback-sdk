@@ -52,6 +52,47 @@ describe("ObviousFeedback.init", () => {
     ).toBeNull();
   });
 
+  it("slides the toolbar off-screen and persists the preference", () => {
+    handle = ObviousFeedback.init({ publicKey: "fsk_pub_test" });
+    const host = document.querySelector("[data-obvious-feedback-toolbar]");
+    expect(host?.getAttribute("data-presentation")).toBe("open");
+    expect(handle.isToolbarVisible()).toBe(true);
+
+    handle.setToolbarVisible(false);
+    expect(host?.getAttribute("data-presentation")).toBe("docked");
+    expect(handle.isToolbarVisible()).toBe(false);
+    expect(
+      window.localStorage.getItem(
+        `obvious.feedback.toolbarVisible:${window.location.origin}`,
+      ),
+    ).toBe("false");
+
+    handle.toggleToolbarVisible();
+    expect(host?.getAttribute("data-presentation")).toBe("open");
+    expect(handle.isToolbarVisible()).toBe(true);
+  });
+
+  it("restores hidden toolbar preference on init", () => {
+    window.localStorage.setItem(
+      `obvious.feedback.toolbarVisible:${window.location.origin}`,
+      "false",
+    );
+    handle = ObviousFeedback.init({ publicKey: "fsk_pub_test" });
+    const host = document.querySelector("[data-obvious-feedback-toolbar]");
+    expect(host?.getAttribute("data-presentation")).toBe("docked");
+    expect(handle.isToolbarVisible()).toBe(false);
+  });
+
+  it("restores docked resting mode on init", () => {
+    window.localStorage.setItem(
+      `obvious.feedback.toolbarRestingMode:${window.location.origin}`,
+      "docked",
+    );
+    handle = ObviousFeedback.init({ publicKey: "fsk_pub_test" });
+    const host = document.querySelector("[data-obvious-feedback-toolbar]");
+    expect(host?.getAttribute("data-presentation")).toBe("docked");
+  });
+
   it("renders only the branch when preview context provides branch and sha", () => {
     handle = ObviousFeedback.init({
       publicKey: "fsk_pub_test",

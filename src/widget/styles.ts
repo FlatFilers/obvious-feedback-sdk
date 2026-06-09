@@ -3,7 +3,7 @@
  * picker overlay define their own scoped styles inline.
  */
 
-const TOOLBAR_HEIGHT_PX = 36;
+export const TOOLBAR_HEIGHT_PX = 36;
 
 export function createToolbarStyles(): string {
   return `
@@ -31,8 +31,47 @@ export function createToolbarStyles(): string {
       visibility: hidden;
       pointer-events: none;
     }
+    /* Presentation-offset layer. Owns the vertical slide (edge-dock, hover-peek,
+     * slide-to-hide) independently of the host's committed drag position. Because
+     * transform moves hit-testing too, only the visually-rendered bar is
+     * interactive — no phantom hit area at the committed position. */
+    .obv-dock {
+      display: inline-flex;
+      position: relative;
+      pointer-events: auto;
+      transform: translateY(var(--obv-dock-y, 0px));
+      transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+      will-change: transform;
+    }
+    .obv-dock-content {
+      display: inline-flex;
+    }
+    /* Stable transparent hover strip below the committed host. It does not move
+     * with the dock, so the bottom-edge target stays under the cursor while
+     * the toolbar peeks/tucks. Inert unless docked. */
+    .obv-dock-hover-pad {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% - 4px);
+      height: 48px;
+      pointer-events: none;
+    }
+    :host([data-presentation="docked"]) .obv-dock-hover-pad {
+      pointer-events: auto;
+    }
+    :host([data-presentation="hidden"]) .obv-dock {
+      pointer-events: none;
+    }
+    /* No slide while dragging — the bar must track the cursor 1:1. */
+    :host([data-dragging="true"]) .obv-dock {
+      transition: none;
+    }
     @media (prefers-reduced-motion: reduce) {
       :host {
+        transition: none;
+      }
+      .obv-dock {
         transition: none;
       }
     }

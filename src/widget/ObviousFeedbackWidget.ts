@@ -120,7 +120,7 @@ export class ObviousFeedbackWidget {
     });
 
     this.pinOverlay.subscribePopoverOpen((open) => {
-      this.toolbar.setHidden(open);
+      this.toolbar.setPopoverSuppressed(open);
     });
 
     this.navigationCleanup = observeLocationChanges(() =>
@@ -206,6 +206,18 @@ export class ObviousFeedbackWidget {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  isToolbarVisible(): boolean {
+    return !this.toolbar.isUserHidden();
+  }
+
+  setToolbarVisible(visible: boolean): void {
+    this.toolbar.setUserHidden(!visible);
+  }
+
+  toggleToolbarVisible(): boolean {
+    return !this.toolbar.toggleUserHidden();
   }
 
   private notifyCount(count: number): void {
