@@ -38,6 +38,10 @@ export interface FeedbackSdkHandle {
   subscribeToDraftPinCount: (
     listener: (count: number) => void,
   ) => () => void;
+  /** Whether the feedback toolbar is visible (user preference, not popover suppression). */
+  isToolbarVisible: () => boolean;
+  setToolbarVisible: (visible: boolean) => void;
+  toggleToolbarVisible: () => boolean;
   /** Legacy status-history API retained for existing host integrations. */
   getOpenIssueCount: () => number;
   subscribeToOpenIssueCount: (

@@ -26,9 +26,16 @@ export interface DraggableOptions {
   /** Called when the drag begins (after threshold is exceeded). */
   onDragStart?: () => void;
   /** Called continuously during drag with the live clamped position. */
-  onDragMove?: (position: DraggablePosition) => void;
+  onDragMove?: (position: DraggablePosition, info: DraggableMoveInfo) => void;
   /** Called when the pointer is released and the position is committed. */
-  onDragEnd?: (position: DraggablePosition) => void;
+  onDragEnd?: (position: DraggablePosition, info: DraggableMoveInfo) => void;
+}
+
+export interface DraggableMoveInfo {
+  /** Unclamped position implied by pointer movement. */
+  rawPosition: DraggablePosition;
+  /** Positive when the pointer has dragged below the clamped viewport edge. */
+  overflowY: number;
 }
 
 export interface DraggableHandle {
@@ -56,6 +63,7 @@ interface DragState {
   startClientX: number;
   startClientY: number;
   startPosition: DraggablePosition;
+  lastRawPosition: DraggablePosition;
   hasMovedPastThreshold: boolean;
   captureTarget: HTMLElement;
 }
@@ -90,6 +98,7 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
       startClientX: event.clientX,
       startClientY: event.clientY,
       startPosition: { ...position },
+      lastRawPosition: { ...position },
       hasMovedPastThreshold: false,
       captureTarget: handle,
     };
@@ -114,17 +123,15 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
       return;
     }
     event.preventDefault();
-    const next = clampPositionForElement(
-      {
-        x: dragState.startPosition.x + deltaX,
-        y: dragState.startPosition.y + deltaY,
-      },
-      options.target,
-      viewportMargin,
-    );
+    const rawPosition = {
+      x: dragState.startPosition.x + deltaX,
+      y: dragState.startPosition.y + deltaY,
+    };
+    dragState.lastRawPosition = rawPosition;
+    const next = clampPositionForElement(rawPosition, options.target, viewportMargin);
     position = next;
     applyPosition(options.target, position);
-    options.onDragMove?.(position);
+    options.onDragMove?.(position, getMoveInfo(rawPosition, position));
   }
 
   function handlePointerUp(event: PointerEvent): void {
@@ -133,6 +140,7 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
     }
     const wasDragging = dragState.hasMovedPastThreshold;
     const captureTarget = dragState.captureTarget;
+    const lastRawPosition = dragState.lastRawPosition;
     dragState = null;
     detachWindowDragListeners();
     captureTarget.releasePointerCapture?.(event.pointerId);
@@ -142,7 +150,7 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
         suppressNextClick = false;
       }, 0);
       writeStoredPosition(options.storageKey, position);
-      options.onDragEnd?.(position);
+      options.onDragEnd?.(position, getMoveInfo(lastRawPosition, position));
     }
   }
 
@@ -233,6 +241,16 @@ export function createDraggable(options: DraggableOptions): DraggableHandle {
 
 function applyPosition(target: HTMLElement, position: DraggablePosition): void {
   target.style.transform = `translate3d(${position.x}px, ${position.y}px, 0)`;
+}
+
+function getMoveInfo(
+  rawPosition: DraggablePosition,
+  clampedPosition: DraggablePosition,
+): DraggableMoveInfo {
+  return {
+    rawPosition: { ...rawPosition },
+    overflowY: Math.max(0, rawPosition.y - clampedPosition.y),
+  };
 }
 
 function clampPositionForElement(

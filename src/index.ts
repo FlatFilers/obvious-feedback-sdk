@@ -57,6 +57,12 @@ export const ObviousFeedback = {
       getDraftPinCount: () => activeWidget?.getDraftPinCount() ?? 0,
       subscribeToDraftPinCount: (listener) =>
         activeWidget?.subscribeToDraftPinCount(listener) ?? (() => {}),
+      isToolbarVisible: () => activeWidget?.isToolbarVisible() ?? true,
+      setToolbarVisible: (visible) => {
+        activeWidget?.setToolbarVisible(visible);
+      },
+      toggleToolbarVisible: () =>
+        activeWidget?.toggleToolbarVisible() ?? true,
       getOpenIssueCount: () => 0,
       subscribeToOpenIssueCount: (listener) => {
         listener(0);
