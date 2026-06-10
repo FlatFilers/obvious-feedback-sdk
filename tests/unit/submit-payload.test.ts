@@ -109,6 +109,20 @@ describe("submit-round payload", () => {
     expect(captured[0]!.body.repoFullName).toBe("acme/web");
   });
 
+  it("falls back to the top-level repoFullName when context lacks it", async () => {
+    handle = ObviousFeedback.init({
+      publicKey: "fsk_pub_test",
+      repoFullName: "acme/api",
+      context: { prNumber: 9 },
+    });
+    addDraftPin(handle);
+    await handle.submit();
+
+    expect(captured.length).toBe(1);
+    expect(captured[0]!.body.prNumber).toBe(9);
+    expect(captured[0]!.body.repoFullName).toBe("acme/api");
+  });
+
   it("omits repoFullName entirely when not configured", async () => {
     handle = ObviousFeedback.init({
       publicKey: "fsk_pub_test",
