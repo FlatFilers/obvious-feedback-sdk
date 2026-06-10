@@ -76,6 +76,7 @@ Pass options to `ObviousFeedback.init()` or use `data-*` attributes on the scrip
 | `identityToken` | `data-identity-token` | `string` | n/a | Signed JWT for verified identity (see below). |
 | `env` | `data-env` | `string` | `production` | Environment label attached to submissions. |
 | `prNumber` | `data-pr-number` | `number` | n/a | PR number for preview environment routing. |
+| `repoFullName` | n/a | `string` | n/a | Repository in `owner/repo` format (e.g. `acme/web`). Sent alongside `prNumber` so the API can disambiguate PR numbers shared across repos in a workspace. Optional; omitting it keeps existing behavior. Can also be set via `context.repoFullName`. |
 | `theme` | `data-theme` | `'light' \| 'dark' \| 'system'` | `light` | Widget color scheme. |
 | `triggerLabel` | `data-trigger-label` | `string` | `Open feedback` | Tooltip text on the trigger button. |
 | `assistantPosition` | n/a | `'bottom-right' \| 'bottom-left' \| 'top-right' \| 'top-left'` | `bottom-right` | Corner for the floating trigger. |

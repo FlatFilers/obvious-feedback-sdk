@@ -67,6 +67,14 @@ export interface FeedbackSdkConfig {
   previewOnlyReason?: string;
   /** Legacy top-level PR number. Prefer `context.prNumber` for new integrations. */
   prNumber?: number;
+  /**
+   * Repository the previewed PR belongs to, in `owner/repo` format (e.g.
+   * `"acme/web"`). Disambiguates `prNumber` when multiple repos in the same
+   * workspace share PR numbers. Optional and fully backward compatible: when
+   * omitted, submissions behave exactly as before. Prefer
+   * `context.repoFullName` for new integrations.
+   */
+  repoFullName?: string;
   elementSourceResolver?: ElementSourceResolver;
   /**
    * Controls the widget color scheme.
@@ -106,6 +114,11 @@ export type FeedbackContextPrStatus = "open" | "merged" | "closed" | "draft";
 export interface FeedbackContext {
   /** GitHub PR number, surfaced on the toolbar's PR link. */
   prNumber?: number;
+  /**
+   * Repository in `owner/repo` format. Sent alongside `prNumber` on feedback
+   * submissions so the API can disambiguate PR numbers across repos.
+   */
+  repoFullName?: string;
   /** Optional PR title, used as link tooltip. */
   prTitle?: string;
   /** Direct link to the GitHub PR. Surfaces a GitHub icon link. */

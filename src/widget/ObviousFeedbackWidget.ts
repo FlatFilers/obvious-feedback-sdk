@@ -391,6 +391,8 @@ export class ObviousFeedbackWidget {
           sessionReplayUrl,
           env: this.config.env,
           prNumber: this.config.context?.prNumber ?? this.config.prNumber,
+          repoFullName:
+            this.config.context?.repoFullName ?? this.config.repoFullName,
           sourceUrl: redactUrl(window.location.href),
           sdkVersion: SDK_VERSION,
           items,
@@ -436,9 +438,16 @@ export class ObviousFeedbackWidget {
 
 function normalizeConfig(config: FeedbackSdkConfig): FeedbackSdkConfig {
   const context = config.context
-    ? { ...config.context, prNumber: config.context.prNumber ?? config.prNumber }
-    : config.prNumber
-      ? { prNumber: config.prNumber }
+    ? {
+        ...config.context,
+        prNumber: config.context.prNumber ?? config.prNumber,
+        repoFullName: config.context.repoFullName ?? config.repoFullName,
+      }
+    : config.prNumber || config.repoFullName
+      ? {
+          ...(config.prNumber ? { prNumber: config.prNumber } : {}),
+          ...(config.repoFullName ? { repoFullName: config.repoFullName } : {}),
+        }
       : undefined;
   return {
     ...config,
