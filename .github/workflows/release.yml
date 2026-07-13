@@ -45,8 +45,11 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
-      - name: Use latest npm for trusted publishing
-        run: npm install -g npm@latest
+      # Pinned to the npm 11.x line, not "latest" (npm 12 requires Node >=22.9,
+      # incompatible with this workflow's Node 20 runner). npm 11.x already
+      # supports OIDC trusted publishing.
+      - name: Use npm 11.x for trusted publishing
+        run: npm install -g npm@11
 
       - name: Show npm version
         run: npm --version
