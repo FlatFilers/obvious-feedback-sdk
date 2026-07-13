@@ -1,6 +1,6 @@
 {
   "name": "@obvi/feedback-sdk",
-  "version": "1.5.0-beta.2",
+  "version": "1.5.0",
   "description": "Embeddable browser feedback widget — drop into any web app to collect user feedback powered by Obvious",
   "type": "module",
   "main": "dist/index.js",
