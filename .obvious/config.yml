@@ -1,0 +1,8 @@
+# Obvious repo policy for FlatFilers/obvious-feedback-sdk.
+# Auto-detected from GitHub repo settings on 2026-08-21.
+repo: FlatFilers/obvious-feedback-sdk
+defaultBranch: main
+# squash | merge | rebase — all three are allowed on GitHub; recent history is
+# single-line commits with PR numbers (#N), i.e. squash-merge practice.
+mergeMethod: squash
+deleteBranchOnMerge: false
