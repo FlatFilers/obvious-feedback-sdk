@@ -1,5 +1,5 @@
 # Obvious repo policy for FlatFilers/obvious-feedback-sdk.
-# Auto-detected from GitHub repo settings on 2026-08-21.
+# Auto-detected from GitHub repo settings on 2026-08-21; re-confirmed 2026-08-24.
 repo: FlatFilers/obvious-feedback-sdk
 defaultBranch: main
 # squash | merge | rebase — all three are allowed on GitHub; recent history is

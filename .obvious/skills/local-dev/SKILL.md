@@ -5,8 +5,9 @@ description: Bring FlatFilers/obvious-feedback-sdk to a working local dev enviro
 
 # Local dev onboarding — obvious-feedback-sdk
 
-Recorded 2026-08-21 by the Autobuild onboarding run. Everything below was executed
-and verified green in the sandbox snapshot `2b6jzw5bjre4tqoeqzvx:default`.
+Recorded 2026-08-21 by the Autobuild onboarding run; re-validated end-to-end
+2026-08-24. Everything below was executed and verified green in sandbox snapshot
+`09yz0ucu7nodytlf0v8s:default`.
 
 ## What this repo needs
 
@@ -16,16 +17,16 @@ Bun (runtime + package manager + unit test runner), tsup (build), Playwright chr
 
 ## Bring-up steps
 
-1. **Deps**: `bun install`. In the sandbox `node_modules/` is preinstalled and
-   root-owned. If `bun install` prints `EEXIST` / `PathAlreadyExists` errors, the
-   install is still complete — sanity-check with `./node_modules/.bin/tsc --version`.
-   Do NOT `rm -rf node_modules` (permission denied, and unnecessary).
+1. **Deps**: `bun install --frozen-lockfile`. In the sandbox `node_modules/` is
+   preinstalled and root-owned. If `bun install` prints `EEXIST` / `PathAlreadyExists`
+   errors, the install is still complete — sanity-check with
+   `./node_modules/.bin/tsc --version`. Do NOT `rm -rf node_modules` (permission
+   denied, and unnecessary).
 2. **Build**: `bun run build` → `dist/index.js`, `dist/index.global.js`, `dist/index.d.ts`.
 3. **Typecheck**: `bun run test:typecheck`.
 4. **Unit tests**: `bun run test` → 142 tests expected, all passing.
-5. **E2E first-time setup**: `bunx playwright install chromium`, then
-   `sudo bunx playwright install-deps chromium` (otherwise chromium fails with
-   `libnspr4.so: cannot open shared object file`). Passwordless sudo is available.
+5. **E2E first-time setup**: `bunx playwright install chromium --with-deps`
+   (downloads chromium + system libs in one step; ~112 MiB).
 6. **E2E**: `bun run test:e2e` → 13 passed, 1 skipped (live spec needs
    `FEEDBACK_API_BASE_URL` + `FEEDBACK_PUBLIC_KEY`). Playwright auto-starts the mock
    API on :4444 and the vanilla host on :5555.
@@ -41,12 +42,11 @@ nohup python3 -m http.server 5555 --directory tests/e2e/fixtures/vanilla-host >/
 
 Playwright script outline (selectors verified in this run):
 goto `http://localhost:5555` → wait for `#status` = "SDK initialized successfully." →
-click `[data-toolbar-action="comment"]` → click `#visual-target` → fill
-`.obv-pin-popover textarea` → click `[data-pin-action="close"]` → click
-`[data-toolbar-action="send"]` → assert via
+click `[data-toolbar-action="comment"]` → click `#card-title` (or `#visual-target`) →
+fill `.obv-pin-popover textarea` → click `[data-pin-action="close"]` → click
+`[data-toolbar-action="send"]` → wait for `.obv-toolbar-sent` → assert via
 `GET http://localhost:4444/_test/last-submission` (check `items[0].description` and
-`elementGrabs[0].cssSelector`). `window.__feedbackWidget.open()` shows the feedback
-card for a screenshot.
+`elementGrabs[0].cssSelector`).
 
 Gotchas:
 - Kill leftover servers with bracket patterns (`pkill -f "[h]ttp.server 5555"`) —

@@ -31,8 +31,7 @@ bun run dev                # tsup --watch
 First-time e2e setup in a fresh sandbox:
 
 ```bash
-bunx playwright install chromium
-sudo bunx playwright install-deps chromium   # system libs (libnspr4, libnss3, ...)
+bunx playwright install chromium --with-deps
 ```
 
 E2E auto-starts two local servers (playwright.config.ts `webServer`):
@@ -52,10 +51,11 @@ See `.obvious/codebase-map.md`.
 
 ## Local Verification Summary
 
-Recorded from the onboarding run on 2026-08-21 (bun 1.3.14, node v20.20.2):
+Validated 2026-08-21, re-validated end-to-end 2026-08-24 (bun 1.3.14, node v20.20.2):
 
 | Check | Result |
 | --- | --- |
+| `bun install --frozen-lockfile` | PASS — 98 installs, no changes |
 | `bun run build` | PASS — ESM 146.7 KB, IIFE 155.1 KB, d.ts 11.7 KB |
 | `bun run test:typecheck` | PASS — 0 errors |
 | `bun run test` (unit) | PASS — 142 pass / 0 fail across 14 files |
@@ -64,28 +64,33 @@ Recorded from the onboarding run on 2026-08-21 (bun 1.3.14, node v20.20.2):
 
 ### Primary flow evidence
 
-Playwright drove the vanilla host (localhost:5555) loading the built IIFE bundle:
-SDK initialized (`#status` = "SDK initialized successfully."), the toolbar comment action
-entered annotation mode, a pin comment was placed on `#visual-target`, and the send action
-submitted a feedback round to the mock API (localhost:4444). `GET /_test/last-submission`
-returned the submitted payload — description, `elementGrabs[0].cssSelector` = `#visual-target`,
-`sdkVersion` = `1.5.0`. Browser console: zero errors. Six screenshots captured
-(host page, annotation mode, pin popover, submitted, feedback card open).
+Playwright (chromium headless) drove the vanilla host (localhost:5555) loading the built
+IIFE bundle: SDK initialized (`#status` = "SDK initialized successfully."), the toolbar
+comment action entered annotation mode, a pin comment was placed on `#card-title`, and
+the send action submitted a feedback round to the mock API (localhost:4444).
+`GET /_test/last-submission` returned the submitted payload — description,
+`elementGrabs[0].cssSelector` = `#card-title`, `sdkVersion` = `1.5.0`. The sent toolbar
+(`.obv-toolbar-sent`) and "View Progress" CTA rendered. Browser console: zero errors.
+Five screenshots captured (page loaded, annotation mode, pin popover, pin created,
+feedback sent).
 
 ## Sandbox snapshot
 
-- Snapshot / template ID: `2b6jzw5bjre4tqoeqzvx:default`
-- Captured: 2026-08-21T16:19:24Z
+- Snapshot / template ID: `09yz0ucu7nodytlf0v8s:default`
+- Captured: 2026-08-24T21:14:27Z (supersedes `2b6jzw5bjre4tqoeqzvx:default` from 2026-08-21)
 - State baked in: dependencies installed, `dist/` built, chromium + system libs installed,
   all suites green.
 
 ## Notes & gotchas
 
 - `node_modules/` in the sandbox is root-owned and read-only. `bun install` may print
-  `EEXIST` / `PathAlreadyExists` errors, but the dependency set is complete and all
-  binaries work. Do not `rm -rf node_modules` (permission denied, and unnecessary).
+  `EEXIST` / `PathAlreadyExists` errors on some sandbox states, but the dependency set is
+  complete and all binaries work. Do not `rm -rf node_modules` (permission denied, and
+  unnecessary).
 - `tests/e2e/fixtures/vanilla-host/dist` is a git-tracked symlink to the repo `dist/` —
   always `bun run build` before running e2e.
+- Kill leftover dev servers with bracket patterns (`pkill -f "[h]ttp.server 5555"`) —
+  a plain pattern can match your own shell's command line.
 - Release flow: npm trusted publisher via `release.yml` (see file header for setup).
   `MONOREPO_MIGRATION.md` documents switching the Obvious monorepo to the published package.
 - Manual QA harness: `examples/vanilla/index.html`.
