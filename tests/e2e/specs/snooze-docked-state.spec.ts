@@ -1,23 +1,24 @@
 import { test, expect } from '@playwright/test'
 
 /**
- * Retargeting witness (PR #22 retrospective, finding F3).
+ * Real-browser witness for the dock-click guard (PR #22 retrospective, F3).
  *
- * happy-dom does not retarget shadow-internal events, so the unit regression
- * for the dock-click guard cannot prove the fix: dispatching an event directly
- * on a menu item leaves `event.target` as the item itself, which is a path
- * real browsers never produce (they retarget shadow-internal events to the
- * host, so the dock's capture-phase handler sees a target outside the menu).
+ * The original unit regression dispatched events directly on a snooze menu
+ * item — a synthetic path that skips the real interaction chain (hover the
+ * peek sliver, right-click, native click). This spec runs the built IIFE
+ * bundle in real Chromium and replays that chain end to end.
  *
- * This spec runs the built IIFE bundle in real Chromium and replays the exact
- * user interaction: seed the user-hidden standing preference, hover the docked
- * bar's peek sliver, right-click it, then perform a real mouse click on a
- * snooze menu item. Without the `composedPath()` guard in `handleDockClick`
- * the capture handler swallows that click, `revealFully()` undocks the bar,
- * and the wipe persists `toolbarVisible: "true"` — every assertion below
- * fails. Proven in this PR: reverting the guard makes this spec fail.
+ * Mechanism under test: the dock and the menu share the widget's shadow
+ * root, so nothing retargets the click between them — `handleDockClick` is
+ * a capture-phase listener on the dock, an ancestor of the menu, and
+ * therefore sees every menu click before the menu's own listener runs.
+ * Without the `composedPath()` guard the item (not a
+ * `[data-toolbar-action]`) fell through to the undock branch: the click was
+ * swallowed, `revealFully()` undocked the bar, and the wipe persisted
+ * `toolbarVisible: "true"` — every assertion below fails. Proven in this
+ * PR: reverting the guard makes this spec fail.
  */
-test.describe('Snooze menu in docked state (retargeting witness)', () => {
+test.describe('Snooze menu in docked state (real-browser witness)', () => {
   test.beforeEach(async ({ page }) => {
     // Seed before any page script runs: the widget reads the standing
     // preference at construction, so the bar mounts docked and user-hidden.
@@ -69,8 +70,8 @@ test.describe('Snooze menu in docked state (retargeting witness)', () => {
     const menu = host.locator('.obv-toolbar-menu')
     await expect(menu).toBeVisible()
 
-    // Real click on the menu item — the event a real browser retargets to the
-    // host before it reaches the dock's capture handler.
+    // Real click on the menu item — the dock's capture-phase handler (an
+    // ancestor of the menu) sees this click before the menu's own listener.
     await menu.locator('[data-obv-snooze="1h"]').click()
 
     // The snooze arms: the bar fully removes itself instead of undocking.
