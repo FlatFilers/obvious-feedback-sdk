@@ -861,6 +861,30 @@ describe("FeedbackToolbar", () => {
       expect(getRoot()?.activeElement).toBe(items[0]);
     });
 
+    it("keeps the menu open when pointerdown lands on a menu item", () => {
+      // Regression guard: the dismissal listener sits on window, outside the
+      // shadow root. Real browsers retarget shadow-internal events to the host
+      // element, so containment checks against event.target classify item
+      // presses as "outside" and the menu closes before the click lands —
+      // items become unclickable. The handler must use composedPath().
+      makeToolbar();
+      const dock = getRoot()?.querySelector(".obv-dock");
+      rightClick(dock ?? getHost());
+      const menu = getMenu();
+      expect(menu?.hidden).toBe(false);
+
+      menu
+        ?.querySelector('[data-obv-snooze="1h"]')
+        ?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+          }),
+        );
+      expect(menu?.hidden).toBe(false);
+    });
+
     it("closes the menu on Escape", () => {
       makeToolbar();
       rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());

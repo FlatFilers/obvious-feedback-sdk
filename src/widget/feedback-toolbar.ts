@@ -792,7 +792,7 @@ export class FeedbackToolbar {
     if (this.state.isDragging) {
       return; // never open while a drag is in progress
     }
-    if (event.target instanceof Node && this.snoozeMenu.contains(event.target)) {
+    if (event.composedPath().includes(this.snoozeMenu)) {
       return; // right-click on the open menu is not a reopen
     }
     event.preventDefault(); // suppress the browser's context menu
@@ -800,7 +800,12 @@ export class FeedbackToolbar {
   };
 
   private handleMenuOutsidePointerDown = (event: PointerEvent): void => {
-    if (event.target instanceof Node && this.snoozeMenu.contains(event.target)) {
+    // composedPath, not contains(event.target): this listener sits on window,
+    // outside the shadow root, and real browsers retarget shadow-internal
+    // events to the host element — target would never be inside the menu even
+    // when the pointerdown lands on a menu item. composedPath preserves the
+    // real path across the shadow boundary in every browser.
+    if (event.composedPath().includes(this.snoozeMenu)) {
       return;
     }
     this.closeSnoozeMenu();
