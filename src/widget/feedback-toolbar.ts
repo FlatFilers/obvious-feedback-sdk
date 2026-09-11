@@ -253,6 +253,9 @@ export class FeedbackToolbar {
   private readonly shadowRoot: ShadowRoot;
   /** Stable wrapper that owns the presentation offset; survives re-renders. */
   private readonly dock: HTMLDivElement;
+  /** Right-click snooze menu. Sibling of `.obv-dock-content` inside `.obv-dock`
+   * so per-state re-renders never wipe it. */
+  private readonly snoozeMenu: HTMLDivElement;
   /** Transparent hit-area extension above the peek so it's easier to reveal. */
   private readonly hoverPad: HTMLDivElement;
   /** Container whose inner HTML is swapped each render. */
@@ -309,6 +312,8 @@ export class FeedbackToolbar {
     this.dockContent = document.createElement("div");
     this.dockContent.className = "obv-dock-content";
     this.dock.appendChild(this.dockContent);
+    this.snoozeMenu = this.createSnoozeMenu();
+    this.dock.appendChild(this.snoozeMenu);
     // The hover pad is intentionally outside `.obv-dock`: it must not move with
     // the dock transform, or the peek target slides out from under the cursor.
     this.shadowRoot.appendChild(this.hoverPad);
@@ -323,6 +328,10 @@ export class FeedbackToolbar {
     // Capture so the first click on the peeking sliver pulls the bar out before
     // it can reach a toolbar action button.
     this.dock.addEventListener("click", this.handleDockClick, true);
+    // Right-click anywhere on the bar opens the snooze menu — the whole
+    // .obv-toolbar is the drag surface and draggable.ts ignores button !== 0,
+    // so a right-click never drags and never conflicts with this listener.
+    this.dock.addEventListener("contextmenu", this.handleToolbarContextMenu);
 
     this.render();
     this.draggable = createDraggable({
@@ -370,6 +379,12 @@ export class FeedbackToolbar {
     this.hoverPad.removeEventListener("pointerenter", this.handlePointerEnter);
     this.hoverPad.removeEventListener("pointerleave", this.handlePointerLeave);
     this.dock.removeEventListener("click", this.handleDockClick, true);
+    this.dock.removeEventListener(
+      "contextmenu",
+      this.handleToolbarContextMenu,
+    );
+    // Also unregisters the window pointerdown listener while it is attached.
+    this.closeSnoozeMenu();
     if (this.statusResetTimer !== null) {
       window.clearTimeout(this.statusResetTimer);
       this.statusResetTimer = null;
@@ -455,6 +470,7 @@ export class FeedbackToolbar {
     const until = computeSnoozeUntil(duration);
     persistSnooze({ until, duration });
     this.state = { ...this.state, snoozed: true };
+    this.closeSnoozeMenu();
     this.armSnoozeExpiryTimer(until);
     this.applyPresentation();
   }
@@ -542,6 +558,7 @@ export class FeedbackToolbar {
     const snooze = parseStoredSnooze(event.newValue, Date.now());
     if (snooze !== null) {
       this.state = { ...this.state, snoozed: true };
+      this.closeSnoozeMenu();
       this.armSnoozeExpiryTimer(snooze.until);
       this.applyPresentation();
       return;
@@ -588,6 +605,8 @@ export class FeedbackToolbar {
   }
 
   private handleDragStart(): void {
+    // Drag start dismisses the snooze menu (one of the four dismissal paths).
+    this.closeSnoozeMenu();
     if (this.state.userHidden) {
       // A drag from the shortcut-hidden peek is an explicit reveal/interaction.
       // Keep the eventual drag-end from resolving to userHidden + open, which
@@ -695,6 +714,122 @@ export class FeedbackToolbar {
     event.preventDefault();
     event.stopPropagation();
     this.revealFully();
+  };
+
+  /** Build the snooze menu: two real menuitem buttons with roving-focus
+   * arrow-key navigation, Escape-to-close, and the bar's theme variables so it
+   * matches in both themes. Bound once — it is never re-rendered. */
+  private createSnoozeMenu(): HTMLDivElement {
+    const menu = document.createElement("div");
+    menu.className = "obv-toolbar-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "Hide toolbar");
+    menu.hidden = true;
+    menu.innerHTML = `
+      <button type="button" role="menuitem" class="obv-toolbar-menu-item" data-obv-snooze="1h" tabindex="-1">Hide for 1 hour</button>
+      <button type="button" role="menuitem" class="obv-toolbar-menu-item" data-obv-snooze="day" tabindex="-1">Hide until tomorrow</button>
+    `;
+    menu.addEventListener("click", (event) => {
+      const target =
+        event.target instanceof Element
+          ? event.target.closest("[data-obv-snooze]")
+          : null;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const duration = target.getAttribute("data-obv-snooze");
+      if (duration !== "1h" && duration !== "day") {
+        return;
+      }
+      this.snooze(duration);
+    });
+    menu.addEventListener("keydown", this.handleMenuKeyDown);
+    return menu;
+  }
+
+  private getMenuItems(): HTMLButtonElement[] {
+    return Array.from(
+      this.snoozeMenu.querySelectorAll<HTMLButtonElement>("[data-obv-snooze]"),
+    );
+  }
+
+  /** Open the snooze menu anchored above the bar, flipping below when the
+   * viewport clips the preferred position. Focuses the first item so arrow
+   * keys work immediately after a right-click. */
+  private openSnoozeMenu(): void {
+    if (this.state.isDragging || !this.snoozeMenu.hidden) {
+      return;
+    }
+    this.snoozeMenu.hidden = false;
+    this.snoozeMenu.classList.remove("obv-toolbar-menu-flip");
+    // In test environments rects are zero, so top < 0 only happens in a real
+    // layout where the above-anchor is clipped by the viewport's top edge.
+    const rect = this.snoozeMenu.getBoundingClientRect();
+    if (rect.top < 0) {
+      this.snoozeMenu.classList.add("obv-toolbar-menu-flip");
+    }
+    window.addEventListener(
+      "pointerdown",
+      this.handleMenuOutsidePointerDown,
+      true,
+    );
+    this.getMenuItems()[0]?.focus();
+  }
+
+  private closeSnoozeMenu(): void {
+    if (this.snoozeMenu.hidden) {
+      return;
+    }
+    this.snoozeMenu.hidden = true;
+    window.removeEventListener(
+      "pointerdown",
+      this.handleMenuOutsidePointerDown,
+      true,
+    );
+  }
+
+  private handleToolbarContextMenu = (event: MouseEvent): void => {
+    if (this.state.isDragging) {
+      return; // never open while a drag is in progress
+    }
+    if (event.target instanceof Node && this.snoozeMenu.contains(event.target)) {
+      return; // right-click on the open menu is not a reopen
+    }
+    event.preventDefault(); // suppress the browser's context menu
+    this.openSnoozeMenu();
+  };
+
+  private handleMenuOutsidePointerDown = (event: PointerEvent): void => {
+    if (event.target instanceof Node && this.snoozeMenu.contains(event.target)) {
+      return;
+    }
+    this.closeSnoozeMenu();
+  };
+
+  private handleMenuKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.closeSnoozeMenu();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+      return;
+    }
+    event.preventDefault();
+    const items = this.getMenuItems();
+    if (items.length === 0) {
+      return;
+    }
+    // With shadow DOM, document.activeElement would report the host — resolve
+    // against the shadow root to find the focused menuitem.
+    const active = this.shadowRoot.activeElement;
+    const currentIndex = items.findIndex((item) => item === active);
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    const nextIndex =
+      currentIndex === -1
+        ? 0
+        : (currentIndex + delta + items.length) % items.length;
+    items[nextIndex]?.focus();
   };
 
   private setPeeking(peeking: boolean): void {
