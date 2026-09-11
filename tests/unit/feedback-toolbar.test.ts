@@ -1090,6 +1090,7 @@ describe("FeedbackToolbar", () => {
             until: Date.now() + 3_600_000,
             duration: "1h",
           }),
+          storageArea: window.localStorage,
         }),
       );
 
@@ -1105,7 +1106,11 @@ describe("FeedbackToolbar", () => {
       expect(bar.isSnoozed()).toBe(true);
 
       window.dispatchEvent(
-        new StorageEvent("storage", { key: SNOOZE_KEY, newValue: null }),
+        new StorageEvent("storage", {
+          key: SNOOZE_KEY,
+          newValue: null,
+          storageArea: window.localStorage,
+        }),
       );
 
       expect(bar.isSnoozed()).toBe(false);
@@ -1118,10 +1123,45 @@ describe("FeedbackToolbar", () => {
         new StorageEvent("storage", {
           key: VISIBLE_KEY,
           newValue: "false",
+          storageArea: window.localStorage,
         }),
       );
       expect(bar.isSnoozed()).toBe(false);
       expect(getHost()?.getAttribute("data-presentation")).toBe("open");
+    });
+
+    it("ignores storage events whose storageArea is not this tab's localStorage", () => {
+      // F7 guard: a sessionStorage-area event (or any non-localStorage area)
+      // must never touch the snooze state.
+      const bar = makeToolbar();
+      bar.snooze("1h");
+      expect(bar.isSnoozed()).toBe(true);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: SNOOZE_KEY,
+          newValue: null,
+          storageArea: window.sessionStorage,
+        }),
+      );
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
+    });
+
+    it("ignores synthetic storage events without a storageArea", () => {
+      // Real browsers always set storageArea; a synthetic event without one
+      // carries no proof of origin and must be ignored.
+      const bar = makeToolbar();
+      bar.snooze("1h");
+      expect(bar.isSnoozed()).toBe(true);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: SNOOZE_KEY, newValue: null }),
+      );
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
     });
 
     it("never writes the standing toolbarVisible preference when snoozing", () => {

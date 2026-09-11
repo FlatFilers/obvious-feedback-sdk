@@ -558,6 +558,13 @@ export class FeedbackToolbar {
    * writing tab never receives its own storage event, so this is the only
    * cross-tab channel — no storage writes here, the writer owns those. */
   private handleStorageEvent = (event: StorageEvent): void => {
+    // Only the tab's own localStorage drives the snooze: a synthetic event
+    // with no area, a sessionStorage-area event, or an environment where
+    // storage access throws must not touch this state. Real browsers always
+    // set storageArea on storage events.
+    if (event.storageArea !== tabLocalStorage()) {
+      return;
+    }
     // key === null means localStorage.clear(), which also wipes the snooze key.
     if (event.key !== null && event.key !== getSnoozeStorageKey()) {
       return;
@@ -918,8 +925,9 @@ export class FeedbackToolbar {
     this.host.style.setProperty("--obv-dock-y", `${resolved.dockY}px`);
     this.host.setAttribute("data-presentation", resolved.presentation);
     this.host.setAttribute("data-peeking", resolved.peeking ? "true" : "false");
-    // `data-hidden` continues to drive the in-place opacity fade, now reserved
-    // for popover suppression (the only state that returns opacity 0).
+    // `data-hidden` drives the in-place opacity fade. Two states resolve to
+    // opacity 0: popover suppression (fades in place) and an active snooze
+    // (fully removes the bar alongside `presentation: "hidden"`).
     this.host.setAttribute(
       "data-hidden",
       resolved.opacity === 0 ? "true" : "false",
@@ -1249,6 +1257,21 @@ function getSnoozeStorageKey(): string {
     return SNOOZE_STORAGE_PREFIX;
   }
   return `${SNOOZE_STORAGE_PREFIX}:${window.location.origin}`;
+}
+
+/** The tab's localStorage, or null when the access itself throws (browser
+ * privacy modes, embedded origins) — matching the file's other storage reads.
+ * The storage-event guard compares against this, so an unreadable area means
+ * storage events are ignored rather than mishandled. */
+function tabLocalStorage(): Storage | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 /** Absolute expiry for a snooze window: "1h" is now + one hour; "day" is the
