@@ -38,7 +38,8 @@ export interface FeedbackSdkHandle {
   subscribeToDraftPinCount: (
     listener: (count: number) => void,
   ) => () => void;
-  /** Whether the feedback toolbar is visible (user preference, not popover suppression). */
+  /** Whether the feedback toolbar is effectively visible — false when the user
+   * hid it or a snooze is active (not affected by popover suppression). */
   isToolbarVisible: () => boolean;
   setToolbarVisible: (visible: boolean) => void;
   toggleToolbarVisible: () => boolean;

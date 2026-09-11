@@ -41,6 +41,8 @@ import { createToolbarStyles, TOOLBAR_HEIGHT_PX } from "./styles";
 const POSITION_STORAGE_PREFIX = "obvious.feedback.toolbarPosition";
 const RESTING_MODE_STORAGE_PREFIX = "obvious.feedback.toolbarRestingMode";
 const VISIBLE_STORAGE_PREFIX = "obvious.feedback.toolbarVisible";
+const SNOOZE_STORAGE_PREFIX = "obvious.feedback.toolbarSnoozedUntil";
+const ONE_HOUR_MS = 60 * 60 * 1000;
 const DEFAULT_BOTTOM_OFFSET_PX = 16;
 /** How long the post-Send takeover banner remains visible before dropping
  * back to the idle toolbar. Long enough to read + click "View progress",
@@ -75,11 +77,26 @@ export type FeedbackToolbarStatus =
  * tucked below the bottom edge with a peek (`docked`). */
 export type ToolbarRestingMode = "open" | "docked";
 
+/** Right-click snooze windows: one hour from now, or until the next local
+ * midnight. Also the `duration` discriminant of the stored snooze record. */
+export type SnoozeDuration = "1h" | "day";
+
+/** Shape persisted under `obvious.feedback.toolbarSnoozedUntil:{origin}`.
+ * `until` is an absolute epoch-ms expiry, so clocks need no coordination. */
+export interface StoredSnooze {
+  until: number;
+  duration: SnoozeDuration;
+}
+
 /** Inputs to the presentation resolver — the complete set of conditions that
  * determine where/how the toolbar is shown. */
 export interface ToolbarPresentationState {
   restingMode: ToolbarRestingMode;
   userHidden: boolean;
+  /** Right-click snooze: fully removes the bar (no peek, no hover pad) until
+   * the stored expiry passes. Separate from `userHidden` so a snooze never
+   * overwrites the standing visibility preference. */
+  snoozed: boolean;
   isPeeking: boolean;
   popoverSuppressed: boolean;
   isDragging: boolean;
@@ -115,6 +132,18 @@ export function resolveToolbarPresentation(
   state: ToolbarPresentationState,
   metrics: ToolbarPresentationMetrics,
 ): ResolvedToolbarPresentation {
+  // Snooze fully removes the bar: invisible, non-interactive, no dock sliver
+  // and no hover pad. It outranks everything — including a drag in flight —
+  // because a snoozed bar has no pointer events to drag with.
+  if (state.snoozed) {
+    return {
+      dockY: 0,
+      opacity: 0,
+      interactive: false,
+      presentation: "hidden",
+      peeking: false,
+    };
+  }
   // While dragging, the bar always follows the cursor at the committed
   // position (dockY 0) so the user never fights the dock offset.
   if (state.isDragging) {
@@ -212,6 +241,7 @@ interface FeedbackToolbarState {
   errorMessage: string | null;
   restingMode: ToolbarRestingMode;
   userHidden: boolean;
+  snoozed: boolean;
   isPeeking: boolean;
   popoverSuppressed: boolean;
   isDragging: boolean;
@@ -234,12 +264,16 @@ export class FeedbackToolbar {
   private readonly onCommentClick: () => void;
   private readonly onSendClick: () => void;
   private statusResetTimer: number | null = null;
+  /** In-tab snooze expiry timer. Mirrors the statusResetTimer lifecycle:
+   * armed whenever the tab learns of an active snooze, cleared in destroy(). */
+  private snoozeExpiryTimer: number | null = null;
   private suppressNextDockClick = false;
 
   constructor(options: FeedbackToolbarOptions) {
     this.onCommentClick = options.onCommentClick;
     this.onSendClick = options.onSendClick;
     const initialUserHidden = readStoredUserHidden();
+    const initialSnooze = readActiveSnooze();
     this.state = {
       context: options.context,
       theme: options.theme,
@@ -248,6 +282,7 @@ export class FeedbackToolbar {
       errorMessage: null,
       restingMode: initialUserHidden ? "docked" : readStoredRestingMode(),
       userHidden: initialUserHidden,
+      snoozed: initialSnooze !== null,
       isPeeking: false,
       popoverSuppressed: false,
       isDragging: false,
@@ -306,11 +341,19 @@ export class FeedbackToolbar {
       this.applyPresentation();
     };
     window.addEventListener("resize", this.resizeListener);
+    // Net-new cross-tab channel: nothing else in src listens to "storage".
+    // Sibling tabs of the same origin apply/clear the snooze as the key changes.
+    window.addEventListener("storage", this.handleStorageEvent);
 
     // The first render's applyPresentation ran before the draggable positioned
     // the host (it was still at top:0), so the offsets were measured against the
     // wrong rect. Recompute now that the host sits at its committed position.
     this.applyPresentation();
+
+    // Reload path: resume the countdown for an unexpired stored snooze.
+    if (initialSnooze !== null) {
+      this.armSnoozeExpiryTimer(initialSnooze.until);
+    }
 
     options.onMounted?.(this.host);
   }
@@ -321,6 +364,7 @@ export class FeedbackToolbar {
     }
     this.destroyed = true;
     window.removeEventListener("resize", this.resizeListener);
+    window.removeEventListener("storage", this.handleStorageEvent);
     this.dock.removeEventListener("pointerenter", this.handlePointerEnter);
     this.dock.removeEventListener("pointerleave", this.handlePointerLeave);
     this.hoverPad.removeEventListener("pointerenter", this.handlePointerEnter);
@@ -329,6 +373,10 @@ export class FeedbackToolbar {
     if (this.statusResetTimer !== null) {
       window.clearTimeout(this.statusResetTimer);
       this.statusResetTimer = null;
+    }
+    if (this.snoozeExpiryTimer !== null) {
+      window.clearTimeout(this.snoozeExpiryTimer);
+      this.snoozeExpiryTimer = null;
     }
     this.draggable?.destroy();
     this.draggable = null;
@@ -368,6 +416,11 @@ export class FeedbackToolbar {
     return this.state.userHidden;
   }
 
+  /** Whether a right-click snooze is currently suppressing the bar. */
+  isSnoozed(): boolean {
+    return this.state.snoozed;
+  }
+
   setUserHidden(hidden: boolean): void {
     if (hidden) {
       if (
@@ -388,10 +441,22 @@ export class FeedbackToolbar {
       this.applyPresentation();
       return;
     }
-    if (!this.state.userHidden && this.state.restingMode === "open") {
+    if (!this.state.userHidden && !this.state.snoozed && this.state.restingMode === "open") {
       return;
     }
     this.revealFully();
+  }
+
+  /** Right-click snooze: hide the bar until the computed expiry. Persists the
+   * snooze under its origin-scoped key (sibling tabs apply it via the storage
+   * event; reloads re-read it) and arms the in-tab expiry timer. Storage
+   * failure degrades to session-only — the timer still restores this tab. */
+  snooze(duration: SnoozeDuration): void {
+    const until = computeSnoozeUntil(duration);
+    persistSnooze({ until, duration });
+    this.state = { ...this.state, snoozed: true };
+    this.armSnoozeExpiryTimer(until);
+    this.applyPresentation();
   }
 
   /**
@@ -402,7 +467,9 @@ export class FeedbackToolbar {
    */
   toggleUserHidden(): boolean {
     const fullyVisible =
-      !this.state.userHidden && this.state.restingMode === "open";
+      !this.state.userHidden &&
+      !this.state.snoozed &&
+      this.state.restingMode === "open";
     if (fullyVisible) {
       this.setUserHidden(true);
       return true;
@@ -411,8 +478,11 @@ export class FeedbackToolbar {
     return false;
   }
 
-  /** Bring the bar fully on-screen: clear the shortcut-hide and undock. */
+  /** Bring the bar fully on-screen: clear the shortcut-hide and undock.
+   * Showing the bar doubles as the snooze cancel — setToolbarVisible(true)
+   * lands here and removes any active snooze alongside the standing pref. */
   private revealFully(): void {
+    this.cancelSnooze();
     this.state = {
       ...this.state,
       userHidden: false,
@@ -423,6 +493,68 @@ export class FeedbackToolbar {
     persistRestingMode("open");
     this.applyPresentation();
   }
+
+  /** Arm the in-tab expiry countdown for an active snooze. Re-arming with a
+   * different deadline (storage event) replaces the pending timer. */
+  private armSnoozeExpiryTimer(until: number): void {
+    if (this.snoozeExpiryTimer !== null) {
+      window.clearTimeout(this.snoozeExpiryTimer);
+    }
+    const remaining = Math.max(0, until - Date.now());
+    this.snoozeExpiryTimer = window.setTimeout(() => {
+      this.snoozeExpiryTimer = null;
+      this.handleSnoozeExpired();
+    }, remaining);
+  }
+
+  /** Timer expiry: clear the stored key (siblings see the removal and restore
+   * too) and bring the bar back to its prior resting state. */
+  private handleSnoozeExpired(): void {
+    if (!this.state.snoozed) {
+      return; // cancel or a sibling storage event beat the timer here
+    }
+    clearStoredSnooze();
+    this.state = { ...this.state, snoozed: false };
+    this.applyPresentation();
+  }
+
+  /** Host cancel path (setToolbarVisible(true) → revealFully): clear timer,
+   * remove the stored key, and drop the local snooze state. */
+  private cancelSnooze(): void {
+    if (this.snoozeExpiryTimer !== null) {
+      window.clearTimeout(this.snoozeExpiryTimer);
+      this.snoozeExpiryTimer = null;
+    }
+    clearStoredSnooze();
+    if (this.state.snoozed) {
+      this.state = { ...this.state, snoozed: false };
+    }
+  }
+
+  /** Storage-event handler: another tab applied or cleared the snooze. The
+   * writing tab never receives its own storage event, so this is the only
+   * cross-tab channel — no storage writes here, the writer owns those. */
+  private handleStorageEvent = (event: StorageEvent): void => {
+    // key === null means localStorage.clear(), which also wipes the snooze key.
+    if (event.key !== null && event.key !== getSnoozeStorageKey()) {
+      return;
+    }
+    const snooze = parseStoredSnooze(event.newValue, Date.now());
+    if (snooze !== null) {
+      this.state = { ...this.state, snoozed: true };
+      this.armSnoozeExpiryTimer(snooze.until);
+      this.applyPresentation();
+      return;
+    }
+    if (this.snoozeExpiryTimer !== null) {
+      window.clearTimeout(this.snoozeExpiryTimer);
+      this.snoozeExpiryTimer = null;
+    }
+    if (this.state.snoozed) {
+      this.state = { ...this.state, snoozed: false };
+      this.applyPresentation();
+    }
+  };
 
   setStatus(status: FeedbackToolbarStatus, errorMessage?: string | null): void {
     if (this.statusResetTimer !== null) {
@@ -606,6 +738,7 @@ export class FeedbackToolbar {
       {
         restingMode: this.state.restingMode,
         userHidden: this.state.userHidden,
+        snoozed: this.state.snoozed,
         isPeeking: this.state.isPeeking,
         popoverSuppressed: this.state.popoverSuppressed,
         isDragging: this.state.isDragging,
@@ -937,6 +1070,109 @@ function persistUserHidden(hidden: boolean): void {
   }
   try {
     window.localStorage.setItem(getVisibleStorageKey(), hidden ? "false" : "true");
+  } catch {
+    // Ignore storage failures (private mode, quota, etc.).
+  }
+}
+
+function getSnoozeStorageKey(): string {
+  if (typeof window === "undefined") {
+    return SNOOZE_STORAGE_PREFIX;
+  }
+  return `${SNOOZE_STORAGE_PREFIX}:${window.location.origin}`;
+}
+
+/** Absolute expiry for a snooze window: "1h" is now + one hour; "day" is the
+ * next local midnight (user's timezone — at 23:30 that is a 30-minute snooze,
+ * which is the plain meaning of "until tomorrow"). */
+export function computeSnoozeUntil(
+  duration: SnoozeDuration,
+  now = Date.now(),
+): number {
+  if (duration === "1h") {
+    return now + ONE_HOUR_MS;
+  }
+  const d = new Date(now);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0, 0).getTime();
+}
+
+/** Shape-check a parsed snooze record without casts: until is a finite epoch-ms
+ * number and duration is one of the two supported windows. */
+function isStoredSnoozeShape(value: unknown): value is StoredSnooze {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "until" in value &&
+    typeof value.until === "number" &&
+    Number.isFinite(value.until) &&
+    "duration" in value &&
+    (value.duration === "1h" || value.duration === "day")
+  );
+}
+
+/** Parse + validate a stored snooze payload. Returns null for malformed or
+ * expired values — the caller treats both as "no snooze". */
+function parseStoredSnooze(raw: string | null, now: number): StoredSnooze | null {
+  if (raw === null) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!isStoredSnoozeShape(parsed) || parsed.until <= now) {
+    return null;
+  }
+  return parsed;
+}
+
+/** Read the currently-active snooze, if any. A malformed or expired stored
+ * value is removed on the spot so the bar shows; storage failures (private
+ * mode, quota) degrade to "no snooze". */
+export function readActiveSnooze(now = Date.now()): StoredSnooze | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  let raw: string | null;
+  try {
+    raw = window.localStorage.getItem(getSnoozeStorageKey());
+  } catch {
+    return null;
+  }
+  const snooze = parseStoredSnooze(raw, now);
+  if (snooze !== null) {
+    return snooze;
+  }
+  if (raw !== null) {
+    try {
+      window.localStorage.removeItem(getSnoozeStorageKey());
+    } catch {
+      // Ignore storage failures — the in-memory state still wins.
+    }
+  }
+  return null;
+}
+
+function persistSnooze(snooze: StoredSnooze): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(getSnoozeStorageKey(), JSON.stringify(snooze));
+  } catch {
+    // Ignore storage failures (private mode, quota, etc.) — degrades to
+    // session-only: the in-tab timer still restores the bar.
+  }
+}
+
+function clearStoredSnooze(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(getSnoozeStorageKey());
   } catch {
     // Ignore storage failures (private mode, quota, etc.).
   }

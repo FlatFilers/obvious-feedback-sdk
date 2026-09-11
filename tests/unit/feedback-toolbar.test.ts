@@ -17,6 +17,7 @@ function presentationState(
   return {
     restingMode: "open",
     userHidden: false,
+    snoozed: false,
     isPeeking: false,
     popoverSuppressed: false,
     isDragging: false,
