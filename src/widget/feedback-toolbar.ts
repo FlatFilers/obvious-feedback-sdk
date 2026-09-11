@@ -705,19 +705,26 @@ export class FeedbackToolbar {
   }
 
   private handleDockClick = (event: MouseEvent): void => {
+    // Snooze-menu clicks belong to the menu, never to dock/undock logic. This
+    // handler is a capture-phase listener on the dock — an ancestor of the
+    // menu — so it runs before the menu's own click listener: a menu-item
+    // click (not a [data-toolbar-action]) would fall through to the branches
+    // below and be swallowed there. In the docked/user-hidden state the undock
+    // branch's revealFully() persisted userHidden=false, wiping the standing
+    // visibility preference instead of arming the snooze. The guard must sit
+    // above the suppressNextDockClick early return too: a drag-dock arms that
+    // flag, opening the menu by right-click (contextmenu) does not clear it,
+    // and the first menu click after a drag-dock would otherwise be eaten by
+    // the suppress branch — no snooze armed, menu stuck open until a second
+    // click. A menu click returns without consuming the flag, so the one
+    // post-drag dock click stays suppressed for a later genuine dock click.
+    if (event.composedPath().includes(this.snoozeMenu)) {
+      return;
+    }
     if (this.suppressNextDockClick) {
       this.suppressNextDockClick = false;
       event.preventDefault();
       event.stopPropagation();
-      return;
-    }
-    // Snooze-menu clicks belong to the menu, never to dock/undock logic. The
-    // guard must use composedPath: in the docked/user-hidden state this capture
-    // handler runs before the menu's own click listener, and without it a real
-    // browser's retargeted click would fall through to the dock branch below —
-    // swallowing the menu click (no snooze armed) while revealFully() persisted
-    // userHidden=false, wiping the standing visibility preference.
-    if (event.composedPath().includes(this.snoozeMenu)) {
       return;
     }
     const actionElement =

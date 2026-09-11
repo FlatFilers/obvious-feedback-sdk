@@ -740,8 +740,11 @@ describe("FeedbackToolbar", () => {
 
     /** Drive a real drag through the draggable controller: primary-button
      * pointerdown on the drag surface (`.obv-toolbar` — the draggable handle),
-     * then a window pointermove past the 4px threshold. */
-    function startDrag(): void {
+     * then a window pointermove past the 4px threshold. The move target
+     * defaults to a small in-viewport nudge; passing a clientY beyond the
+     * viewport height drives the bar below the screen so the drag ends docked
+     * (DraggableMoveInfo.overflowY > 0 → suppressNextDockClick armed). */
+    function startDrag(toX = 140, toY = 140): void {
       const surface = getRoot()?.querySelector(".obv-toolbar");
       surface?.dispatchEvent(
         new PointerEvent("pointerdown", {
@@ -760,13 +763,13 @@ describe("FeedbackToolbar", () => {
           cancelable: true,
           pointerId: 1,
           isPrimary: true,
-          clientX: 140,
-          clientY: 140,
+          clientX: toX,
+          clientY: toY,
         }),
       );
     }
 
-    function endDrag(): void {
+    function endDrag(toX = 140, toY = 140): void {
       window.dispatchEvent(
         new PointerEvent("pointerup", {
           bubbles: true,
@@ -774,8 +777,8 @@ describe("FeedbackToolbar", () => {
           button: 0,
           pointerId: 1,
           isPrimary: true,
-          clientX: 140,
-          clientY: 140,
+          clientX: toX,
+          clientY: toY,
         }),
       );
     }
@@ -1036,6 +1039,30 @@ describe("FeedbackToolbar", () => {
       expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
       expect(window.localStorage.getItem(VISIBLE_KEY)).toBe("true");
       expect(window.localStorage.getItem(RESTING_KEY)).toBe("docked");
+    });
+
+    it("arms the snooze from the menu on the first click after a real drag-dock", () => {
+      // Sequencing regression: handleDragEnd arms suppressNextDockClick, and a
+      // right-click menu open (contextmenu) does not clear it. The suppress
+      // branch used to run before the composedPath guard, so the first menu
+      // click after a drag-dock was swallowed — no snooze armed, menu stuck
+      // open until a second click. The guard must outrank the suppress branch.
+      const bar = makeToolbar();
+
+      // Drag the bar below the viewport: the drag ends with overflowY > 0,
+      // which handleDragEnd resolves as "docked" and arms the suppress flag.
+      startDrag(140, 1400);
+      endDrag(140, 1400);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("docked");
+
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      expect(getMenu()?.hidden).toBe(false);
+
+      getMenuItems()[0]?.click();
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getMenu()?.hidden).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
     });
 
     it("restores the bar when the in-tab expiry timer fires", async () => {
