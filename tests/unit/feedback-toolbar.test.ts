@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
+  computeSnoozeUntil,
   FeedbackToolbar,
   resolveToolbarPresentation,
   type ToolbarPresentationState,
@@ -17,6 +18,7 @@ function presentationState(
   return {
     restingMode: "open",
     userHidden: false,
+    snoozed: false,
     isPeeking: false,
     popoverSuppressed: false,
     isDragging: false,
@@ -114,6 +116,28 @@ describe("FeedbackToolbar", () => {
       );
       expect(resolved.dockY).toBe(42);
       expect(resolved.interactive).toBe(true);
+    });
+
+    it("fully removes the bar while snoozed, outranking every other state", () => {
+      // Snooze sits at top precedence — even a drag in flight cannot surface
+      // the bar, because a snoozed bar has no pointer events to drag with.
+      const resolved = resolveToolbarPresentation(
+        presentationState({
+          snoozed: true,
+          isDragging: true,
+          restingMode: "docked",
+          isPeeking: true,
+          dragDockY: 42,
+        }),
+        METRICS,
+      );
+      expect(resolved).toEqual({
+        dockY: 0,
+        opacity: 0,
+        interactive: false,
+        presentation: "hidden",
+        peeking: false,
+      });
     });
   });
 
@@ -656,6 +680,426 @@ describe("FeedbackToolbar", () => {
         ?.shadowRoot;
       expect(root?.querySelector(".obv-sent-banner")).not.toBeNull();
       expect(root?.querySelector(".obv-sent-cta")).toBeNull();
+    });
+  });
+
+  describe("toolbar snooze", () => {
+    const SNOOZE_KEY = `obvious.feedback.toolbarSnoozedUntil:${window.location.origin}`;
+    const VISIBLE_KEY = `obvious.feedback.toolbarVisible:${window.location.origin}`;
+
+    function makeToolbar(): FeedbackToolbar {
+      toolbar = new FeedbackToolbar({
+        context: undefined,
+        theme: "light",
+        initialPinCount: 0,
+        onCommentClick: createNoop(),
+        onSendClick: createNoop(),
+      });
+      return toolbar;
+    }
+
+    function getHost(): HTMLElement | null | undefined {
+      return document.querySelector<HTMLElement>(
+        "[data-obvious-feedback-toolbar]",
+      );
+    }
+
+    function getRoot(): ShadowRoot | null | undefined {
+      return getHost()?.shadowRoot;
+    }
+
+    function getMenu(): HTMLDivElement | null | undefined {
+      return getRoot()?.querySelector<HTMLDivElement>(".obv-toolbar-menu");
+    }
+
+    function getMenuItems(): HTMLButtonElement[] {
+      const menu = getMenu();
+      return menu
+        ? Array.from(
+            menu.querySelectorAll<HTMLButtonElement>("[data-obv-snooze]"),
+          )
+        : [];
+    }
+
+    /** Right-click anywhere on the bar — the listener sits on .obv-dock, so a
+     * bubbling contextmenu from any child reaches it. */
+    function rightClick(target: Element | null | undefined): MouseEvent {
+      if (!target) {
+        throw new Error("rightClick requires a target element");
+      }
+      const event = new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+      });
+      target.dispatchEvent(event);
+      return event;
+    }
+
+    /** Drive a real drag through the draggable controller: primary-button
+     * pointerdown on the drag surface (`.obv-toolbar` — the draggable handle),
+     * then a window pointermove past the 4px threshold. */
+    function startDrag(): void {
+      const surface = getRoot()?.querySelector(".obv-toolbar");
+      surface?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          pointerId: 1,
+          isPrimary: true,
+          clientX: 100,
+          clientY: 100,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 1,
+          isPrimary: true,
+          clientX: 140,
+          clientY: 140,
+        }),
+      );
+    }
+
+    function endDrag(): void {
+      window.dispatchEvent(
+        new PointerEvent("pointerup", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          pointerId: 1,
+          isPrimary: true,
+          clientX: 140,
+          clientY: 140,
+        }),
+      );
+    }
+
+    const tick = (ms: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+      });
+
+    it("computes the 1h snooze as exactly now + 3600000 ms", () => {
+      const now = 1_757_548_800_000;
+      expect(computeSnoozeUntil("1h", now)).toBe(now + 3_600_000);
+    });
+
+    it("computes the day snooze as the next local midnight", () => {
+      // 23:30 local → next midnight is 30 minutes away (the correct plain
+      // meaning of "until tomorrow", not an off-by-one day).
+      const at2330 = new Date(2026, 8, 11, 23, 30, 0, 0).getTime();
+      const nextMidnight = new Date(2026, 8, 12, 0, 0, 0, 0).getTime();
+      expect(computeSnoozeUntil("day", at2330)).toBe(nextMidnight);
+      expect(nextMidnight - at2330).toBe(30 * 60 * 1000);
+
+      // Midday → next midnight is 12 hours away; same calendar-day arithmetic.
+      const atNoon = new Date(2026, 8, 11, 12, 0, 0, 0).getTime();
+      expect(computeSnoozeUntil("day", atNoon) - atNoon).toBe(
+        12 * 60 * 60 * 1000,
+      );
+    });
+
+    it("opens exactly two menu items on right-click and suppresses the browser menu", () => {
+      makeToolbar();
+      const dock = getRoot()?.querySelector(".obv-dock");
+      expect(dock).not.toBeNull();
+
+      const event = rightClick(dock ?? getHost());
+      expect(event.defaultPrevented).toBe(true);
+
+      const menu = getMenu();
+      expect(menu?.hidden).toBe(false);
+      expect(menu?.getAttribute("role")).toBe("menu");
+      const items = getMenuItems();
+      expect(items.length).toBe(2);
+      expect(items[0]?.getAttribute("role")).toBe("menuitem");
+      expect(items[0]?.getAttribute("data-obv-snooze")).toBe("1h");
+      expect(items[0]?.textContent?.trim()).toBe("Hide for 1 hour");
+      expect(items[1]?.getAttribute("role")).toBe("menuitem");
+      expect(items[1]?.getAttribute("data-obv-snooze")).toBe("day");
+      expect(items[1]?.textContent?.trim()).toBe("Hide until tomorrow");
+    });
+
+    it("focuses the first item on open and moves focus with arrow keys", () => {
+      makeToolbar();
+      const dock = getRoot()?.querySelector(".obv-dock");
+      rightClick(dock ?? getHost());
+
+      const items = getMenuItems();
+      expect(getRoot()?.activeElement).toBe(items[0]);
+
+      getMenu()?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      expect(getRoot()?.activeElement).toBe(items[1]);
+
+      getMenu()?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+      expect(getRoot()?.activeElement).toBe(items[0]);
+    });
+
+    it("wraps arrow-key focus around the ends of the menu", () => {
+      makeToolbar();
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+
+      const items = getMenuItems();
+      const menu = getMenu();
+      menu?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+      // Up from the first item wraps to the last.
+      expect(getRoot()?.activeElement).toBe(items[1]);
+      menu?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      // Down from the last item wraps back to the first.
+      expect(getRoot()?.activeElement).toBe(items[0]);
+    });
+
+    it("keeps the menu open when pointerdown lands on a menu item", () => {
+      // Regression guard: the dismissal listener sits on window, outside the
+      // shadow root. Real browsers retarget shadow-internal events to the host
+      // element, so containment checks against event.target classify item
+      // presses as "outside" and the menu closes before the click lands —
+      // items become unclickable. The handler must use composedPath().
+      makeToolbar();
+      const dock = getRoot()?.querySelector(".obv-dock");
+      rightClick(dock ?? getHost());
+      const menu = getMenu();
+      expect(menu?.hidden).toBe(false);
+
+      menu
+        ?.querySelector('[data-obv-snooze="1h"]')
+        ?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+          }),
+        );
+      expect(menu?.hidden).toBe(false);
+    });
+
+    it("closes the menu on Escape", () => {
+      makeToolbar();
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      expect(getMenu()?.hidden).toBe(false);
+
+      getMenu()?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      expect(getMenu()?.hidden).toBe(true);
+    });
+
+    it("closes the menu on a pointerdown outside of it", () => {
+      makeToolbar();
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      expect(getMenu()?.hidden).toBe(false);
+
+      document.body.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true }),
+      );
+      expect(getMenu()?.hidden).toBe(true);
+    });
+
+    it("closes the menu on drag start and stays closed while dragging", () => {
+      makeToolbar();
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      expect(getMenu()?.hidden).toBe(false);
+
+      startDrag();
+      expect(getMenu()?.hidden).toBe(true);
+
+      // While the drag is in flight, right-click does not reopen the menu.
+      const event = rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      expect(event.defaultPrevented).toBe(false);
+      expect(getMenu()?.hidden).toBe(true);
+      endDrag();
+    });
+
+    it("snoozes for 1h from the menu, persists, and fully hides the bar", () => {
+      const bar = makeToolbar();
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+
+      const before = Date.now();
+      getMenuItems()[0]?.click();
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
+      expect(getMenu()?.hidden).toBe(true);
+
+      const raw = window.localStorage.getItem(SNOOZE_KEY);
+      expect(raw).not.toBeNull();
+      const stored = JSON.parse(raw ?? "{}") as {
+        until?: number;
+        duration?: string;
+      };
+      expect(stored.duration).toBe("1h");
+      expect(stored.until).toBeGreaterThanOrEqual(before + 3_600_000);
+      expect(stored.until).toBeLessThanOrEqual(Date.now() + 3_600_000);
+    });
+
+    it("snoozes until tomorrow from the menu with the day duration", () => {
+      const bar = makeToolbar();
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+
+      getMenuItems()[1]?.click();
+
+      expect(bar.isSnoozed()).toBe(true);
+      const stored = JSON.parse(
+        window.localStorage.getItem(SNOOZE_KEY) ?? "{}",
+      ) as { duration?: string };
+      expect(stored.duration).toBe("day");
+    });
+
+    it("restores the bar when the in-tab expiry timer fires", async () => {
+      // Pre-seed a snooze that expires almost immediately: construction arms
+      // the countdown, and the bar must return without a reload.
+      window.localStorage.setItem(
+        SNOOZE_KEY,
+        JSON.stringify({ until: Date.now() + 40, duration: "1h" }),
+      );
+      const bar = makeToolbar();
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
+
+      await tick(150);
+
+      expect(bar.isSnoozed()).toBe(false);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("open");
+      expect(window.localStorage.getItem(SNOOZE_KEY)).toBeNull();
+    });
+
+    it("shows the bar and clears the key when the stored snooze is expired", () => {
+      window.localStorage.setItem(
+        SNOOZE_KEY,
+        JSON.stringify({ until: Date.now() - 1000, duration: "1h" }),
+      );
+      const bar = makeToolbar();
+      expect(bar.isSnoozed()).toBe(false);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("open");
+      expect(window.localStorage.getItem(SNOOZE_KEY)).toBeNull();
+    });
+
+    it("shows the bar and clears the key when the stored snooze is malformed", () => {
+      window.localStorage.setItem(SNOOZE_KEY, "not json at all");
+      const bar = makeToolbar();
+      expect(bar.isSnoozed()).toBe(false);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("open");
+      expect(window.localStorage.getItem(SNOOZE_KEY)).toBeNull();
+    });
+
+    it("applies a snooze from another tab via the storage event", () => {
+      const bar = makeToolbar();
+      expect(bar.isSnoozed()).toBe(false);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: SNOOZE_KEY,
+          newValue: JSON.stringify({
+            until: Date.now() + 3_600_000,
+            duration: "1h",
+          }),
+        }),
+      );
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
+      // The listening tab must not write storage — the writer owns that.
+      expect(window.localStorage.getItem(SNOOZE_KEY)).toBeNull();
+    });
+
+    it("clears a snooze from another tab when the key is removed there", () => {
+      const bar = makeToolbar();
+      bar.snooze("1h");
+      expect(bar.isSnoozed()).toBe(true);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: SNOOZE_KEY, newValue: null }),
+      );
+
+      expect(bar.isSnoozed()).toBe(false);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("open");
+    });
+
+    it("ignores storage events for unrelated keys", () => {
+      const bar = makeToolbar();
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: VISIBLE_KEY,
+          newValue: "false",
+        }),
+      );
+      expect(bar.isSnoozed()).toBe(false);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("open");
+    });
+
+    it("never writes the standing toolbarVisible preference when snoozing", () => {
+      const bar = makeToolbar();
+      bar.snooze("1h");
+      expect(window.localStorage.getItem(VISIBLE_KEY)).toBeNull();
+      expect(window.localStorage.getItem(SNOOZE_KEY)).not.toBeNull();
+    });
+
+    it("keeps the standing userHidden preference after the snooze expires", async () => {
+      window.localStorage.setItem(VISIBLE_KEY, "false");
+      window.localStorage.setItem(
+        SNOOZE_KEY,
+        JSON.stringify({ until: Date.now() + 40, duration: "1h" }),
+      );
+      const bar = makeToolbar();
+      expect(bar.isUserHidden()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
+
+      await tick(150);
+
+      // Snooze gone, but the shortcut-hidden preference still holds — the bar
+      // returns docked (shortcut-hidden), not open.
+      expect(bar.isSnoozed()).toBe(false);
+      expect(bar.isUserHidden()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("docked");
+    });
+
+    it("cancels the snooze when the host calls setToolbarVisible(true)", () => {
+      const bar = makeToolbar();
+      bar.snooze("1h");
+      expect(bar.isSnoozed()).toBe(true);
+
+      bar.setUserHidden(false);
+
+      expect(bar.isSnoozed()).toBe(false);
+      expect(window.localStorage.getItem(SNOOZE_KEY)).toBeNull();
+      expect(getHost()?.getAttribute("data-presentation")).toBe("open");
+    });
+
+    it("does not start a drag from a right-click pointer", () => {
+      makeToolbar();
+      const dock = getRoot()?.querySelector(".obv-dock");
+      expect(dock).not.toBeNull();
+
+      // Right-button pointerdown must not engage the drag surface, and the
+      // subsequent contextmenu must still open the snooze menu.
+      dock?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          pointerId: 1,
+          isPrimary: true,
+        }),
+      );
+      expect(getHost()?.getAttribute("data-presentation")).toBe("open");
+      expect(readDockY(getHost())).toBe(0);
+
+      const event = rightClick(dock ?? getHost());
+      expect(event.defaultPrevented).toBe(true);
+      expect(getMenu()?.hidden).toBe(false);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("open");
     });
   });
 });

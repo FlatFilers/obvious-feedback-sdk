@@ -93,6 +93,75 @@ describe("ObviousFeedback.init", () => {
     expect(host?.getAttribute("data-presentation")).toBe("docked");
   });
 
+  it("hides the toolbar and reports not-visible for an active stored snooze", () => {
+    window.localStorage.setItem(
+      `obvious.feedback.toolbarSnoozedUntil:${window.location.origin}`,
+      JSON.stringify({
+        until: Date.now() + 3_600_000,
+        duration: "1h",
+      }),
+    );
+    handle = ObviousFeedback.init({ publicKey: "fsk_pub_test" });
+    const host = document.querySelector("[data-obvious-feedback-toolbar]");
+    expect(host?.getAttribute("data-presentation")).toBe("hidden");
+    expect(handle?.isToolbarVisible()).toBe(false);
+  });
+
+  it("shows the toolbar and clears the snooze key when the stored snooze expired", () => {
+    window.localStorage.setItem(
+      `obvious.feedback.toolbarSnoozedUntil:${window.location.origin}`,
+      JSON.stringify({
+        until: Date.now() - 1000,
+        duration: "day",
+      }),
+    );
+    handle = ObviousFeedback.init({ publicKey: "fsk_pub_test" });
+    const host = document.querySelector("[data-obvious-feedback-toolbar]");
+    expect(host?.getAttribute("data-presentation")).toBe("open");
+    expect(handle?.isToolbarVisible()).toBe(true);
+    expect(
+      window.localStorage.getItem(
+        `obvious.feedback.toolbarSnoozedUntil:${window.location.origin}`,
+      ),
+    ).toBeNull();
+  });
+
+  it("cancels an active snooze when the host calls setToolbarVisible(true)", () => {
+    const snoozeKey = `obvious.feedback.toolbarSnoozedUntil:${window.location.origin}`;
+    window.localStorage.setItem(
+      snoozeKey,
+      JSON.stringify({ until: Date.now() + 3_600_000, duration: "1h" }),
+    );
+    handle = ObviousFeedback.init({ publicKey: "fsk_pub_test" });
+    expect(handle?.isToolbarVisible()).toBe(false);
+
+    handle?.setToolbarVisible(true);
+
+    expect(handle?.isToolbarVisible()).toBe(true);
+    expect(window.localStorage.getItem(snoozeKey)).toBeNull();
+    // The reveal path persists the (now true) standing visibility preference —
+    // the existing setUserHidden(false) behavior — while the snooze key is gone.
+    expect(
+      window.localStorage.getItem(
+        `obvious.feedback.toolbarVisible:${window.location.origin}`,
+      ),
+    ).toBe("true");
+  });
+
+  it("reports not-visible while snoozed even with the toolbar un-hidden", () => {
+    const snoozeKey = `obvious.feedback.toolbarSnoozedUntil:${window.location.origin}`;
+    window.localStorage.setItem(
+      snoozeKey,
+      JSON.stringify({
+        until: Date.now() + 60 * 60 * 1000,
+        duration: "1h",
+      }),
+    );
+    handle = ObviousFeedback.init({ publicKey: "fsk_pub_test" });
+    // Composed visibility: snoozed hides the bar exactly like userHidden.
+    expect(handle?.isToolbarVisible()).toBe(false);
+  });
+
   it("renders only the branch when preview context provides branch and sha", () => {
     handle = ObviousFeedback.init({
       publicKey: "fsk_pub_test",

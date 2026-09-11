@@ -63,6 +63,59 @@ export function createToolbarStyles(): string {
     :host([data-presentation="hidden"]) .obv-dock {
       pointer-events: none;
     }
+    /* Right-click snooze menu. A stable sibling of the dock content element so
+     * state re-renders never wipe it; anchored above the bar (flipped below when
+     * the viewport clips the top). The host layer is pointer-events:none, so the
+     * menu re-enables pointer events for itself. */
+    .obv-toolbar-menu {
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 8px);
+      transform: translateX(-50%);
+      min-width: 180px;
+      display: flex;
+      flex-direction: column;
+      padding: 4px;
+      gap: 2px;
+      background: var(--obv-bg);
+      border-radius: 10px;
+      box-shadow: var(--obv-shadow), 0 0 0 1px var(--obv-border);
+      pointer-events: auto;
+    }
+    .obv-toolbar-menu[hidden] {
+      display: none;
+    }
+    .obv-toolbar-menu-flip {
+      bottom: auto;
+      top: calc(100% + 8px);
+    }
+    .obv-toolbar-menu-item {
+      display: inline-flex;
+      align-items: center;
+      width: 100%;
+      padding: 7px 10px;
+      border: none;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--obv-text);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      text-align: left;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background 120ms ease, color 120ms ease;
+    }
+    .obv-toolbar-menu-item:hover {
+      background: var(--obv-divider);
+      color: var(--obv-accent-text);
+    }
+    /* Programmatic + arrow-key focus both land here, so :focus (not
+     * :focus-visible) is what keeps the visible focus ring honest. */
+    .obv-toolbar-menu-item:focus {
+      outline: 2px solid var(--obv-accent);
+      outline-offset: -2px;
+    }
     /* No slide while dragging — the bar must track the cursor 1:1. */
     :host([data-dragging="true"]) .obv-dock {
       transition: none;
@@ -220,6 +273,9 @@ export function createToolbarStyles(): string {
         animation: none;
       }
       .obv-cell-send {
+        transition: none;
+      }
+      .obv-toolbar-menu-item {
         transition: none;
       }
     }

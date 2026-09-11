@@ -209,7 +209,9 @@ export class ObviousFeedbackWidget {
   }
 
   isToolbarVisible(): boolean {
-    return !this.toolbar.isUserHidden();
+    // Composed effective visibility: a snooze hides the bar exactly like a
+    // standing user preference, so hosts must see both.
+    return !this.toolbar.isUserHidden() && !this.toolbar.isSnoozed();
   }
 
   setToolbarVisible(visible: boolean): void {
