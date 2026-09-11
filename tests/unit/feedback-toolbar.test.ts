@@ -886,15 +886,57 @@ describe("FeedbackToolbar", () => {
       expect(menu?.hidden).toBe(false);
     });
 
-    it("closes the menu on Escape", () => {
+    it("closes the menu on Escape and restores the previously-focused element", () => {
       makeToolbar();
+      const commentButton = getRoot()?.querySelector<HTMLButtonElement>(
+        '[data-toolbar-action="comment"]',
+      );
+      expect(commentButton).not.toBeNull();
+      commentButton?.focus();
+
       rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
-      expect(getMenu()?.hidden).toBe(false);
+      // The menu moved focus to its first item.
+      expect(getRoot()?.activeElement).toBe(getMenuItems()[0]);
 
       getMenu()?.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );
       expect(getMenu()?.hidden).toBe(true);
+      expect(getRoot()?.activeElement).toBe(commentButton);
+    });
+
+    it("returns focus to the bar's drag handle when nothing held focus before the open", () => {
+      // Right-click never moves focus, so a fresh bar has no pre-open focus
+      // target — Escape must still land somewhere real inside the bar rather
+      // than stranding on <body>.
+      makeToolbar();
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+
+      getMenu()?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      expect(getMenu()?.hidden).toBe(true);
+      expect(getRoot()?.activeElement).toBe(
+        getRoot()?.querySelector(".obv-cell-grip"),
+      );
+    });
+
+    it("restores focus when a menu-item selection closes the menu", () => {
+      // After selection the bar is snoozed/hidden; focus still returns into
+      // the (now hidden) bar rather than stranding — the documented
+      // closeSnoozeMenu choice.
+      const bar = makeToolbar();
+      const commentButton = getRoot()?.querySelector<HTMLButtonElement>(
+        '[data-toolbar-action="comment"]',
+      );
+      expect(commentButton).not.toBeNull();
+      commentButton?.focus();
+
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      getMenuItems()[0]?.click();
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getRoot()?.activeElement).toBe(commentButton);
     });
 
     it("closes the menu on a pointerdown outside of it", () => {

@@ -271,6 +271,13 @@ export class FeedbackToolbar {
    * armed whenever the tab learns of an active snooze, cleared in destroy(). */
   private snoozeExpiryTimer: number | null = null;
   private suppressNextDockClick = false;
+  /** Element focus returns to when the snooze menu closes. Captured at open —
+   * right-click (contextmenu) never moves focus, so this holds whatever the
+   * user had focused, or null when nothing did. After an item selection the
+   * bar hides, so restoring focus into the (now hidden) bar is the accepted
+   * choice: the menu must never strand focus in a detached shadow subtree or
+   * on <body>. */
+  private menuFocusReturn: HTMLElement | null = null;
 
   constructor(options: FeedbackToolbarOptions) {
     this.onCommentClick = options.onCommentClick;
@@ -769,6 +776,10 @@ export class FeedbackToolbar {
     if (this.state.isDragging || !this.snoozeMenu.hidden) {
       return;
     }
+    // Capture before the menu moves focus to its first item. Resolved against
+    // the shadow root: document.activeElement would report the host element.
+    const active = this.shadowRoot.activeElement;
+    this.menuFocusReturn = active instanceof HTMLElement ? active : null;
     this.snoozeMenu.hidden = false;
     this.snoozeMenu.classList.remove("obv-toolbar-menu-flip");
     // In test environments rects are zero, so top < 0 only happens in a real
@@ -795,6 +806,15 @@ export class FeedbackToolbar {
       this.handleMenuOutsidePointerDown,
       true,
     );
+    // Restore focus on every close path (Escape, outside pointerdown, drag,
+    // item selection). When nothing held focus before the open, the bar's
+    // drag handle is the fallback landing spot — a real focusable element
+    // inside the bar, unlike the unfocusable dock wrapper.
+    const returnTarget =
+      this.menuFocusReturn ??
+      this.shadowRoot.querySelector<HTMLElement>(".obv-cell-grip");
+    this.menuFocusReturn = null;
+    returnTarget?.focus();
   }
 
   private handleToolbarContextMenu = (event: MouseEvent): void => {
