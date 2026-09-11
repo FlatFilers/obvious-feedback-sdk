@@ -697,6 +697,15 @@ export class FeedbackToolbar {
       event.stopPropagation();
       return;
     }
+    // Snooze-menu clicks belong to the menu, never to dock/undock logic. The
+    // guard must use composedPath: in the docked/user-hidden state this capture
+    // handler runs before the menu's own click listener, and without it a real
+    // browser's retargeted click would fall through to the dock branch below —
+    // swallowing the menu click (no snooze armed) while revealFully() persisted
+    // userHidden=false, wiping the standing visibility preference.
+    if (event.composedPath().includes(this.snoozeMenu)) {
+      return;
+    }
     const actionElement =
       event.target instanceof Element
         ? event.target.closest("[data-toolbar-action]")

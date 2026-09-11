@@ -686,6 +686,7 @@ describe("FeedbackToolbar", () => {
   describe("toolbar snooze", () => {
     const SNOOZE_KEY = `obvious.feedback.toolbarSnoozedUntil:${window.location.origin}`;
     const VISIBLE_KEY = `obvious.feedback.toolbarVisible:${window.location.origin}`;
+    const RESTING_KEY = `obvious.feedback.toolbarRestingMode:${window.location.origin}`;
 
     function makeToolbar(): FeedbackToolbar {
       toolbar = new FeedbackToolbar({
@@ -955,6 +956,48 @@ describe("FeedbackToolbar", () => {
         window.localStorage.getItem(SNOOZE_KEY) ?? "{}",
       ) as { duration?: string };
       expect(stored.duration).toBe("day");
+    });
+
+    it("arms the snooze from the menu while docked and user-hidden, keeping the standing preference", () => {
+      // F1 regression: the dock's capture-phase click handler used to swallow
+      // the menu item's click (menu items are not [data-toolbar-action]) and
+      // its revealFully() persisted userHidden=false — wiping the standing
+      // visibility preference instead of arming the snooze.
+      window.localStorage.setItem(VISIBLE_KEY, "false");
+      window.localStorage.setItem(RESTING_KEY, "docked");
+      const bar = makeToolbar();
+      expect(bar.isUserHidden()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("docked");
+
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      expect(getMenu()?.hidden).toBe(false);
+
+      getMenuItems()[0]?.click();
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
+      // The standing preference and the docked resting mode must survive
+      // untouched: a menu click is not a reveal.
+      expect(window.localStorage.getItem(VISIBLE_KEY)).toBe("false");
+      expect(window.localStorage.getItem(RESTING_KEY)).toBe("docked");
+    });
+
+    it("arms the snooze from the menu on a drag-docked bar without touching toolbarVisible", () => {
+      // Same class of bug, visible-bar variant: a drag-docked bar whose
+      // toolbarVisible is "true" must not have that preference rewritten by a
+      // snooze-menu click either.
+      window.localStorage.setItem(VISIBLE_KEY, "true");
+      window.localStorage.setItem(RESTING_KEY, "docked");
+      const bar = makeToolbar();
+      expect(getHost()?.getAttribute("data-presentation")).toBe("docked");
+
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      getMenuItems()[0]?.click();
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
+      expect(window.localStorage.getItem(VISIBLE_KEY)).toBe("true");
+      expect(window.localStorage.getItem(RESTING_KEY)).toBe("docked");
     });
 
     it("restores the bar when the in-tab expiry timer fires", async () => {
