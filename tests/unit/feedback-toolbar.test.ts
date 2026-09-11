@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   computeSnoozeUntil,
   FeedbackToolbar,
+  readActiveSnooze,
   resolveToolbarPresentation,
   type ToolbarPresentationState,
 } from "../../src/widget/feedback-toolbar";
@@ -976,15 +977,13 @@ describe("FeedbackToolbar", () => {
       expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
       expect(getMenu()?.hidden).toBe(true);
 
-      const raw = window.localStorage.getItem(SNOOZE_KEY);
-      expect(raw).not.toBeNull();
-      const stored = JSON.parse(raw ?? "{}") as {
-        until?: number;
-        duration?: string;
-      };
-      expect(stored.duration).toBe("1h");
-      expect(stored.until).toBeGreaterThanOrEqual(before + 3_600_000);
-      expect(stored.until).toBeLessThanOrEqual(Date.now() + 3_600_000);
+      // Typed read from the module — the exported reader parses and
+      // shape-checks the stored record, so no JSON.parse cast is needed.
+      const stored = readActiveSnooze();
+      expect(stored).not.toBeNull();
+      expect(stored?.duration).toBe("1h");
+      expect(stored?.until).toBeGreaterThanOrEqual(before + 3_600_000);
+      expect(stored?.until).toBeLessThanOrEqual(Date.now() + 3_600_000);
     });
 
     it("snoozes until tomorrow from the menu with the day duration", () => {
@@ -994,10 +993,7 @@ describe("FeedbackToolbar", () => {
       getMenuItems()[1]?.click();
 
       expect(bar.isSnoozed()).toBe(true);
-      const stored = JSON.parse(
-        window.localStorage.getItem(SNOOZE_KEY) ?? "{}",
-      ) as { duration?: string };
-      expect(stored.duration).toBe("day");
+      expect(readActiveSnooze()?.duration).toBe("day");
     });
 
     it("arms the snooze from the menu while docked and user-hidden, keeping the standing preference", () => {
@@ -1126,6 +1122,25 @@ describe("FeedbackToolbar", () => {
           storageArea: window.localStorage,
         }),
       );
+      expect(bar.isSnoozed()).toBe(false);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("open");
+    });
+
+    it("clears the snooze on a storage event with a null key (localStorage.clear())", () => {
+      // key === null signals localStorage.clear(), which also wiped the snooze
+      // key — the listening tab must restore without throwing.
+      const bar = makeToolbar();
+      bar.snooze("1h");
+      expect(bar.isSnoozed()).toBe(true);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: null,
+          newValue: null,
+          storageArea: window.localStorage,
+        }),
+      );
+
       expect(bar.isSnoozed()).toBe(false);
       expect(getHost()?.getAttribute("data-presentation")).toBe("open");
     });
