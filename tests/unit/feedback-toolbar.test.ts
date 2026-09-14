@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   computeSnoozeUntil,
   FeedbackToolbar,
+  readActiveSnooze,
   resolveToolbarPresentation,
   type ToolbarPresentationState,
 } from "../../src/widget/feedback-toolbar";
@@ -686,6 +687,7 @@ describe("FeedbackToolbar", () => {
   describe("toolbar snooze", () => {
     const SNOOZE_KEY = `obvious.feedback.toolbarSnoozedUntil:${window.location.origin}`;
     const VISIBLE_KEY = `obvious.feedback.toolbarVisible:${window.location.origin}`;
+    const RESTING_KEY = `obvious.feedback.toolbarRestingMode:${window.location.origin}`;
 
     function makeToolbar(): FeedbackToolbar {
       toolbar = new FeedbackToolbar({
@@ -738,8 +740,11 @@ describe("FeedbackToolbar", () => {
 
     /** Drive a real drag through the draggable controller: primary-button
      * pointerdown on the drag surface (`.obv-toolbar` — the draggable handle),
-     * then a window pointermove past the 4px threshold. */
-    function startDrag(): void {
+     * then a window pointermove past the 4px threshold. The move target
+     * defaults to a small in-viewport nudge; passing a clientY beyond the
+     * viewport height drives the bar below the screen so the drag ends docked
+     * (DraggableMoveInfo.overflowY > 0 → suppressNextDockClick armed). */
+    function startDrag(toX = 140, toY = 140): void {
       const surface = getRoot()?.querySelector(".obv-toolbar");
       surface?.dispatchEvent(
         new PointerEvent("pointerdown", {
@@ -758,13 +763,13 @@ describe("FeedbackToolbar", () => {
           cancelable: true,
           pointerId: 1,
           isPrimary: true,
-          clientX: 140,
-          clientY: 140,
+          clientX: toX,
+          clientY: toY,
         }),
       );
     }
 
-    function endDrag(): void {
+    function endDrag(toX = 140, toY = 140): void {
       window.dispatchEvent(
         new PointerEvent("pointerup", {
           bubbles: true,
@@ -772,8 +777,8 @@ describe("FeedbackToolbar", () => {
           button: 0,
           pointerId: 1,
           isPrimary: true,
-          clientX: 140,
-          clientY: 140,
+          clientX: toX,
+          clientY: toY,
         }),
       );
     }
@@ -885,15 +890,57 @@ describe("FeedbackToolbar", () => {
       expect(menu?.hidden).toBe(false);
     });
 
-    it("closes the menu on Escape", () => {
+    it("closes the menu on Escape and restores the previously-focused element", () => {
       makeToolbar();
+      const commentButton = getRoot()?.querySelector<HTMLButtonElement>(
+        '[data-toolbar-action="comment"]',
+      );
+      expect(commentButton).not.toBeNull();
+      commentButton?.focus();
+
       rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
-      expect(getMenu()?.hidden).toBe(false);
+      // The menu moved focus to its first item.
+      expect(getRoot()?.activeElement).toBe(getMenuItems()[0]);
 
       getMenu()?.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );
       expect(getMenu()?.hidden).toBe(true);
+      expect(getRoot()?.activeElement).toBe(commentButton);
+    });
+
+    it("returns focus to the bar's drag handle when nothing held focus before the open", () => {
+      // Right-click never moves focus, so a fresh bar has no pre-open focus
+      // target — Escape must still land somewhere real inside the bar rather
+      // than stranding on <body>.
+      makeToolbar();
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+
+      getMenu()?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      expect(getMenu()?.hidden).toBe(true);
+      expect(getRoot()?.activeElement).toBe(
+        getRoot()?.querySelector(".obv-cell-grip"),
+      );
+    });
+
+    it("restores focus when a menu-item selection closes the menu", () => {
+      // After selection the bar is snoozed/hidden; focus still returns into
+      // the (now hidden) bar rather than stranding — the documented
+      // closeSnoozeMenu choice.
+      const bar = makeToolbar();
+      const commentButton = getRoot()?.querySelector<HTMLButtonElement>(
+        '[data-toolbar-action="comment"]',
+      );
+      expect(commentButton).not.toBeNull();
+      commentButton?.focus();
+
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      getMenuItems()[0]?.click();
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getRoot()?.activeElement).toBe(commentButton);
     });
 
     it("closes the menu on a pointerdown outside of it", () => {
@@ -933,15 +980,13 @@ describe("FeedbackToolbar", () => {
       expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
       expect(getMenu()?.hidden).toBe(true);
 
-      const raw = window.localStorage.getItem(SNOOZE_KEY);
-      expect(raw).not.toBeNull();
-      const stored = JSON.parse(raw ?? "{}") as {
-        until?: number;
-        duration?: string;
-      };
-      expect(stored.duration).toBe("1h");
-      expect(stored.until).toBeGreaterThanOrEqual(before + 3_600_000);
-      expect(stored.until).toBeLessThanOrEqual(Date.now() + 3_600_000);
+      // Typed read from the module — the exported reader parses and
+      // shape-checks the stored record, so no JSON.parse cast is needed.
+      const stored = readActiveSnooze();
+      expect(stored).not.toBeNull();
+      expect(stored?.duration).toBe("1h");
+      expect(stored?.until).toBeGreaterThanOrEqual(before + 3_600_000);
+      expect(stored?.until).toBeLessThanOrEqual(Date.now() + 3_600_000);
     });
 
     it("snoozes until tomorrow from the menu with the day duration", () => {
@@ -951,10 +996,73 @@ describe("FeedbackToolbar", () => {
       getMenuItems()[1]?.click();
 
       expect(bar.isSnoozed()).toBe(true);
-      const stored = JSON.parse(
-        window.localStorage.getItem(SNOOZE_KEY) ?? "{}",
-      ) as { duration?: string };
-      expect(stored.duration).toBe("day");
+      expect(readActiveSnooze()?.duration).toBe("day");
+    });
+
+    it("arms the snooze from the menu while docked and user-hidden, keeping the standing preference", () => {
+      // F1 regression: the dock's capture-phase click handler used to swallow
+      // the menu item's click (menu items are not [data-toolbar-action]) and
+      // its revealFully() persisted userHidden=false — wiping the standing
+      // visibility preference instead of arming the snooze.
+      window.localStorage.setItem(VISIBLE_KEY, "false");
+      window.localStorage.setItem(RESTING_KEY, "docked");
+      const bar = makeToolbar();
+      expect(bar.isUserHidden()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("docked");
+
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      expect(getMenu()?.hidden).toBe(false);
+
+      getMenuItems()[0]?.click();
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
+      // The standing preference and the docked resting mode must survive
+      // untouched: a menu click is not a reveal.
+      expect(window.localStorage.getItem(VISIBLE_KEY)).toBe("false");
+      expect(window.localStorage.getItem(RESTING_KEY)).toBe("docked");
+    });
+
+    it("arms the snooze from the menu on a drag-docked bar without touching toolbarVisible", () => {
+      // Same class of bug, visible-bar variant: a drag-docked bar whose
+      // toolbarVisible is "true" must not have that preference rewritten by a
+      // snooze-menu click either.
+      window.localStorage.setItem(VISIBLE_KEY, "true");
+      window.localStorage.setItem(RESTING_KEY, "docked");
+      const bar = makeToolbar();
+      expect(getHost()?.getAttribute("data-presentation")).toBe("docked");
+
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      getMenuItems()[0]?.click();
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
+      expect(window.localStorage.getItem(VISIBLE_KEY)).toBe("true");
+      expect(window.localStorage.getItem(RESTING_KEY)).toBe("docked");
+    });
+
+    it("arms the snooze from the menu on the first click after a real drag-dock", () => {
+      // Sequencing regression: handleDragEnd arms suppressNextDockClick, and a
+      // right-click menu open (contextmenu) does not clear it. The suppress
+      // branch used to run before the composedPath guard, so the first menu
+      // click after a drag-dock was swallowed — no snooze armed, menu stuck
+      // open until a second click. The guard must outrank the suppress branch.
+      const bar = makeToolbar();
+
+      // Drag the bar below the viewport: the drag ends with overflowY > 0,
+      // which handleDragEnd resolves as "docked" and arms the suppress flag.
+      startDrag(140, 1400);
+      endDrag(140, 1400);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("docked");
+
+      rightClick(getRoot()?.querySelector(".obv-dock") ?? getHost());
+      expect(getMenu()?.hidden).toBe(false);
+
+      getMenuItems()[0]?.click();
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getMenu()?.hidden).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
     });
 
     it("restores the bar when the in-tab expiry timer fires", async () => {
@@ -1005,6 +1113,7 @@ describe("FeedbackToolbar", () => {
             until: Date.now() + 3_600_000,
             duration: "1h",
           }),
+          storageArea: window.localStorage,
         }),
       );
 
@@ -1020,7 +1129,11 @@ describe("FeedbackToolbar", () => {
       expect(bar.isSnoozed()).toBe(true);
 
       window.dispatchEvent(
-        new StorageEvent("storage", { key: SNOOZE_KEY, newValue: null }),
+        new StorageEvent("storage", {
+          key: SNOOZE_KEY,
+          newValue: null,
+          storageArea: window.localStorage,
+        }),
       );
 
       expect(bar.isSnoozed()).toBe(false);
@@ -1033,10 +1146,64 @@ describe("FeedbackToolbar", () => {
         new StorageEvent("storage", {
           key: VISIBLE_KEY,
           newValue: "false",
+          storageArea: window.localStorage,
         }),
       );
       expect(bar.isSnoozed()).toBe(false);
       expect(getHost()?.getAttribute("data-presentation")).toBe("open");
+    });
+
+    it("clears the snooze on a storage event with a null key (localStorage.clear())", () => {
+      // key === null signals localStorage.clear(), which also wiped the snooze
+      // key — the listening tab must restore without throwing.
+      const bar = makeToolbar();
+      bar.snooze("1h");
+      expect(bar.isSnoozed()).toBe(true);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: null,
+          newValue: null,
+          storageArea: window.localStorage,
+        }),
+      );
+
+      expect(bar.isSnoozed()).toBe(false);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("open");
+    });
+
+    it("ignores storage events whose storageArea is not this tab's localStorage", () => {
+      // F7 guard: a sessionStorage-area event (or any non-localStorage area)
+      // must never touch the snooze state.
+      const bar = makeToolbar();
+      bar.snooze("1h");
+      expect(bar.isSnoozed()).toBe(true);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: SNOOZE_KEY,
+          newValue: null,
+          storageArea: window.sessionStorage,
+        }),
+      );
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
+    });
+
+    it("ignores synthetic storage events without a storageArea", () => {
+      // Real browsers always set storageArea; a synthetic event without one
+      // carries no proof of origin and must be ignored.
+      const bar = makeToolbar();
+      bar.snooze("1h");
+      expect(bar.isSnoozed()).toBe(true);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: SNOOZE_KEY, newValue: null }),
+      );
+
+      expect(bar.isSnoozed()).toBe(true);
+      expect(getHost()?.getAttribute("data-presentation")).toBe("hidden");
     });
 
     it("never writes the standing toolbarVisible preference when snoozing", () => {
